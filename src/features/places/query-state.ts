@@ -14,10 +14,11 @@ export const PLACE_PRECISION_VALUES = ["EXACT", "PROBABLE", "APPROXIMATE"] as co
 export const REVIEW_FILTERS = ["needs_review", "confirmed"] as const;
 export type ReviewFilter = (typeof REVIEW_FILTERS)[number];
 
-// Phase I adds the renderer choice to the URL. It is deliberately additive: the
-// 2D map stays the default, so every link written before Phase I keeps resolving
-// to the exact same view. Parsing is defensive — anything that is not the literal
-// "globe" falls back to "map" rather than rendering an unknown view.
+// Phase I put a renderer choice in the URL because 2D and 3D were two different
+// scenes. MapLibre's `globe` projection already turns into Mercator as the user
+// zooms in, so there is one continuous view and nothing left to choose. The
+// parameter is kept parseable so links written before this change still open —
+// it is read, ignored, and dropped from the URL rather than 404ing a shared link.
 export const PLACES_VIEW_MODES = ["map", "globe"] as const;
 export type PlacesViewMode = (typeof PLACES_VIEW_MODES)[number];
 export const DEFAULT_PLACES_VIEW: PlacesViewMode = "map";
@@ -109,9 +110,8 @@ export function serializePlacesUrlState(state: PlacesUrlState): string {
   if (state.reviews.length > 0) params.set("review", state.reviews.join(","));
   if (state.countryCodes.length > 0) params.set("country", state.countryCodes.join(","));
   if (state.placeId) params.set("placeId", state.placeId);
-  // Only the non-default view is written, so a 2D URL stays byte-identical to
-  // what Phase G produced and no history entry gains a redundant parameter.
-  if (state.view !== DEFAULT_PLACES_VIEW) params.set("view", state.view);
+  // The view parameter is never written back: there is a single continuous view,
+  // so carrying it would only preserve a distinction the UI no longer makes.
   return params.toString();
 }
 
