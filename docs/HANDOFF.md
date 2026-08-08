@@ -1,6 +1,6 @@
 # Operational Handoff
 
-Last updated: 7 August 2026  
+Last updated: 8 August 2026  
 Repository: `OlympusForgeHQ/insta-post-explorer`  
 Reference branch: `main`  
 Reference production base: `main` at `36fc98a` (PR #61, Places promotion)
@@ -43,6 +43,34 @@ Stop and document any conflict between this handoff, an authoritative contract a
 | MapLibre 2D + globe renderer | PR #57, squash `78b3bbf`. Supersedes the Leaflet and Three.js renderers. Merged with an explicit D6 FPS derogation — see section 7. |
 
 ## 3. Current execution pointer
+
+### Places Production data replaced (8 August 2026)
+
+Production Neon `main` now carries the develop Places dataset: **301 places, 313
+links, 3,805 evidence rows, 1,628 jobs, 180 linked posts and 182 map-visible
+places**, up from 51 places of which only 12 reached the map.
+
+This was a **destructive data operation**, authorized explicitly after its cost
+was measured: it gains 33 map points and removes the place linkage of 96 posts,
+so the footer count fell from 254 to 180. Executed as one transaction — delete
+the four Places tables in dependency order, reload develop's rows in reverse —
+from a checksummed script (`ffb8b98a…`) rehearsed first on a copy of `main` that
+produced an identical result.
+
+Rollback point: Neon branch `backup-main-2026-08-08`, verified by its contents
+(51 places, 407 `places-v1` jobs) rather than by the Neon API, which was not
+available.
+
+Eight safety invariants are zero and the live map was checked visually. The
+review queue grew from 100 to 559 entries.
+
+Production's Places data no longer derives from a reproducible import of a
+tracked candidate file; it is a copy of develop's accumulated state and carries
+its artifacts (7 unlinked places, 47 duplicate normalized names). Full record:
+`changes/2026-08-08-places-production-data-replacement.md`.
+
+**A Production database password was exposed in a chat transcript during this
+work and must be rotated.**
 
 ### Places promoted to Production (7 August 2026)
 

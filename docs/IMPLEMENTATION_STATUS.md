@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 7 August 2026 — `develop` at `cc6590f`, `main` at `36fc98a`
+Last updated: 8 August 2026 — `develop` at `8c8a268`, `main` at `36fc98a`
 
 This file is the compact state ledger. Detailed scope, dependencies and exit gates remain authoritative in `CODEX_IMPLEMENTATION_ORDER.md` and `HANDOFF.md`.
 
@@ -97,6 +97,10 @@ Current state
   develop Preview support is merged at 2b877ba. The 4.2.6 DB-first follow-up
   preserves the additive legacy contract, repairs the no-progress watchdog and
   has fresh local verification. Extension reload and authenticated smoke remain.
+- Production Places data was replaced on 8 August 2026 with develop's dataset:
+  301 places, 182 map-visible, 180 linked posts, review queue at 559. Destructive,
+  owner-authorized, rollback branch backup-main-2026-08-08. See
+  changes/2026-08-08-places-production-data-replacement.md.
 - Phase H and Phase J remain blocked.
 
 Reference develop implementation
