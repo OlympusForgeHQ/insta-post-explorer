@@ -3,7 +3,12 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { placeCandidateSchema, placeCandidateBatchSchema, placeCandidateRecordSchema } from "@/lib/places/candidates";
+import {
+  MAX_CANDIDATES_PER_POST,
+  placeCandidateSchema,
+  placeCandidateBatchSchema,
+  placeCandidateRecordSchema,
+} from "@/lib/places/candidates";
 
 // These schemas are the boundary between an AI-produced file and the database.
 // The risk they guard is a permissive parser letting the model supply anything
@@ -91,9 +96,12 @@ describe("placeCandidateSchema", () => {
 });
 
 describe("placeCandidateBatchSchema", () => {
-  it("accepts at most five candidates per post", () => {
-    expect(placeCandidateBatchSchema.parse(Array.from({ length: 5 }, () => validCandidate))).toHaveLength(5);
-    expect(() => placeCandidateBatchSchema.parse(Array.from({ length: 6 }, () => validCandidate))).toThrow();
+  // Bound to the constant rather than a literal: the limit is expected to move
+  // with the analysis generation, and a hardcoded number silently drifts from it.
+  it("accepts the bounded number of candidates per post and rejects one more", () => {
+    const batch = Array.from({ length: MAX_CANDIDATES_PER_POST }, () => validCandidate);
+    expect(placeCandidateBatchSchema.parse(batch)).toHaveLength(MAX_CANDIDATES_PER_POST);
+    expect(() => placeCandidateBatchSchema.parse([...batch, validCandidate])).toThrow();
   });
 });
 

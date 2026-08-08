@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 7 August 2026 — `develop` at `78b3bbf`, `main` at `31b3e92`
+Last updated: 8 August 2026 — `develop` at `8c8a268`, `main` at `36fc98a`
 
 This file is the compact state ledger. Detailed scope, dependencies and exit gates remain authoritative in `CODEX_IMPLEMENTATION_ORDER.md` and `HANDOFF.md`.
 
@@ -33,10 +33,10 @@ Status values:
 | E — Global worker foundation | COMPLETE | Phase C | PR #39, squash `c4e37f6` | Worker code promoted to Production with VibeSpec convergence PASS. The additive queue migration is recorded on Neon `main`; VPS operational activation remains pending. |
 | G — Places 2D UI and contextual navigation | COMPLETE | Phase F complete | PR #34, squash `2bd2098` | `/places`, Leaflet + markercluster, Geoapify raster tiles, synchronized list, complete filters, statistics, detail sheet, review actions, deep links, responsive and keyboard-accessible UI. Review fixes validated: authenticated read Server Action, complete `sourceThemes`, all countries filterable. CI #107 green; 50 files / 440 tests locally; no migration. |
 | Places mobile usability correction | COMPLETE | Phases G and I complete | PR #49, squash `8dbfd46` | Mobile 2D/3D bounds, explicit return link, public configured-owner linked-post reads and 10 km city approximation are on Production. CI #149 and Vercel deployment `dpl_HHKuBeSYf5L9izLHqCfMsyxmCNMh` passed. Neon backup `br-curly-firefly-asy8hqti` was created and exactly 29 existing 25 km rows were transactionally changed to 10 km with unchanged aggregates. Live mobile linked-post smoke and runtime-error checks pass. |
-| Places address contract correction | IN_PROGRESS | Phase F2 complete | PR #52, squash `71106cc`; PR #54, squash `f98da30` | Strict candidate `address`, export schema v3, places-v2 identity and address-first Geoapify query are merged on develop. The authorized real dry-run returned amenity/rank 1/inner_part and scores EXACT at confidence 1 with radius null. CI #157 proves the 0.95 inner-part threshold, clean CLI exit, PostgreSQL automatic-primary supersession and confirmed-link preservation. Vercel develop deployment `dpl_GWMGkdvQptBCz1icJidE6zUJM8vL` is READY. No migration or data write; Production approval remains pending. |
+| Places address contract correction | COMPLETE | Phase F2 complete | PR #52, squash `71106cc`; PR #54, squash `f98da30` | Strict candidate `address`, export schema v3, places-v2 identity and address-first Geoapify query are merged on develop. The authorized real dry-run returned amenity/rank 1/inner_part and scores EXACT at confidence 1 with radius null. CI #157 proves the 0.95 inner-part threshold, clean CLI exit, PostgreSQL automatic-primary supersession and confirmed-link preservation. Vercel develop deployment `dpl_GWMGkdvQptBCz1icJidE6zUJM8vL` is READY. No migration or data write; Released to Production through PR #61 at `36fc98a` on 7 August 2026 after a read-only merged-revision dry-run returned EXACT / confidence 1 / radius null with zero writes. |
 | H — Deep Places analysis | BLOCKED | Phases C and E, stable F | None | FFmpeg, OCR, transcription, multimodal escalation and measured pilot. |
 | I — Places 3D globe | COMPLETE | Phase G complete, design approved | PR #36, squash `08be9f0` | Historical Three.js implementation; T1–T10 merged and its real-GPU evidence remains recorded. Superseded on `develop` by the MapLibre follow-up below; still the runtime served by Production. |
-| I follow-up — MapLibre 2D + globe renderer | COMPLETE ON DEVELOP, D6 DEROGATED | Historical Phase I | PR #57, squash `78b3bbf` | Shared MapLibre canvas, native globe projection, GeoJSON clustering, WebGL2 gate and local Natural Earth fallback. Leaflet, `react-globe.gl` and Three.js dropped as runtime dependencies. Green under the standardized CI: lint, typecheck, 369 unit tests, build, browser tests, state guard. First-render budget met. **The D6 FPS budget is not measured on real hardware**; merged on an explicit owner derogation recorded in `HANDOFF.md` §7. Only SwiftShader figures exist (35–38 fps desktop, 23–24 fps mobile viewport) because the agent host has a paravirtualized virtio GPU with no hardware path under any Chromium flag combination. |
+| I follow-up — MapLibre 2D + globe renderer | COMPLETE, IN PRODUCTION, D6 DEROGATED | Historical Phase I | PR #57, squash `78b3bbf` | Shared MapLibre canvas, native globe projection, GeoJSON clustering, WebGL2 gate and local Natural Earth fallback. Leaflet, `react-globe.gl` and Three.js dropped as runtime dependencies. Green under the standardized CI: lint, typecheck, 369 unit tests, build, browser tests, state guard. First-render budget met. **The D6 FPS budget is not measured on real hardware**; merged on an explicit owner derogation recorded in `HANDOFF.md` §7. Only SwiftShader figures exist (35–38 fps desktop, 23–24 fps mobile viewport) because the agent host has a paravirtualized virtio GPU with no hardware path under any Chromium flag combination. |
 | Places points-only map detail | COMPLETE | Phase G complete | Direct push `626aee5`, spec `007` | Exact points and post detail refinement; convergence `PASS`. Landed on `develop` without a pull request on 1 August 2026, contrary to `AGENTS.md` §8. Recorded, not reverted. |
 | Places panel coordination | COMPLETE | Phase G complete | Direct push `0a933a1`, spec `008` | Detail sheet and explorer panel coordination, post preview; convergence `PASS`. Same git-discipline deviation as above. |
 | VibeSpec cloud bundle 2.3.0 | COMPLETE | None | PR #58, squash `9e3a749` | Tooling-only. Repository test policy moved out of the managed block byte-for-byte — 1731 bytes, SHA-256 `1cb68d59…6459` identical before and after. Preflight skill added for Claude and Codex. No product code. |
@@ -97,6 +97,10 @@ Current state
   develop Preview support is merged at 2b877ba. The 4.2.6 DB-first follow-up
   preserves the additive legacy contract, repairs the no-progress watchdog and
   has fresh local verification. Extension reload and authenticated smoke remain.
+- Production Places data was replaced on 8 August 2026 with develop's dataset:
+  301 places, 182 map-visible, 180 linked posts, review queue at 559. Destructive,
+  owner-authorized, rollback branch backup-main-2026-08-08. See
+  changes/2026-08-08-places-production-data-replacement.md.
 - Phase H and Phase J remain blocked.
 
 Reference develop implementation
@@ -105,8 +109,12 @@ and 008, PR #58, PR #59, PR #57 and the 4.2.6 DB-first synchronization
 correction.
 
 Reference production base
-`31b3e92`, including PR #56. Production still serves the Three.js and Leaflet
-renderer; the MapLibre migration is on develop only.
+`36fc98a`, including PR #61. Production now serves the MapLibre renderer: the
+promotion shipped the address contract, specs 007 and 008, VibeSpec 2.3.0, the CI
+alignment, the MapLibre renderer and its worker fix. The hungryconsti dry-run gate
+was satisfied read-only first (amenity / rank 1 / inner_part -> EXACT, confidence
+1, radius null, importer exit 0, Neon develop unchanged). The live map was checked
+visually, not only by status code.
 
 Recorded proof for Phase I
 - PR #36 reviewed twice and squash-merged after the WebGL lazy-load defect was fixed.

@@ -6,6 +6,8 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_CANDIDATES_PER_POST } from "@/lib/places/candidates";
+
 vi.mock("server-only", () => ({}));
 
 const batchMocks = vi.hoisted(() => ({
@@ -117,7 +119,7 @@ describe("Places analysis JSON document", () => {
     ]);
     expect(document.candidate_output_contract).toEqual({
       format: "jsonl",
-      maximum_candidates_per_post: 5,
+      maximum_candidates_per_post: MAX_CANDIDATES_PER_POST,
       coordinates_forbidden: true,
       provider_fields_forbidden: true,
       precision_field_forbidden: true,
