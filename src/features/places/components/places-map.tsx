@@ -15,6 +15,7 @@ import type { PlacesMapItem } from "@/server/places/map-view";
 
 export type PlacesMapProps = PlacesRendererProps & {
   tileUrl: string;
+  styleUrl?: string;
   tileAttribution: string;
   projection?: PlacesProjection;
   textureUrl?: string;
@@ -215,12 +216,17 @@ export function PlacesMap({
   onSelect,
   onHover,
   tileUrl,
+  styleUrl,
   tileAttribution,
   projection = "mercator",
   textureUrl,
   textureAttribution,
   reducedMotion,
 }: PlacesMapProps) {
+  // A configured style document replaces the raster tiles and the local globe
+  // texture alike, so the Natural Earth credit must not be shown next to a globe
+  // that is no longer drawn from it.
+  const vector = Boolean(styleUrl);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
@@ -282,20 +288,35 @@ export function PlacesMap({
 
       const initialProjection = initialProjectionRef.current;
 
+      // A style document is handed to MapLibre as a URL so it fetches its own
+      // sources, glyphs and sprites. Rotation and tilt are only worth offering on
+      // that path: raster labels are baked into the images and smear when tilted,
+      // which is why the Phase G map deliberately locked both off.
       const map = new maplibre.Map({
         container: containerRef.current,
-        style: buildMapStyle(tileUrl, tileAttribution, { projection: initialProjection, textureUrl }),
+        style: vector
+          ? styleUrl
+          : buildMapStyle(tileUrl, tileAttribution, { projection: initialProjection, textureUrl }),
         center: initialProjection === "globe" ? [0, 20] : [10, 30],
         zoom: initialProjection === "globe" ? 1.15 : 2,
         renderWorldCopies: initialProjection !== "globe",
-        dragRotate: false,
-        pitchWithRotate: false,
-        touchPitch: false,
+        dragRotate: vector,
+        pitchWithRotate: vector,
+        touchPitch: vector,
         touchZoomRotate: true,
         attributionControl: {
           compact: false,
+          // Attribution is mandatory and must not depend on what a third-party
+          // style happens to declare, so the configured credit is always added.
+          // MapLibre de-duplicates an identical string coming from the style.
+          customAttribution: tileAttribution,
         },
       });
+      // No setProjection here: a style loaded from a URL is still in flight at
+      // this point and MapLibre throws "Style is not done loading". The existing
+      // syncProjection call at the end of the load handler applies the requested
+      // projection once the style is ready, which is the same path a user switch
+      // takes.
       mapInstance = map;
       mapRef.current = map;
       benchmarkRenderHandler =
@@ -306,8 +327,10 @@ export function PlacesMap({
         map.on("render", benchmarkRenderHandler);
         window.dispatchEvent(new CustomEvent("places-map-ready", { detail: map }));
       }
-      map.touchZoomRotate.disableRotation();
-      map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-left");
+      if (!vector) map.touchZoomRotate.disableRotation();
+      // The compass is only useful once the map can actually be rotated; it is
+      // also the way back to north, so it ships with rotation or not at all.
+      map.addControl(new maplibre.NavigationControl({ showCompass: vector }), "top-left");
       if (typeof ResizeObserver !== "undefined") {
         resizeObserver = new ResizeObserver(() => map.resize());
         resizeObserver.observe(container);
@@ -459,7 +482,7 @@ export function PlacesMap({
       mapRef.current = null;
       readyRef.current = false;
     };
-  }, [tileAttribution, tileUrl, textureUrl]);
+  }, [tileAttribution, tileUrl, styleUrl, vector, textureUrl]);
 
   useEffect(() => {
     render();
@@ -515,7 +538,7 @@ export function PlacesMap({
         role="application"
         aria-label={projection === "globe" ? "Globe des lieux" : "Carte des lieux"}
       />
-      {projection === "globe" && textureAttribution ? (
+      {projection === "globe" && !vector && textureAttribution ? (
         <p className="places-globe-attribution">{textureAttribution}</p>
       ) : null}
     </>

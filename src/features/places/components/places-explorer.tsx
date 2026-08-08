@@ -47,6 +47,7 @@ export type PlacesExplorerProps = {
   truncated: boolean;
   isAdmin: boolean;
   tileUrl: string;
+  styleUrl?: string;
   tileAttribution: string;
   tilesConfigured: boolean;
   textureUrl: string;
@@ -60,6 +61,7 @@ export function PlacesExplorer({
   truncated,
   isAdmin,
   tileUrl,
+  styleUrl = "",
   tileAttribution,
   tilesConfigured,
   textureUrl,
@@ -229,6 +231,7 @@ export function PlacesExplorer({
           onSelect={handleSelect}
           onHover={handleHover}
           tileUrl={tileUrl}
+          styleUrl={styleUrl}
           tileAttribution={tileAttribution}
           tilesConfigured={tilesConfigured}
           textureUrl={textureUrl}

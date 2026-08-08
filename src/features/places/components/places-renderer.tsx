@@ -28,6 +28,7 @@ const PlacesMap = dynamic(() => import("@/features/places/components/places-map"
 export type PlacesRendererShellProps = PlacesRendererProps & {
   view: ResolvedPlacesView;
   tileUrl: string;
+  styleUrl?: string;
   tileAttribution: string;
   tilesConfigured: boolean;
   textureUrl: string;
@@ -39,6 +40,7 @@ export type PlacesRendererShellProps = PlacesRendererProps & {
 export function PlacesRenderer({
   view,
   tileUrl,
+  styleUrl = "",
   tileAttribution,
   tilesConfigured,
   textureUrl,
@@ -55,6 +57,7 @@ export function PlacesRenderer({
       <PlacesMap
         {...rendererProps}
         tileUrl={tileUrl}
+        styleUrl={styleUrl}
         tileAttribution={tileAttribution}
         projection="globe"
         textureUrl={textureUrl}
@@ -68,6 +71,7 @@ export function PlacesRenderer({
     <PlacesMap
       {...rendererProps}
       tileUrl={tileUrl}
+      styleUrl={styleUrl}
       tileAttribution={tileAttribution}
       projection="mercator"
       textureUrl={textureUrl}
@@ -162,8 +166,8 @@ function MapNotConfigured() {
     <div className="places-map-canvas places-map-missing">
       <MapPin aria-hidden="true" />
       <p>
-        La carte n’est pas configurée. Renseignez <code>NEXT_PUBLIC_PLACES_TILE_URL</code> pour afficher le fond de
-        carte ; la liste et les filtres restent utilisables.
+        La carte n’est pas configurée. Renseignez <code>NEXT_PUBLIC_PLACES_STYLE_URL</code> pour un fond vectoriel, ou{" "}
+        <code>NEXT_PUBLIC_PLACES_TILE_URL</code> pour des tuiles raster ; la liste et les filtres restent utilisables.
       </p>
     </div>
   );
