@@ -29,10 +29,11 @@
 ## Not executed
 
 - Real-auth and PostgreSQL-import browser scenarios were not run: no disposable target or real credentials were supplied. Their configuration boundary is covered by unit tests and `--list` checks only.
-- No application deployment, migration file, commit, push, or D6/FPS measurement.
-  The Places harness invokes `prisma migrate deploy` only against its disposable
-  local PostgreSQL container to apply existing migrations before seeding; that
-  container is removed afterward.
+- No application deployment, migration file, production migration, or D6/FPS
+  measurement. The branch was committed and pushed for PR review after local
+  validation. The Places harness invokes `prisma migrate deploy` only against
+  its disposable local PostgreSQL container to apply existing migrations before
+  seeding; that container is removed afterward.
 
 ## Limitations
 

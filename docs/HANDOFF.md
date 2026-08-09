@@ -50,9 +50,12 @@ Stop and document any conflict between this handoff, an authoritative contract a
 PR #67 is merged on `develop` at `438f7ff`, but an external vector style without
 `projection` exposed a post-load MapLibre regression. The correction is tracked
 by `docs/changes/places-globe-projection-regression/` on
-`fix/places-globe-projection-regression`; it is uncommitted and locally verified.
-Its required Claude Opus read-only review was attempted but quota-blocked. It does
-not deploy, migrate or change the D6/FPS derogation.
+`fix/places-globe-projection-regression` in PR #68; it is committed, pushed and
+locally verified. Its required Claude Opus read-only review was attempted but
+quota-blocked. The correction adds no migration file or application deployment,
+does not apply a migration outside its disposable harness, and does not change
+the D6/FPS derogation. The harness applies existing Prisma migrations only in
+its disposable local PostgreSQL container before seeding it.
 
 ### Places Production data replaced (8 August 2026)
 
