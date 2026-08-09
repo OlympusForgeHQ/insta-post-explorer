@@ -4,7 +4,8 @@ Last updated: 9 August 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
 Reference development branch: `develop`
 Reference production base: `main` at `36fc98a` (PR #61, Places promotion)
-Reference implementation: `develop` at `438f7ff` (PR #67, continuous globe and local verification harness)
+Reference implementation: `develop` includes PR #68, squash
+`056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe` (globe projection regression correction)
 
 ## 1. Purpose and authority
 
@@ -48,14 +49,14 @@ Stop and document any conflict between this handoff, an authoritative contract a
 ### Globe projection regression correction (9 August 2026)
 
 PR #67 is merged on `develop` at `438f7ff`, but an external vector style without
-`projection` exposed a post-load MapLibre regression. The correction is tracked
-by `docs/changes/places-globe-projection-regression/` on
-`fix/places-globe-projection-regression` in PR #68; it is committed, pushed and
-locally verified. Its required Claude Opus read-only review was attempted but
-quota-blocked. The correction adds no migration file or application deployment,
-does not apply a migration outside its disposable harness, and does not change
-the D6/FPS derogation. The harness applies existing Prisma migrations only in
-its disposable local PostgreSQL container before seeding it.
+`projection` exposed a post-load MapLibre regression. Its correction was
+squash-merged into `develop` as PR #68,
+`056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe`. The pre-merge local verification and
+attempted Claude Opus read-only review remain recorded historical evidence; the
+latter was quota-blocked. The correction adds no migration file or application
+deployment, does not apply a migration outside its disposable harness, and does
+not change the D6/FPS derogation. The harness applies existing Prisma migrations
+only in its disposable local PostgreSQL container before seeding it.
 
 ### Places Production data replaced (8 August 2026)
 
@@ -489,7 +490,8 @@ items 3 and 4; that duplicate is removed.
    `.env.example`. The dry-run cannot run without `DATABASE_URL` (Neon `develop`)
    and `GEOAPIFY_API_KEY`. Never infer a Production DSN from a generic
    `DATABASE_URL`.
-2. **Re-run the single hungryconsti dry-run from merged `develop` at `78b3bbf`**,
+2. **Re-run the single hungryconsti dry-run from the merged PR #68 application
+   revision `056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe` on `develop`**,
    read-only, before any data write. The earlier run at `f98da30` returned
    `amenity` / rank 1 / `inner_part`, scored `EXACT` at confidence 1 with no
    radius, and the importer exited 0 without writing. A merged-revision rerun is
