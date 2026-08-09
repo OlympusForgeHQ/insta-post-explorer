@@ -1,6 +1,7 @@
 # Implementation Status
 
-Last updated: 9 August 2026 — `develop` at `438f7ff`, `main` at `36fc98a`
+Last updated: 9 August 2026 — `develop` includes PR #68, squash
+`056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe`; `main` at `36fc98a`
 
 This file is the compact state ledger. Detailed scope, dependencies and exit gates remain authoritative in `CODEX_IMPLEMENTATION_ORDER.md` and `HANDOFF.md`.
 
@@ -37,7 +38,7 @@ Status values:
 | H — Deep Places analysis | BLOCKED | Phases C and E, stable F | None | FFmpeg, OCR, transcription, multimodal escalation and measured pilot. |
 | I — Places 3D globe | COMPLETE | Phase G complete, design approved | PR #36, squash `08be9f0` | Historical Three.js implementation; T1–T10 merged and its real-GPU evidence remains recorded. Superseded on `develop` by the MapLibre follow-up below; still the runtime served by Production. |
 | I follow-up — MapLibre 2D + globe renderer | COMPLETE ON `develop`, D6 DEROGATED | Historical Phase I | PR #57, squash `78b3bbf`; PR #67, squash `438f7ff` | Shared MapLibre canvas, native globe projection, GeoJSON clustering, WebGL2 gate and local Natural Earth fallback. PR #67 adds continuous-globe verification with an ephemeral local PostgreSQL/tile harness. **The D6 FPS budget is not measured on real hardware**; explicit owner derogation remains open. Preview state for PR #67 is not independently proven here. |
-| MapLibre globe projection regression | LOCALLY_VERIFIED, OPUS_REVIEW_BLOCKED | PR #67 merged | PR #68, `fix/places-globe-projection-regression` | Styles without `projection` now have focused RED/GREEN coverage; DB-less generic E2E excludes auth/import and a dedicated explicit-target config handles it. The branch is committed and pushed. Claude Opus review was quota-blocked before analysis. No migration file or application deployment; the local harness applies existing Prisma migrations only in its disposable PostgreSQL container. |
+| MapLibre globe projection regression | COMPLETE | PR #67 merged | PR #68, squash `056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe` | Styles without `projection` now have focused RED/GREEN coverage; DB-less generic E2E excludes auth/import and a dedicated explicit-target config handles it. The correction was squash-merged into `develop`; pre-merge local verification is recorded, and an attempted Claude Opus review was quota-blocked. No migration file or application deployment; the local harness applies existing Prisma migrations only in its disposable PostgreSQL container. |
 | Places points-only map detail | COMPLETE | Phase G complete | Direct push `626aee5`, spec `007` | Exact points and post detail refinement; convergence `PASS`. Landed on `develop` without a pull request on 1 August 2026, contrary to `AGENTS.md` §8. Recorded, not reverted. |
 | Places panel coordination | COMPLETE | Phase G complete | Direct push `0a933a1`, spec `008` | Detail sheet and explorer panel coordination, post preview; convergence `PASS`. Same git-discipline deviation as above. |
 | VibeSpec cloud bundle 2.3.0 | COMPLETE | None | PR #58, squash `9e3a749` | Tooling-only. Repository test policy moved out of the managed block byte-for-byte — 1731 bytes, SHA-256 `1cb68d59…6459` identical before and after. Preflight skill added for Claude and Codex. No product code. |
@@ -59,11 +60,11 @@ Current state
   was derogated by explicit owner decision on 7 August 2026 and stays open.
 - PR #67 is merged on `develop` at `438f7ff`; it adds the continuous globe and
   local visual harness. Preview deployment state is not proven by this ledger.
-- A post-merge regression correction is locally verified and committed/pushed in
-  PR #68 on `fix/places-globe-projection-regression`; its required Claude Opus
-  review was quota-blocked before analysis. It adds no migration file or
-  application deployment. The local harness applies existing Prisma migrations
-  only in its disposable PostgreSQL container.
+- The post-merge regression correction was squash-merged into `develop` as PR #68,
+  `056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe`. Its pre-merge local verification is
+  recorded; an attempted Claude Opus review was quota-blocked. It adds no migration
+  file or application deployment. The local harness applies existing Prisma
+  migrations only in its disposable PostgreSQL container.
 - Global test suite consolidation is CLOSED and COMPLETE after PR #38, squash merge
   fc019a410603f491adae253f1466e67e0e30f88e.
 - CI #121 passed on reviewed head 60e228e7112b12ffaff9330b4ff2337206b7686a.
@@ -114,9 +115,9 @@ Current state
 - Phase H and Phase J remain blocked.
 
 Reference develop implementation
-`78b3bbf98f5037ee3c155c635ec56d68b8005252`, including PR #52, PR #54, specs 007
-and 008, PR #58, PR #59, PR #57 and the 4.2.6 DB-first synchronization
-correction.
+`056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe`, including PR #52, PR #54, specs 007
+and 008, PR #58, PR #59, PR #57, the 4.2.6 DB-first synchronization correction
+and PR #68 (`force globe projection after style load`).
 
 Reference production base
 `36fc98a`, including PR #61. Production now serves the MapLibre renderer: the
@@ -148,8 +149,9 @@ Recorded proof for global test consolidation
 
 1. Configure `DATABASE_URL` and `GEOAPIFY_API_KEY`. The repository has no `.env`,
    only `.env.example`, so the Places dry-run cannot run.
-2. Re-run the read-only hungryconsti dry-run from merged develop at `78b3bbf`,
-   then promote develop to main as a reviewed pull request. The merge is a
+2. Re-run the read-only hungryconsti dry-run from the merged PR #68 application
+   revision `056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe` on develop, then promote
+   develop to main as a reviewed pull request. The merge is a
    Production deployment and needs owner authorization at that moment.
 3. Close the MapLibre D6 FPS derogation on a machine with a real GPU: local
    throwaway PostgreSQL, build with `NEXT_PUBLIC_PLACES_BENCHMARK=1`, then
