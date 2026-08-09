@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 type CapturedMap = {
   getCanvas(): HTMLCanvasElement;
   getCenter(): { lat: number; lng: number };
-  getProjection(): { type: string };
+  getProjection(): { type: string } | undefined;
   getSource(id: string): { serialize(): { data?: unknown } } | undefined;
   getZoom(): number;
   isMoving(): boolean;
@@ -116,17 +116,31 @@ async function pointFor(page: Page, placeId: string) {
 }
 
 test.describe("globe Places continu", () => {
-  test("garde un globe unique pour les anciens paramètres de vue", async ({ page }) => {
+  test("garde un globe unique pour les anciens paramètres de vue avec un style vectoriel sans projection", async ({ page }) => {
     await prepareMapCapture(page);
+    let checkedProjectionlessStyle = false;
 
     for (const legacyView of ["map", "globe"]) {
       await page.goto(`/places?view=${legacyView}&q=Santorin`);
       await waitForMap(page);
+      if (!checkedProjectionlessStyle) {
+        const styleUrl = await page.evaluate(() =>
+          performance
+            .getEntriesByType("resource")
+            .map((entry) => entry.name)
+            .find((url) => new URL(url).pathname === "/style.json"),
+        );
+        if (!styleUrl) throw new Error("The local vector style was not requested.");
+        const styleResponse = await page.request.get(styleUrl);
+        expect(styleResponse.ok()).toBe(true);
+        expect(await styleResponse.json()).not.toHaveProperty("projection");
+        checkedProjectionlessStyle = true;
+      }
       await expect(page.getByRole("button", { name: "2D" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "3D" })).toHaveCount(0);
       await expect(page).not.toHaveURL(/view=/);
       await expect(page).toHaveURL(/q=Santorin/);
-      await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap?.getProjection().type)).toBe("globe");
+      await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap?.getProjection()?.type)).toBe("globe");
     }
   });
 

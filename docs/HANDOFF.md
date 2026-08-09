@@ -1,10 +1,10 @@
 # Operational Handoff
 
-Last updated: 8 August 2026  
+Last updated: 9 August 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference branch: `main`  
+Reference development branch: `develop`
 Reference production base: `main` at `36fc98a` (PR #61, Places promotion)
-Reference implementation: `develop` at `cc6590f` (PR #62, MapLibre worker fix)
+Reference implementation: `develop` at `438f7ff` (PR #67, continuous globe and local verification harness)
 
 ## 1. Purpose and authority
 
@@ -41,8 +41,21 @@ Stop and document any conflict between this handoff, an authoritative contract a
 | VibeSpec cloud bundle 2.3.0 | PR #58, squash `9e3a749`. Tooling-only migration; the repository test policy moved out of the managed block byte-for-byte. |
 | CI standardization on `develop` | PR #59, squash `439ec57`. Cherry-picks `4fb05e3`, `85a70f5` and `bb77f56` from `main` (PR #56) so both branches validate identically. |
 | MapLibre 2D + globe renderer | PR #57, squash `78b3bbf`. Supersedes the Leaflet and Three.js renderers. Merged with an explicit D6 FPS derogation — see section 7. |
+| Continuous globe and local verification harness | PR #67, squash `438f7ff`. Continuous MapLibre globe, local ephemeral PostgreSQL/tile harness and Places browser proof. D6/FPS remains derogated and unmeasured. |
 
 ## 3. Current execution pointer
+
+### Globe projection regression correction (9 August 2026)
+
+PR #67 is merged on `develop` at `438f7ff`, but an external vector style without
+`projection` exposed a post-load MapLibre regression. The correction is tracked
+by `docs/changes/places-globe-projection-regression/` on
+`fix/places-globe-projection-regression` in PR #68; it is committed, pushed and
+locally verified. Its required Claude Opus read-only review was attempted but
+quota-blocked. The correction adds no migration file or application deployment,
+does not apply a migration outside its disposable harness, and does not change
+the D6/FPS derogation. The harness applies existing Prisma migrations only in
+its disposable local PostgreSQL container before seeding it.
 
 ### Places Production data replaced (8 August 2026)
 
