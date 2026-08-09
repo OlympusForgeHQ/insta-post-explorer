@@ -401,7 +401,7 @@ async function seed(databaseUrl) {
 function localMapStyle(origin) {
   return {
     version: 8,
-    projection: { type: "globe" },
+    // Deliberately omit `projection`: PlacesMap must set globe after a third-party style loads.
     sources: {
       "harness-earth": {
         type: "image",

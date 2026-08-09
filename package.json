@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:auth-import": "playwright test -c playwright.auth-import.config.ts",
     "deploy:check": "node scripts/vercel-preflight.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

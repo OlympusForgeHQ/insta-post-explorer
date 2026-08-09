@@ -271,11 +271,6 @@ export function PlacesMap({
           customAttribution: tileAttribution,
         },
       });
-      // No setProjection here: a style loaded from a URL is still in flight at
-      // this point and MapLibre throws "Style is not done loading". The existing
-      // syncProjection call at the end of the load handler applies the requested
-      // projection once the style is ready, which is the same path a user switch
-      // takes.
       mapInstance = map;
       mapRef.current = map;
       benchmarkRenderHandler =
@@ -297,6 +292,7 @@ export function PlacesMap({
 
       map.once("load", () => {
         if (cancelled) return;
+        map.setProjection({ type: "globe" });
         map.addSource(PLACES_SOURCE_ID, {
           type: "geojson",
           data: buildPlacesGeoJson(placesRef.current, null),

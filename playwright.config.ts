@@ -4,10 +4,10 @@ const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  // Places scenarios need the disposable PostgreSQL/tile harness and are run
-  // through playwright.places-visual.config.ts, so the generic e2e server never
-  // reaches a developer's configured database.
-  testIgnore: ["places.spec.ts", "places-globe.spec.ts"],
+  // Places scenarios need the disposable PostgreSQL/tile harness and real
+  // auth/import tests need an explicitly started disposable target. Neither runs
+  // through the database-less generic e2e server.
+  testIgnore: ["places.spec.ts", "places-globe.spec.ts", "auth-and-import.spec.ts"],
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   reporter: "html",
