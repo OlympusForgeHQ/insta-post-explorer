@@ -152,44 +152,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Places view switch", () => {
-  it("renders 2D by default, never loading the engine, and offers a real segmented control", async () => {
-    stubWebGl(true);
-    renderExplorer();
-    await waitFor(() => expect(screen.getByTestId("maplibre-canvas")).toBeDefined());
-    expect(mapProps.at(-1)?.projection).toBe("mercator");
-
-    // Real buttons, so tab order and Enter/Space come for free.
-    expect(screen.getByRole("group", { name: "Type de vue" })).toBeDefined();
-    const buttons = screen.getAllByRole("button", { name: /^(2D|3D)$/ });
-    expect(buttons.map((button) => button.tagName)).toEqual(["BUTTON", "BUTTON"]);
-    expect(screen.getByRole("button", { name: "2D" }).getAttribute("aria-pressed")).toBe("true");
-  });
-
-  it("switches both ways, keeping filters, selection and the URL in step", async () => {
-    stubWebGl(true);
-    renderExplorer();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Rechercher un lieu" }), {
-      target: { value: "rome" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "3D" }));
-
-    await waitFor(() => expect(mapProps.at(-1)?.projection).toBe("globe"));
-    expect(screen.getByTestId("maplibre-canvas")).toBeDefined();
-    // The shared MapLibre renderer receives exactly the filtered set the 2D map
-    // would have shown, and a REJECTED place is never handed to it.
-    const places = mapProps.at(-1)?.places as { id: string }[];
-    expect(places.map((place) => place.id)).toEqual(["p2"]);
-    expect(window.location.search).toContain("q=rome");
-    expect(window.location.search).toContain("view=globe");
-
-    fireEvent.click(screen.getByRole("button", { name: "2D" }));
-    await waitFor(() => expect(screen.getByTestId("maplibre-canvas")).toBeDefined());
-    expect(mapProps.at(-1)?.projection).toBe("mercator");
-    expect(window.location.search).toContain("q=rome");
-    expect(window.location.search).not.toContain("view=globe");
-  });
-
+// The 2D/3D switch was removed: MapLibre's globe projection becomes Mercator as
+// the user zooms in, so there is one continuous view. What remains worth proving
+// here is the WebGL gate and that approximate places never reach the renderer.
+describe("Places renderer gating", () => {
   it("keeps approximate places out of the map and globe renderer", async () => {
     stubWebGl(true);
     renderExplorer("map", PLACES_WITH_APPROXIMATE);
@@ -208,8 +174,7 @@ describe("Places view switch", () => {
     expect(screen.getByTestId("places-map-unavailable").textContent).toMatch(/WebGL2 indisponible/);
     await waitFor(() => expect(window.location.search).not.toContain("view=globe"));
 
-    // The 3D control is refused, and everything else stays usable.
-    expect((screen.getByRole("button", { name: "3D" }) as HTMLButtonElement).disabled).toBe(true);
+    // No renderer, but everything that does not need WebGL stays usable.
     fireEvent.click(screen.getByRole("button", { name: /Liste/ }));
     expect(screen.getByRole("complementary", { name: "Liste des lieux" })).toBeDefined();
   });
@@ -221,23 +186,4 @@ describe("Places view switch", () => {
     expect(mapProps).toHaveLength(0);
   });
 
-  it("restores view, filters and selection on back/forward, and honours reduced motion", async () => {
-    stubWebGl(true);
-    stubMatchMedia(true);
-    renderExplorer("globe");
-    await waitFor(() => expect(mapProps.at(-1)?.projection).toBe("globe"));
-    expect(mapProps.at(-1)?.reducedMotion).toBe(true);
-    // The documented local texture is used, never a provider URL.
-    expect(mapProps.at(-1)?.textureUrl).toBe("/places/earth-dark.png");
-    expect(screen.getByText("Fond de carte : Natural Earth (domaine public)")).toBeDefined();
-
-    window.history.replaceState(null, "", "/places");
-    fireEvent.popState(window);
-    await waitFor(() => expect(screen.getByTestId("maplibre-canvas")).toBeDefined());
-
-    window.history.replaceState(null, "", "/places?q=rome&view=globe&placeId=p2");
-    fireEvent.popState(window);
-    await waitFor(() => expect(mapProps.at(-1)?.projection).toBe("globe"));
-    expect((screen.getByRole("searchbox", { name: "Rechercher un lieu" }) as HTMLInputElement).value).toBe("rome");
-  });
 });

@@ -1,4 +1,4 @@
-# Places UI (MapLibre 2D + globe projection)
+# Places UI (MapLibre continuous globe)
 
 The `/places` page is the complete Places experience: a MapLibre map/globe, a
 synchronized list, filters, statistics, a detail panel, navigation to the source
@@ -57,8 +57,9 @@ MapLibre's native GeoJSON source provides clustering, while a GeoJSON layer rend
 the exact/probable pins. Approximate results remain available in the list and review
 flows but never reach the map or globe (REQ-001). Category emojis are rasterized as
 local MapLibre images, so pin rendering does not depend on a remote glyph endpoint.
-The existing Geoapify raster tiles, mandatory attribution, fit-to-results behavior
-and interaction callbacks remain unchanged.
+The renderer always declares MapLibre's native `globe` projection. It is a sphere
+when zoomed out and naturally becomes a Mercator-like close-up as the user zooms;
+there is no second map mode, renderer or canvas.
 
 Rendering rules:
 
@@ -70,15 +71,13 @@ Rendering rules:
 | `UNKNOWN` | creates no Place, so it never reaches the map |
 
 `REJECTED` places are excluded from the map and the list. Clusters keep the map
-responsive; selection flies to the place, the 2D map fits current results, and the
-globe keeps its world view until returning to 2D. Motion respects
-`prefers-reduced-motion`.
+responsive; selection flies to the place and the continuous globe re-frames the
+same MapLibre canvas. Motion respects `prefers-reduced-motion`.
 
-**Tiles.** `NEXT_PUBLIC_PLACES_TILE_URL` is a **public, browser-side** tile key —
-never the server-only `GEOAPIFY_API_KEY` used for geocoding. Attribution
-("Powered by Geoapify | © OpenStreetMap contributors") is always displayed. When
-the variable is empty the page still works — list, filters, statistics and review
-— and states that the map is not configured.
+**Tiles.** `NEXT_PUBLIC_PLACES_TILE_URL` is a **public, browser-side** tile URL — never the
+server-only `GEOAPIFY_API_KEY` used for geocoding. Its attribution is displayed.
+When it is empty, the globe uses the versioned local Natural Earth texture instead;
+no provider, key or remote tile request is needed.
 
 ## 4. Interaction
 
@@ -152,9 +151,9 @@ states; real buttons for actions; the list and detail expose the same informatio
 as the map, so the map is never the only way to reach the data; `aria-expanded` on
 the panel toggles; live region on the summary. On mobile the panels become
 full-width sheets, the drawer takes the screen and touch targets stay large. The
-search uses its own row, with filters and the complete `2D | 3D` control on a
-second row. The page header includes a deterministic `Retour aux posts` link to
-the library, including when `/places` was opened directly.
+search uses its own row, with filters on the second row. The page header includes a
+deterministic `Retour aux posts` link to the library, including when `/places` was
+opened directly.
 
 ## 9. Additive API extension
 
@@ -167,107 +166,48 @@ without changing any existing contract:
 
 The historical single `category` filter is unchanged. See `docs/places-api.md`.
 
-## 10. 3D globe (Phase I)
+## 10. Continuous globe
 
-Phase I keeps 2D as the default and adds MapLibre's native `globe` projection. It
-does not create a second WebGL scene: both views share the same renderer instance.
+The globe is the only Places map view. MapLibre keeps one client-only canvas, one
+GeoJSON source and one `globe` projection; zooming in provides the close-up map
+experience without a mode switch, a projection toggle or a second engine.
 
-### 10.1 View contract
+### 10.1 URL compatibility
 
-`view=map|globe` is additive. Absent, empty or unknown ⇒ `map`, so every URL
-written before Phase I resolves exactly as before, and only the non-default value
-is serialized — a 2D URL keeps its Phase G form byte-for-byte.
+Historical `view=map` and `view=globe` links remain readable so old shared URLs do
+not break. The renderer deliberately ignores that value and URL serialization drops
+it on the next application navigation; filters and `placeId` are preserved. The
+camera is not URL state: a selected place is the meaningful reproducible viewpoint.
 
-The view is the one piece of state that pushes a history entry, so browser back and
-forward move between 2D and 3D; `popstate` restores view, filters and selection
-together. The camera is deliberately **not** in the URL: it is continuous and would
-pollute history, and `placeId` already restores a meaningful viewpoint. Cameras are
-independent per view in v1; switching re-frames from the shared selection.
+### 10.2 Engine, data and fallback
 
-### 10.2 Renderer seam
+`PlacesExplorer` owns filters, selection and panels while `PlacesRenderer` mounts
+the single MapLibre renderer. The same GeoJSON source supplies pins and clusters;
+clicking a cluster drills in, and selection changes the existing canvas rather than
+recreating it. There is no Three.js or `react-globe.gl` runtime dependency.
 
-`PlacesExplorer` owns every piece of state. `PlacesRenderer` mounts the client-only
-MapLibre renderer and passes the same `PlacesRendererProps` (already-filtered
-places, `selectedId`, `onSelect`, `onHover`) to both projections. Raster tile props and the local texture props are available to the shared renderer,
-so switching views does not replace the WebGL canvas or the GeoJSON sources when
-MapLibre is active. With no raster provider, the 2D view intentionally stays on its
-no-map fallback; entering the globe then mounts MapLibre for the first time.
+WebGL2 is probed before MapLibre is imported. When it is unavailable, no flat-map
+fallback or view control appears; list, search, filters and detail remain usable.
+Under `prefers-reduced-motion`, camera changes are instant and there is no
+auto-rotation.
 
-### 10.3 Engine and rendering
-
-MapLibre GL JS is loaded behind `next/dynamic` with `ssr:false`. The 2D view uses
-the regular Mercator projection; the 3D view uses MapLibre's native `globe`
-projection. `setProjection` plus a short `easeTo` changes the projection in the
-same map instance, which keeps the transition soft and avoids a second WebGL
-engine. There is no Three.js or `react-globe.gl` runtime dependency.
-
-- `EXACT` — green point; selection is additionally shown by the larger selected radius;
-- `PROBABLE` — amber point with the same geometry and a distinct precision colour;
-- `APPROXIMATE` — list/review data only; its stored radius is retained for detail
-  and review, but it never becomes a map/globe geometry;
-- `UNKNOWN` never exists as a `Place`; `REJECTED` is excluded, as in 2D.
-
-New city-like approximate resolutions use 10 km. Existing rows keep their stored
-radius until an explicitly authorized data correction; the UI never disguises a
-persisted 25 km value as 10 km.
-
-Places are rendered from the same GeoJSON source in both projections. MapLibre's
-native spatial clusters are used when zoomed out; clicking a cluster drills in.
-The clustering is entirely client-side: no bbox query, no map pagination, no
-second source of truth.
-
-### 10.4 Texture
+### 10.3 Base map
 
 A static local PNG generated from the public-domain Natural Earth 1:110m country
-polygons as a Web Mercator raster (`npm run places:generate-earth-texture`, 32.6 KiB). Source, licence and
-attribution are recorded in `public/places/ATTRIBUTION.md`, and the credit is shown
-in the globe view. The raster uses Web Mercator's ±85.051129° limits, so the small
-polar caps beyond those latitudes intentionally show the globe background rather
-than stretched texture. No provider, no key, no recurring cost.
+polygons (`npm run places:generate-earth-texture`) is the no-provider fallback.
+Its source, licence and attribution are recorded in `public/places/ATTRIBUTION.md`.
+Configured raster tiles take precedence and must carry their own public attribution.
 
-### 10.5 Fallback, motion and accessibility
+### 10.4 Local visual proof and cost boundary
 
-WebGL2 is probed **before** the MapLibre canvas is requested. Without it, neither the
-2D map nor the globe is offered because MapLibre is the shared engine; a globe deep
-link is corrected and an explicit message explains that only the list, selection and
-filters remain usable. Under
-`prefers-reduced-motion` camera moves and projection changes are instant. There
-is no auto-rotation. The segmented `2D | 3D` control is a pair of real buttons
-with `aria-pressed`; the list drawer and the focus-revealed map button group remain
-the keyboard paths, and the globe never traps focus.
+`npm run places:visual-globe` starts a disposable loopback-only PostgreSQL fixture,
+seeds 182 synthetic Places and serves local raster tiles before exposing a local
+browser URL. `npm run places:test-e2e` runs the 15 Places browser scenarios against
+the same isolated environment.
 
-### 10.6 Cost
-
-There is no separate Three.js globe chunk: 2D and 3D share MapLibre and the same
-data layers. The MapLibre harness was run locally with 100, 500 and 1000 synthetic
-places, desktop and Pixel 7 viewport profiles, using the system Chromium and a
-throwaway PostgreSQL container. In the configured-raster path, the 2D MapLibre
-instance is already mounted; the “first render” column therefore measures the
-latency from the 3D click to the first render after the projection switch, not a
-cold engine download.
-
-| Places | Desktop first render / FPS | Mobile viewport first render / FPS |
-| ---: | ---: | ---: |
-| 100 | 946 ms / 35 fps | 990 ms / 24 fps |
-| 500 | 861 ms / 38 fps | 1191 ms / 24 fps |
-| 1000 | 835 ms / 37 fps | 964 ms / 23 fps |
-
-The first-render budget passes (<3 s), but the FPS budget is **not validated** in
-this environment: the measured WebGL renderer was SwiftShader, yielding 35–38 fps
-desktop versus the 50–60 fps target and 23–24 fps mobile viewport versus the 30 fps
-minimum. The mobile profile is a Pixel 7 viewport on the local Chromium host, not a
-physical phone GPU benchmark; rerun the same harness on a real GPU before treating
-D6 as accepted. This configured-raster run counted 144/99, 153/96 and 148/96
-MapLibre render events over roughly 4 s (desktop/mobile, respectively), using one
-fixed-duration camera animation per profile. `places:measure-globe` accepts `PLAYWRIGHT_EXECUTABLE_PATH`
-so the check does not require a separately downloaded Playwright browser. Compile
-the measurement build with `NEXT_PUBLIC_PLACES_BENCHMARK=1`; normal production
-builds keep the benchmark-only window instrumentation disabled.
-
-With a raster provider configured, the initial `/places` navigation loaded 12 JS
-scripts totaling 492,335 encoded wire bytes; switching to 3D requested zero new JS
-scripts. The historical 4.2 KiB / 1.08% and 1.86 MiB figures in the Phase I
-Three.js record are not comparable to this shared MapLibre renderer.
+The permanent globe is more GPU-intensive than a flat map. D6/FPS remains explicitly
+derogated and unmeasured: this harness proves rendering and interaction, not a frame
+rate target.
 
 ## 11. Deliberately out of scope
 

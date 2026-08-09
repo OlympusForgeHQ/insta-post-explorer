@@ -49,31 +49,20 @@ export function PlacesRenderer({
   webglAvailable,
   ...rendererProps
 }: PlacesRendererShellProps) {
-  if (webglAvailable === null) return <CapabilityProbing globe={view === "probing"} />;
+  // `view` is accepted so an old ?view= link still resolves, and deliberately
+  // unused: MapLibre's globe projection becomes Mercator as the user zooms in,
+  // so there is a single continuous view and nothing to branch on.
+  void view;
+  if (webglAvailable === null) return <CapabilityProbing globe />;
   if (webglAvailable === false) return <MapUnavailable />;
+  if (!tilesConfigured && !textureUrl) return <MapNotConfigured />;
 
-  if (view === "globe") {
-    return (
-      <PlacesMap
-        {...rendererProps}
-        tileUrl={tileUrl}
-        styleUrl={styleUrl}
-        tileAttribution={tileAttribution}
-        projection="globe"
-        textureUrl={textureUrl}
-        textureAttribution={textureAttribution}
-        reducedMotion={reducedMotion}
-      />
-    );
-  }
-  if (!tilesConfigured) return <MapNotConfigured />;
   return (
     <PlacesMap
       {...rendererProps}
       tileUrl={tileUrl}
       styleUrl={styleUrl}
       tileAttribution={tileAttribution}
-      projection="mercator"
       textureUrl={textureUrl}
       textureAttribution={textureAttribution}
       reducedMotion={reducedMotion}
