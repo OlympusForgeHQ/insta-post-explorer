@@ -4,6 +4,10 @@ const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // Places scenarios need the disposable PostgreSQL/tile harness and are run
+  // through playwright.places-visual.config.ts, so the generic e2e server never
+  // reaches a developer's configured database.
+  testIgnore: ["places.spec.ts", "places-globe.spec.ts"],
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   reporter: "html",
@@ -15,11 +19,13 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     url: "http://127.0.0.1:3000",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     env: {
       ...process.env,
-      AUTH_DISABLED: process.env.AUTH_DISABLED ?? "false",
-      APP_OWNER_ID: process.env.APP_OWNER_ID ?? "e2e-owner",
+      // Never let the database-less generic suite inherit a developer database.
+      DATABASE_URL: "",
+      AUTH_DISABLED: "false",
+      APP_OWNER_ID: "e2e-owner",
     },
   },
   // Desktop is the default project and runs everything. The mobile project runs

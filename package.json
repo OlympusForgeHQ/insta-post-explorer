@@ -27,6 +27,8 @@
     "places:import-candidates": "tsx --conditions=react-server scripts/places/import-candidate-batch.ts",
     "places:generate-earth-texture": "node scripts/places/generate-earth-texture.mjs",
     "places:measure-globe": "node scripts/places/measure-globe.mjs",
+    "places:visual-globe": "node scripts/places/visual-globe-harness.mjs --port 3001",
+    "places:test-e2e": "playwright test -c playwright.places-visual.config.ts",
     "worker:test": "npm run test --workspace services/worker --",
     "worker:test:postgres": "npm run test:postgres --workspace services/worker --",
     "worker:typecheck": "npm run typecheck --workspace services/worker",
