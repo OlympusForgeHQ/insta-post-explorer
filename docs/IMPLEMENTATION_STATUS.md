@@ -1,7 +1,6 @@
 # Implementation Status
 
-Last updated: 9 August 2026 — `develop` includes PR #68, squash
-`056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe`; `main` at `36fc98a`
+Last updated: 24 August 2026 — `develop` at `a91f254`, `main` at `daaca2c` (aligned)
 
 This file is the compact state ledger. Detailed scope, dependencies and exit gates remain authoritative in `CODEX_IMPLEMENTATION_ORDER.md` and `HANDOFF.md`.
 
@@ -37,7 +36,7 @@ Status values:
 | Places address contract correction | COMPLETE | Phase F2 complete | PR #52, squash `71106cc`; PR #54, squash `f98da30` | Strict candidate `address`, export schema v3, places-v2 identity and address-first Geoapify query are merged on develop. The authorized real dry-run returned amenity/rank 1/inner_part and scores EXACT at confidence 1 with radius null. CI #157 proves the 0.95 inner-part threshold, clean CLI exit, PostgreSQL automatic-primary supersession and confirmed-link preservation. Vercel develop deployment `dpl_GWMGkdvQptBCz1icJidE6zUJM8vL` is READY. No migration or data write; Released to Production through PR #61 at `36fc98a` on 7 August 2026 after a read-only merged-revision dry-run returned EXACT / confidence 1 / radius null with zero writes. |
 | H — Deep Places analysis | BLOCKED | Phases C and E, stable F | None | FFmpeg, OCR, transcription, multimodal escalation and measured pilot. |
 | I — Places 3D globe | COMPLETE | Phase G complete, design approved | PR #36, squash `08be9f0` | Historical Three.js implementation; T1–T10 merged and its real-GPU evidence remains recorded. Superseded on `develop` by the MapLibre follow-up below; still the runtime served by Production. |
-| I follow-up — MapLibre 2D + globe renderer | COMPLETE ON `develop`, D6 DEROGATED | Historical Phase I | PR #57, squash `78b3bbf`; PR #67, squash `438f7ff` | Shared MapLibre canvas, native globe projection, GeoJSON clustering, WebGL2 gate and local Natural Earth fallback. PR #67 adds continuous-globe verification with an ephemeral local PostgreSQL/tile harness. **The D6 FPS budget is not measured on real hardware**; explicit owner derogation remains open. Preview state for PR #67 is not independently proven here. |
+| I follow-up — MapLibre 2D + globe renderer | COMPLETE, IN PRODUCTION, D6 DEROGATED | Historical Phase I | PR #57, squash `78b3bbf`; PR #67, squash `438f7ff`; PR #71, squash `a91f254` | Shared MapLibre canvas, native globe projection, GeoJSON clustering, WebGL2 gate and local Natural Earth fallback. PR #67 adds continuous-globe verification; PR #68 fixes the vector-style projection regression; PR #71 repairs the D6 harness and adds DB error logging. Aligned to `main` at `daaca2c` on 24 August 2026. **The D6 FPS budget is not measured on real hardware**; explicit owner derogation remains open; the measurement harness is now functional. |
 | MapLibre globe projection regression | COMPLETE | PR #67 merged | PR #68, squash `056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe` | Styles without `projection` now have focused RED/GREEN coverage; DB-less generic E2E excludes auth/import and a dedicated explicit-target config handles it. The correction was squash-merged into `develop`; pre-merge local verification is recorded, and an attempted Claude Opus review was quota-blocked. No migration file or application deployment; the local harness applies existing Prisma migrations only in its disposable PostgreSQL container. |
 | Places points-only map detail | COMPLETE | Phase G complete | Direct push `626aee5`, spec `007` | Exact points and post detail refinement; convergence `PASS`. Landed on `develop` without a pull request on 1 August 2026, contrary to `AGENTS.md` §8. Recorded, not reverted. |
 | Places panel coordination | COMPLETE | Phase G complete | Direct push `0a933a1`, spec `008` | Detail sheet and explorer panel coordination, post preview; convergence `PASS`. Same git-discipline deviation as above. |
@@ -115,17 +114,16 @@ Current state
 - Phase H and Phase J remain blocked.
 
 Reference develop implementation
-`056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe`, including PR #52, PR #54, specs 007
-and 008, PR #58, PR #59, PR #57, the 4.2.6 DB-first synchronization correction
-and PR #68 (`force globe projection after style load`).
+`a91f254`, including PR #52, PR #54, specs 007 and 008, PR #58, PR #59, PR #57,
+the 4.2.6 DB-first synchronization correction, PR #68 (globe projection fix),
+and PR #71 (D6 harness repair and DB error logging).
 
 Reference production base
-`36fc98a`, including PR #61. Production now serves the MapLibre renderer: the
-promotion shipped the address contract, specs 007 and 008, VibeSpec 2.3.0, the CI
-alignment, the MapLibre renderer and its worker fix. The hungryconsti dry-run gate
-was satisfied read-only first (amenity / rank 1 / inner_part -> EXACT, confidence
-1, radius null, importer exit 0, Neon develop unchanged). The live map was checked
-visually, not only by status code.
+`daaca2c` (merge commit, 24 August 2026). `main` and `develop` are aligned.
+Production now includes: the address contract, specs 007/008, VibeSpec 2.3.0, CI
+alignment, MapLibre renderer, worker fix, continuous globe, vector style support,
+projection regression fix, D6 harness repair and DB error logging. The full delta
+was validated by a 3-agent Fable review before alignment.
 
 Recorded proof for Phase I
 - PR #36 reviewed twice and squash-merged after the WebGL lazy-load defect was fixed.
