@@ -1,11 +1,11 @@
 # Operational Handoff
 
-Last updated: 9 August 2026
+Last updated: 24 August 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development branch: `develop`
-Reference production base: `main` at `36fc98a` (PR #61, Places promotion)
-Reference implementation: `develop` includes PR #68, squash
-`056cfdda1de4b697bf4c4f4ae4a0dc88cb982abe` (globe projection regression correction)
+Reference development branch: `develop` at `a91f254`
+Reference production base: `main` at `daaca2c` (PR #72, full develop alignment)
+Reference implementation: `main` and `develop` are aligned — `main` includes all
+develop work through PR #71 (D6 harness repair and DB error logging)
 
 ## 1. Purpose and authority
 
@@ -45,6 +45,27 @@ Stop and document any conflict between this handoff, an authoritative contract a
 | Continuous globe and local verification harness | PR #67, squash `438f7ff`. Continuous MapLibre globe, local ephemeral PostgreSQL/tile harness and Places browser proof. D6/FPS remains derogated and unmeasured. |
 
 ## 3. Current execution pointer
+
+### Main alignment (24 August 2026)
+
+`main` was aligned with `develop` through a merge commit at `daaca2c`. The
+alignment required resolving 13 file conflicts caused by the divergent squash
+merge histories; all conflicts were resolved by taking develop's version, which
+is the reviewed superset. A 3-agent Fable review validated the full
+`main..develop` delta before the alignment:
+
+- **Config & dependencies**: clean — CI byte-identical, dep migration coherent
+- **Regression fix (PR #68)**: APPROVE — correct root cause, RED/GREEN evidence
+- **Full code review**: 2 High corrected (projection fix PR #68, D6 harness
+  PR #71), 3 Medium (1 fixed in PR #71, 2 non-blocking), 4 Low cosmetic
+
+Validation on the merged result: ESLint 0, TypeScript 0, 369 tests passed,
+production build PASS.
+
+PR #71 repaired the D6 measure-globe harness for the continuous globe (navigates
+to `/places?view=globe` instead of clicking a removed "3D" button) and added
+`console.error` logging to the places page DB catch that previously swallowed
+errors silently.
 
 ### Globe projection regression correction (9 August 2026)
 
