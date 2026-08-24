@@ -62,7 +62,10 @@ export default async function PlacesPage({ searchParams }: PageProps) {
   // statistics and working controls, instead of crashing.
   const [view, stats] = databaseConfigured
     ? await Promise.all([loadPlacesMapView(ownerId), getPlacesStats({}, ownerId)]).catch(
-        (): [typeof emptyView, PlacesStatsDto] => [emptyView, EMPTY_PLACES_STATS],
+        (error): [typeof emptyView, PlacesStatsDto] => {
+          console.error("[places] Failed to load map data — rendering empty view:", error);
+          return [emptyView, EMPTY_PLACES_STATS];
+        },
       )
     : [emptyView, EMPTY_PLACES_STATS];
 
