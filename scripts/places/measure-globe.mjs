@@ -1,11 +1,15 @@
 #!/usr/bin/env node
-// Phase I performance harness (decision D6).
+// MapLibre globe performance harness (decision D6).
 //
 // The budgets are measurable, not decorative, so this script measures the real
 // page against a real database rather than estimating. It:
 //   1. seeds a LOCAL PostgreSQL database with N synthetic places,
 //   2. drives the built application in Chromium,
 //   3. records the time to first globe render and the frame rate while rotating.
+//
+// The globe is continuous — there is no "3D" button. The harness navigates
+// directly to /places?view=globe and measures from page load to the first
+// MapLibre render event.
 //
 // It never touches a deployed database. `DATABASE_URL` must point at a local
 // throwaway database; the script refuses anything that looks remote.
@@ -92,16 +96,13 @@ async function measure(page, count) {
       window.__placesBenchmarkRenderCount += 1;
     });
   });
-  await page.goto(`${BASE_URL}/places`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "3D" }).waitFor({ state: "visible", timeout: 30_000 });
-
-  // Time to first globe render: from the click that requests the 3D view until
-  // the engine has actually presented a frame.
-  await page.evaluate(() => {
-    window.__placesBenchmarkRenderCount = 0;
-  });
+  // The globe is now the continuous default view (no "3D" button); navigate
+  // directly with ?view=globe so the harness works on both vector and raster
+  // style paths. The benchmark init script fires before navigation, and the
+  // map component dispatches "places-map-ready" + "places-map-render" events
+  // when NEXT_PUBLIC_PLACES_BENCHMARK=1 is set.
   const startedAt = Date.now();
-  await page.getByRole("button", { name: "3D" }).click();
+  await page.goto(`${BASE_URL}/places?view=globe`, { waitUntil: "domcontentloaded" });
   await page.locator(".places-globe-canvas canvas").waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForFunction(
     () => window.__placesBenchmarkMap && window.__placesBenchmarkRenderCount > 0,
