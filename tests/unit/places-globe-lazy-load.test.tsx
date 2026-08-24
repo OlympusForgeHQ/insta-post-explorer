@@ -119,11 +119,11 @@ afterEach(cleanup);
 
 describe("3D engine is never imported without a proven WebGL capability", () => {
   it.each([
-    { name: "2D view, WebGL available", view: "map" as const, webgl: "supported" as WebGlState, expectMap: true },
+    { name: "WebGL available", view: "map" as const, webgl: "supported" as WebGlState, expectMap: true },
     // Server render and hydration pass: nothing is known yet.
-    { name: "globe requested, probe still unknown", view: "globe" as const, webgl: "unknown" as WebGlState, expectMap: false },
-    { name: "globe requested, WebGL unsupported", view: "globe" as const, webgl: "unsupported" as WebGlState, expectMap: false },
-    { name: "globe requested, probe failed", view: "globe" as const, webgl: "failed" as WebGlState, expectMap: false },
+    { name: "probe still unknown", view: "map" as const, webgl: "unknown" as WebGlState, expectMap: false },
+    { name: "WebGL unsupported", view: "map" as const, webgl: "unsupported" as WebGlState, expectMap: false },
+    { name: "probe failed", view: "map" as const, webgl: "failed" as WebGlState, expectMap: false },
   ])("$name", async ({ view, webgl, expectMap }) => {
     state.webgl = webgl;
     renderExplorer(view);
@@ -135,8 +135,6 @@ describe("3D engine is never imported without a proven WebGL capability", () => 
       // legitimate and must not be downgraded before the answer arrives.
       await waitFor(() => expect(screen.getByTestId("places-globe-probing")).toBeDefined());
       expect(screen.queryByTestId("maplibre-canvas")).toBeNull();
-      // …and the URL keeps view=globe rather than being rewritten prematurely.
-      expect(window.location.search).toContain("view=globe");
     } else {
       await waitFor(() => expect(screen.getByTestId("places-map-unavailable")).toBeDefined());
       expect(screen.queryByTestId("maplibre-canvas")).toBeNull();

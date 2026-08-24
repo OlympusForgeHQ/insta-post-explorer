@@ -84,7 +84,11 @@ describe("places URL state", () => {
       view: "globe" as const,
     };
     const serialized = serializePlacesUrlState(state);
-    expect(parsePlacesUrlState(new URLSearchParams(serialized))).toEqual(state);
+    // The view is no longer written back — there is one continuous view — so a
+    // round-trip returns the default rather than what was passed in.
+    // Checked as a parameter, not a substring: "review=confirmed" contains "view=".
+    expect(new URLSearchParams(serialized).has("view")).toBe(false);
+    expect(parsePlacesUrlState(new URLSearchParams(serialized))).toEqual({ ...state, view: "map" });
   });
 
   it("counts active filters including the search term", () => {
@@ -127,22 +131,21 @@ describe("places view mode", () => {
     ).toBe("q=rome&theme=Voyages&placeId=abc");
   });
 
-  it("serializes and round-trips a full globe deep link", () => {
+  // The parameter outlived the feature: links shared while the 2D/3D switch
+  // existed must still open, and must no longer carry a distinction the UI does
+  // not make.
+  it("still parses an old view deep link and stops writing it back", () => {
+    expect(parsePlacesUrlState(new URLSearchParams("view=globe")).view).toBe("globe");
+    expect(parsePlacesUrlState(new URLSearchParams("view=bogus")).view).toBe("map");
+
     const base = { ...EMPTY_FILTERS, placeId: null };
     expect(serializePlacesUrlState({ ...base, view: "map" })).toBe("");
-    expect(serializePlacesUrlState({ ...base, view: "globe" })).toBe("view=globe");
+    expect(serializePlacesUrlState({ ...base, view: "globe" })).toBe("");
 
-    const state = {
-      q: "santorin",
-      themes: ["Voyages" as const],
-      categories: ["plage" as const],
-      precisions: ["APPROXIMATE" as const],
-      reviews: ["needs_review" as const],
-      countryCodes: ["GR"],
-      placeId: "place-1",
-      view: "globe" as const,
-    };
-    expect(parsePlacesUrlState(new URLSearchParams(serializePlacesUrlState(state)))).toEqual(state);
+    const state = { ...base, q: "santorin", placeId: "place-1", view: "globe" as const };
+    const serialized = serializePlacesUrlState(state);
+    expect(serialized).toBe("q=santorin&placeId=place-1");
+    expect(parsePlacesUrlState(new URLSearchParams(serialized)).view).toBe("map");
   });
 });
 

@@ -14,9 +14,11 @@ Deux comportements à risque sont documentés avec `it.fails` : l'acceptation in
 
 ## Playwright avec authentification réelle
 
-Le `playwright.config.ts` utilise le mode visiteur public par défaut. Une valeur
-explicite `AUTH_DISABLED=true` reste disponible uniquement pour les parcours
-locaux qui doivent simuler une session administrateur.
+`playwright.config.ts` démarre une suite générique sans base (`DATABASE_URL=""`)
+et ignore explicitement `auth-and-import.spec.ts`. Les E2E authentifiés et les
+imports ne doivent donc jamais être lancés avec `npm run test:e2e` : ils utilisent
+une cible distincte, démarrée sur une base de preview jetable, sans serveur géré
+par Playwright.
 
 Terminal serveur :
 
@@ -33,8 +35,9 @@ npm run dev
 Terminal QA :
 
 ```powershell
+$env:E2E_BASE_URL="http://127.0.0.1:3000"
 $env:E2E_ADMIN_PASSWORD="<mot de passe en clair, uniquement dans ce processus>"
-npx playwright test tests/e2e/auth-and-import.spec.ts --project=chromium
+npm run test:e2e:auth-import -- --project=chromium
 ```
 
 Le test vérifie un échec générique, le login par mot de passe, les attributs du
@@ -47,8 +50,10 @@ restent publiques.
 Ce scénario écrit une publication QA unique et deux `ImportJob` dans la base. Il doit être lancé uniquement sur une base de preview jetable :
 
 ```powershell
+$env:E2E_BASE_URL="http://127.0.0.1:3000"
+$env:E2E_ADMIN_PASSWORD="<mot de passe en clair, uniquement dans ce processus>"
 $env:E2E_RUN_DB_IMPORT="true"
-npx playwright test tests/e2e/auth-and-import.spec.ts --project=chromium --grep "import PostgreSQL"
+npm run test:e2e:auth-import -- --project=chromium --grep "import PostgreSQL"
 ```
 
 Le scénario vérifie :
@@ -63,6 +68,6 @@ Le scénario vérifie :
 2. `src/lib/import/normalize.ts:317` autorise `http:` pour une publication Instagram avant de la réécrire en HTTPS. La validation devrait exiger HTTPS directement.
 3. `src/lib/import/normalize.ts:266` accepte tout hôte public HTTPS comme média. Sans allowlist, une image importée peut servir au pistage par un domaine arbitraire.
 4. `src/app/api/auth/login/route.ts:24` ne contient aucune limitation de débit distribuée. Avant exposition publique, les tentatives doivent être bornées par identité et adresse réseau avec un stockage partagé.
-5. `playwright.config.ts:17` force le bypass auth pour le serveur géré par Playwright. La CI ne peut donc pas valider le vrai login sans démarrer une cible séparée ou ajouter ultérieurement un projet/config dédié.
+5. Les E2E auth/import mutent une cible de preview jetable. `playwright.auth-import.config.ts` n'en démarre aucune et exige `E2E_BASE_URL`; vérifier cette cible avant toute exécution.
 
-Les scénarios d'auth réelle et de base sont volontairement ignorés si leurs variables opt-in ne sont pas présentes.
+Les scénarios d'auth réelle et de base restent volontairement séparés de la suite générique sans base.

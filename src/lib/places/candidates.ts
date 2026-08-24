@@ -23,7 +23,16 @@ export const PLACE_CANDIDATE_EVIDENCE_TYPES = [
 
 const MAX_EXCERPT_LENGTH = 500;
 const MAX_EVIDENCE_PER_CANDIDATE = 8;
-export const MAX_CANDIDATES_PER_POST = 5;
+// The bound exists to keep an externally produced batch bounded, not to express
+// how many places a post may mention. Five was fitted to the first analysis
+// generation, whose candidates were mostly names and cities. Address-bearing
+// analyses legitimately exceed it: guide posts listing Tokyo districts or London
+// landmarks reached 45 candidates in a real 407-post batch, and 42 of those
+// records were rejected outright by this limit.
+//
+// Fifty keeps the input bounded with a little headroom above the largest batch
+// observed, so a slightly longer guide does not fail the contract again.
+export const MAX_CANDIDATES_PER_POST = 50;
 
 const boundedNullableName = z.string().trim().min(1).max(200).nullable();
 const boundedNullableAddress = z.string().trim().min(1).max(300).nullable();

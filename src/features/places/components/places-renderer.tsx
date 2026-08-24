@@ -28,6 +28,7 @@ const PlacesMap = dynamic(() => import("@/features/places/components/places-map"
 export type PlacesRendererShellProps = PlacesRendererProps & {
   view: ResolvedPlacesView;
   tileUrl: string;
+  styleUrl?: string;
   tileAttribution: string;
   tilesConfigured: boolean;
   textureUrl: string;
@@ -39,6 +40,7 @@ export type PlacesRendererShellProps = PlacesRendererProps & {
 export function PlacesRenderer({
   view,
   tileUrl,
+  styleUrl = "",
   tileAttribution,
   tilesConfigured,
   textureUrl,
@@ -47,29 +49,20 @@ export function PlacesRenderer({
   webglAvailable,
   ...rendererProps
 }: PlacesRendererShellProps) {
-  if (webglAvailable === null) return <CapabilityProbing globe={view === "probing"} />;
+  // `view` is accepted so an old ?view= link still resolves, and deliberately
+  // unused: MapLibre's globe projection becomes Mercator as the user zooms in,
+  // so there is a single continuous view and nothing to branch on.
+  void view;
+  if (webglAvailable === null) return <CapabilityProbing globe />;
   if (webglAvailable === false) return <MapUnavailable />;
+  if (!tilesConfigured && !textureUrl) return <MapNotConfigured />;
 
-  if (view === "globe") {
-    return (
-      <PlacesMap
-        {...rendererProps}
-        tileUrl={tileUrl}
-        tileAttribution={tileAttribution}
-        projection="globe"
-        textureUrl={textureUrl}
-        textureAttribution={textureAttribution}
-        reducedMotion={reducedMotion}
-      />
-    );
-  }
-  if (!tilesConfigured) return <MapNotConfigured />;
   return (
     <PlacesMap
       {...rendererProps}
       tileUrl={tileUrl}
+      styleUrl={styleUrl}
       tileAttribution={tileAttribution}
-      projection="mercator"
       textureUrl={textureUrl}
       textureAttribution={textureAttribution}
       reducedMotion={reducedMotion}
@@ -162,8 +155,8 @@ function MapNotConfigured() {
     <div className="places-map-canvas places-map-missing">
       <MapPin aria-hidden="true" />
       <p>
-        La carte n’est pas configurée. Renseignez <code>NEXT_PUBLIC_PLACES_TILE_URL</code> pour afficher le fond de
-        carte ; la liste et les filtres restent utilisables.
+        La carte n’est pas configurée. Renseignez <code>NEXT_PUBLIC_PLACES_STYLE_URL</code> pour un fond vectoriel, ou{" "}
+        <code>NEXT_PUBLIC_PLACES_TILE_URL</code> pour des tuiles raster ; la liste et les filtres restent utilisables.
       </p>
     </div>
   );

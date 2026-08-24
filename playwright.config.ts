@@ -4,6 +4,10 @@ const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // Places scenarios need the disposable PostgreSQL/tile harness and real
+  // auth/import tests need an explicitly started disposable target. Neither runs
+  // through the database-less generic e2e server.
+  testIgnore: ["places.spec.ts", "places-globe.spec.ts", "auth-and-import.spec.ts"],
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   reporter: "html",
@@ -15,11 +19,13 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     url: "http://127.0.0.1:3000",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     env: {
       ...process.env,
-      AUTH_DISABLED: process.env.AUTH_DISABLED ?? "false",
-      APP_OWNER_ID: process.env.APP_OWNER_ID ?? "e2e-owner",
+      // Never let the database-less generic suite inherit a developer database.
+      DATABASE_URL: "",
+      AUTH_DISABLED: "false",
+      APP_OWNER_ID: "e2e-owner",
     },
   },
   // Desktop is the default project and runs everything. The mobile project runs

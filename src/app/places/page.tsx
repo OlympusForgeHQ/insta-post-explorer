@@ -62,13 +62,23 @@ export default async function PlacesPage({ searchParams }: PageProps) {
   // statistics and working controls, instead of crashing.
   const [view, stats] = databaseConfigured
     ? await Promise.all([loadPlacesMapView(ownerId), getPlacesStats({}, ownerId)]).catch(
-        (): [typeof emptyView, PlacesStatsDto] => [emptyView, EMPTY_PLACES_STATS],
+        (error): [typeof emptyView, PlacesStatsDto] => {
+          console.error("[places] Failed to load map data — rendering empty view:", error);
+          return [emptyView, EMPTY_PLACES_STATS];
+        },
       )
     : [emptyView, EMPTY_PLACES_STATS];
 
   // Map tiles are a public, client-side resource: the key is a NEXT_PUBLIC_ tile
   // URL, never the server-only geocoding key. Attribution is mandatory.
   const tileUrl = process.env.NEXT_PUBLIC_PLACES_TILE_URL?.trim() ?? "";
+
+  // A MapLibre style document turns the map from stretched raster images into
+  // real vector rendering: client-drawn labels, continuous zoom, rotation and
+  // tilt. It takes precedence over the raster URL when both are set, and leaving
+  // it empty keeps the Phase G raster path exactly as it was — so rolling back is
+  // unsetting one variable, not reverting code.
+  const styleUrl = process.env.NEXT_PUBLIC_PLACES_STYLE_URL?.trim() ?? "";
   const tileAttribution =
     process.env.NEXT_PUBLIC_PLACES_TILE_ATTRIBUTION?.trim() ||
     'Powered by <a href="https://www.geoapify.com/">Geoapify</a> | © OpenStreetMap contributors';
@@ -98,8 +108,9 @@ export default async function PlacesPage({ searchParams }: PageProps) {
         truncated={view.truncated}
         isAdmin={session?.role === "admin"}
         tileUrl={tileUrl}
+        styleUrl={styleUrl}
         tileAttribution={tileAttribution}
-        tilesConfigured={tileUrl.length > 0}
+        tilesConfigured={tileUrl.length > 0 || styleUrl.length > 0}
         textureUrl={textureUrl}
         textureAttribution={textureAttribution}
       />

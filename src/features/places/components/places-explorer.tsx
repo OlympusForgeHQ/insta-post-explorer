@@ -47,6 +47,7 @@ export type PlacesExplorerProps = {
   truncated: boolean;
   isAdmin: boolean;
   tileUrl: string;
+  styleUrl?: string;
   tileAttribution: string;
   tilesConfigured: boolean;
   textureUrl: string;
@@ -60,6 +61,7 @@ export function PlacesExplorer({
   truncated,
   isAdmin,
   tileUrl,
+  styleUrl = "",
   tileAttribution,
   tilesConfigured,
   textureUrl,
@@ -74,7 +76,8 @@ export function PlacesExplorer({
   const [countryQuery, setCountryQuery] = useState("");
   // The view the user asked for. What actually renders can differ when the
   // device cannot run WebGL — see `resolvedView` below.
-  const [view, setView] = useState<PlacesViewMode>(initialState.view);
+  // Read once so an old ?view= link still resolves; there is nothing to switch.
+  const view = initialState.view;
 
   // "unknown" until the client has answered: the globe must not be offered — nor
   // its chunk requested — before then (FR-I-12).
@@ -148,33 +151,16 @@ export function PlacesExplorer({
     }
   }, [filters, selectedId, urlView, urlFor]);
 
-  // The view is the one piece of state worth a history entry: back and forward
-  // then move between 2D and 3D instead of leaving the page.
-  const switchView = useCallback(
-    (next: PlacesViewMode) => {
-      if (next === view) return;
-      if (next === "globe" && globeAvailable !== true) {
-        setView("globe");
-        return;
-      }
-      setView(next);
-      if (typeof window !== "undefined") {
-        window.history.pushState(null, "", urlFor({ filters, placeId: selectedId, view: next }));
-      }
-    },
-    [view, globeAvailable, filters, selectedId, urlFor],
-  );
-
   // Restore the whole shared state from the URL on back/forward, so history is
   // coherent for the view, the filters and the selection alike (FR-I-08).
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onPopState = () => {
       const state = parsePlacesUrlState(new URLSearchParams(window.location.search));
-      const { placeId, view: nextView, ...nextFilters } = state;
+      const { placeId, ...rest } = state;
+      const nextFilters = { ...rest, view: undefined } as unknown as PlacesFilters;
       setFilters(nextFilters);
       setSelectedId(placeId);
-      setView(nextView);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -229,6 +215,7 @@ export function PlacesExplorer({
           onSelect={handleSelect}
           onHover={handleHover}
           tileUrl={tileUrl}
+          styleUrl={styleUrl}
           tileAttribution={tileAttribution}
           tilesConfigured={tilesConfigured}
           textureUrl={textureUrl}
@@ -299,27 +286,6 @@ export function PlacesExplorer({
             Filtres
             {activeFilterCount > 0 ? <span className="places-count-badge">{activeFilterCount}</span> : null}
           </button>
-          {/* Concept 2: the view switch sits next to the filters and uses the
-              same visual language as the rest of the chrome. */}
-          <div className="places-segmented" role="group" aria-label="Type de vue">
-            <button
-              type="button"
-              className={cn("places-segment", urlView === "map" && "is-active")}
-              aria-pressed={urlView === "map"}
-              onClick={() => switchView("map")}
-            >
-              2D
-            </button>
-            <button
-              type="button"
-              className={cn("places-segment", urlView === "globe" && "is-active")}
-              aria-pressed={urlView === "globe"}
-              disabled={globeAvailable === false}
-              onClick={() => switchView("globe")}
-            >
-              3D
-            </button>
-          </div>
         </div>
 
         <PlacesMapA11yList places={renderedPoints} selectedId={selectedId} onSelect={handleSelect} />

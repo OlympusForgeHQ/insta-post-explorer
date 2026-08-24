@@ -15,8 +15,8 @@ import type { PlacesMapItem } from "@/server/places/map-view";
 
 export type PlacesMapProps = PlacesRendererProps & {
   tileUrl: string;
+  styleUrl?: string;
   tileAttribution: string;
-  projection?: PlacesProjection;
   textureUrl?: string;
   textureAttribution?: string;
   reducedMotion?: boolean;
@@ -92,18 +92,22 @@ function addPlaceIconImages(map: MapLibreMap): void {
 }
 
 export type PlacesMapStyleOptions = {
-  projection?: PlacesProjection;
   textureUrl?: string;
 };
 
 export function buildMapStyle(
   tileUrl: string,
   tileAttribution: string,
-  { projection = "mercator", textureUrl }: PlacesMapStyleOptions = {},
+  { textureUrl }: PlacesMapStyleOptions = {},
 ): StyleSpecification {
   const sources: StyleSpecification["sources"] = {};
   const layers: StyleSpecification["layers"] = [];
 
+  // One base, always visible. MapLibre wraps raster tiles onto the sphere when
+  // zoomed out and flattens them as `globe` turns into Mercator, so there is no
+  // mode to switch and no seam to hide. The local Natural Earth texture is only
+  // a fallback for an environment with no tile provider configured, where the
+  // globe would otherwise be a blank ball.
   if (tileUrl) {
     sources[RASTER_SOURCE_ID] = {
       type: "raster",
@@ -116,15 +120,12 @@ export function buildMapStyle(
       id: RASTER_LAYER_ID,
       type: "raster",
       source: RASTER_SOURCE_ID,
-      layout: { visibility: projection === "mercator" ? "visible" : "none" },
       paint: {
         "raster-saturation": -0.28,
         "raster-contrast": -0.04,
       },
     });
-  }
-
-  if (textureUrl) {
+  } else if (textureUrl) {
     sources[EARTH_SOURCE_ID] = {
       type: "image",
       url: textureUrl,
@@ -139,52 +140,18 @@ export function buildMapStyle(
       id: EARTH_LAYER_ID,
       type: "raster",
       source: EARTH_SOURCE_ID,
-      layout: { visibility: projection === "globe" ? "visible" : "none" },
       paint: { "raster-opacity": 1 },
     });
   }
 
   return {
     version: 8,
-    projection: { type: projection },
+    // `globe` is the continuous projection: a sphere when zoomed out, Mercator
+    // once close in, with MapLibre interpolating between the two itself.
+    projection: { type: "globe" },
     sources,
     layers,
   };
-}
-
-function syncProjection(
-  map: MapLibreMap,
-  projection: PlacesProjection,
-  places: readonly PlacesMapItem[],
-  selectedId: string | null,
-  reducedMotion: boolean | undefined,
-): boolean {
-  if (map.getProjection().type === projection) return false;
-
-  map.setRenderWorldCopies(projection !== "globe");
-  map.setProjection({ type: projection });
-  if (map.getLayer(RASTER_LAYER_ID)) {
-    map.setLayoutProperty(RASTER_LAYER_ID, "visibility", projection === "mercator" ? "visible" : "none");
-  }
-  if (map.getLayer(EARTH_LAYER_ID)) {
-    map.setLayoutProperty(EARTH_LAYER_ID, "visibility", projection === "globe" ? "visible" : "none");
-  }
-  if (projection === "mercator" && places.length > 0) return true;
-  const selected = selectedId ? places.find((place) => place.id === selectedId) : null;
-  const reduceMotion = reducedMotion ?? prefersReducedMotion();
-  map.easeTo({
-    center: selected ? [selected.longitude, selected.latitude] : map.getCenter(),
-    zoom:
-      projection === "globe"
-        ? selected
-          ? 3.5
-          : Math.min(map.getZoom(), 1.15)
-        : selected
-          ? Math.max(map.getZoom(), 12)
-          : Math.max(map.getZoom(), 2),
-    duration: reduceMotion || projection !== "globe" ? 0 : 700,
-  });
-  return true;
 }
 
 export function buildPlacesGeoJson(places: readonly PlacesMapItem[], selectedId: string | null): PlacesGeoJson {
@@ -215,18 +182,19 @@ export function PlacesMap({
   onSelect,
   onHover,
   tileUrl,
+  styleUrl,
   tileAttribution,
-  projection = "mercator",
   textureUrl,
   textureAttribution,
   reducedMotion,
 }: PlacesMapProps) {
+  // A configured style document replaces the raster tiles and the local globe
+  // texture alike, so the Natural Earth credit must not be shown next to a globe
+  // that is no longer drawn from it.
+  const vector = Boolean(styleUrl);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
-  const initialProjectionRef = useRef<PlacesProjection>(projection);
-  const projectionRef = useRef<PlacesProjection>(projection);
-  const lastViewportProjectionRef = useRef<PlacesProjection>(projection);
   const placesRef = useRef<readonly PlacesMapItem[]>(places);
   const selectedIdRef = useRef(selectedId);
   const handlersRef = useRef({ onSelect, onHover });
@@ -238,10 +206,9 @@ export function PlacesMap({
   useEffect(() => {
     placesRef.current = places;
     selectedIdRef.current = selectedId;
-    projectionRef.current = projection;
     handlersRef.current = { onSelect, onHover };
     reducedMotionRef.current = reducedMotion;
-  }, [places, selectedId, projection, onSelect, onHover, reducedMotion]);
+  }, [places, selectedId, onSelect, onHover, reducedMotion]);
 
   const render = useCallback(() => {
     const map = mapRef.current;
@@ -280,20 +247,28 @@ export function PlacesMap({
       // keeps the worker alive. See scripts/places/sync-maplibre-worker.mjs.
       if (!maplibre.getWorkerUrl()) maplibre.setWorkerUrl(PLACES_MAPLIBRE_WORKER_URL);
 
-      const initialProjection = initialProjectionRef.current;
-
+      // A style document is handed to MapLibre as a URL so it fetches its own
+      // sources, glyphs and sprites. Rotation and tilt are only worth offering on
+      // that path: raster labels are baked into the images and smear when tilted,
+      // which is why the Phase G map deliberately locked both off.
       const map = new maplibre.Map({
         container: containerRef.current,
-        style: buildMapStyle(tileUrl, tileAttribution, { projection: initialProjection, textureUrl }),
-        center: initialProjection === "globe" ? [0, 20] : [10, 30],
-        zoom: initialProjection === "globe" ? 1.15 : 2,
-        renderWorldCopies: initialProjection !== "globe",
-        dragRotate: false,
-        pitchWithRotate: false,
-        touchPitch: false,
+        style: vector
+          ? styleUrl
+          : buildMapStyle(tileUrl, tileAttribution, { textureUrl }),
+        center: [10, 30],
+        zoom: 1.4,
+        renderWorldCopies: false,
+        dragRotate: vector,
+        pitchWithRotate: vector,
+        touchPitch: vector,
         touchZoomRotate: true,
         attributionControl: {
           compact: false,
+          // Attribution is mandatory and must not depend on what a third-party
+          // style happens to declare, so the configured credit is always added.
+          // MapLibre de-duplicates an identical string coming from the style.
+          customAttribution: tileAttribution,
         },
       });
       mapInstance = map;
@@ -306,8 +281,10 @@ export function PlacesMap({
         map.on("render", benchmarkRenderHandler);
         window.dispatchEvent(new CustomEvent("places-map-ready", { detail: map }));
       }
-      map.touchZoomRotate.disableRotation();
-      map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-left");
+      if (!vector) map.touchZoomRotate.disableRotation();
+      // The compass is only useful once the map can actually be rotated; it is
+      // also the way back to north, so it ships with rotation or not at all.
+      map.addControl(new maplibre.NavigationControl({ showCompass: vector }), "top-left");
       if (typeof ResizeObserver !== "undefined") {
         resizeObserver = new ResizeObserver(() => map.resize());
         resizeObserver.observe(container);
@@ -315,6 +292,7 @@ export function PlacesMap({
 
       map.once("load", () => {
         if (cancelled) return;
+        map.setProjection({ type: "globe" });
         map.addSource(PLACES_SOURCE_ID, {
           type: "geojson",
           data: buildPlacesGeoJson(placesRef.current, null),
@@ -439,13 +417,6 @@ export function PlacesMap({
         readyRef.current = true;
         renderRef.current();
         setMapReadyVersion((version) => version + 1);
-        syncProjection(
-          map,
-          projectionRef.current,
-          placesRef.current,
-          selectedIdRef.current,
-          reducedMotionRef.current,
-        );
       });
     })().catch((error: unknown) => {
       if (!cancelled) console.error("Places map failed to initialize", error);
@@ -459,7 +430,7 @@ export function PlacesMap({
       mapRef.current = null;
       readyRef.current = false;
     };
-  }, [tileAttribution, tileUrl, textureUrl]);
+  }, [tileAttribution, tileUrl, styleUrl, vector, textureUrl]);
 
   useEffect(() => {
     render();
@@ -467,15 +438,7 @@ export function PlacesMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !readyRef.current) return;
-    syncProjection(map, projection, places, selectedId, reducedMotion);
-  }, [places, projection, reducedMotion, selectedId, tileUrl]);
-
-  useEffect(() => {
-    const projectionChanged = lastViewportProjectionRef.current !== projection;
-    lastViewportProjectionRef.current = projection;
-    const map = mapRef.current;
-    if (!map || !readyRef.current || places.length === 0 || (projectionChanged && projection === "globe")) return;
+    if (!map || !readyRef.current || places.length === 0) return;
     let cancelled = false;
 
     const applyViewport = async () => {
@@ -486,14 +449,14 @@ export function PlacesMap({
       if (selected) {
         map.easeTo({
           center: [selected.longitude, selected.latitude],
-          zoom: projection === "globe" ? 3.5 : Math.max(map.getZoom(), 12),
+          zoom: Math.max(map.getZoom(), 12),
           duration: reduceMotion ? 0 : 450,
         });
         return;
       }
 
-      if (projection === "globe") return;
-
+      // Fitting every place is what puts the camera far enough out for `globe`
+      // to show a sphere on first load; zooming in flattens it by itself.
       const bounds = new LngLatBounds();
       for (const place of places) bounds.extend([place.longitude, place.latitude]);
       if (!bounds.isEmpty()) {
@@ -505,17 +468,17 @@ export function PlacesMap({
     return () => {
       cancelled = true;
     };
-  }, [mapReadyVersion, places, projection, reducedMotion, selectedId]);
+  }, [mapReadyVersion, places, reducedMotion, selectedId]);
 
   return (
     <>
       <div
         ref={containerRef}
-        className={`places-map-canvas${projection === "globe" ? " places-globe-canvas" : ""}`}
+        className="places-map-canvas places-globe-canvas"
         role="application"
-        aria-label={projection === "globe" ? "Globe des lieux" : "Carte des lieux"}
+        aria-label="Carte des lieux"
       />
-      {projection === "globe" && textureAttribution ? (
+      {!vector && !tileUrl && textureAttribution ? (
         <p className="places-globe-attribution">{textureAttribution}</p>
       ) : null}
     </>

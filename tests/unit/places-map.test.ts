@@ -40,14 +40,13 @@ describe("MapLibre Places data", () => {
       attribution: "© tiles",
     });
     expect(style.layers.map((layer) => layer.id)).toContain("places-raster");
-    expect(style.projection).toEqual({ type: "mercator" });
+    // One continuous projection: `globe` is a sphere zoomed out and becomes
+    // Mercator as the user zooms in, so the style never declares mercator.
+    expect(style.projection).toEqual({ type: "globe" });
   });
 
-  it("adds the local Earth image as the globe projection base layer", () => {
-    const style = buildMapStyle("", "", {
-      projection: "globe",
-      textureUrl: "/places/earth-dark.png",
-    });
+  it("falls back to the local Earth image only when no tile provider is configured", () => {
+    const style = buildMapStyle("", "", { textureUrl: "/places/earth-dark.png" });
 
     expect(style.sources.placesEarth).toMatchObject({
       type: "image",
@@ -59,30 +58,21 @@ describe("MapLibre Places data", () => {
         [-180, -85.051129],
       ],
     });
-    expect(style.layers).toContainEqual(
-      expect.objectContaining({
-        id: "places-earth",
-        type: "raster",
-        source: "placesEarth",
-        layout: { visibility: "visible" },
-      }),
-    );
+    expect(style.layers.map((layer) => layer.id)).toEqual(["places-earth"]);
     expect(style.projection).toEqual({ type: "globe" });
   });
 
-  it("keeps the local Earth base and hides provider tiles on the globe", () => {
+  it("prefers provider tiles over the local texture, with no visibility switching left", () => {
     const style = buildMapStyle("https://tiles.example/{z}/{x}/{y}.png", "© tiles", {
-      projection: "globe",
       textureUrl: "/places/earth-dark.png",
     });
 
-    expect(style.sources.placesEarth).toMatchObject({ type: "image", url: "/places/earth-dark.png" });
-    expect(style.layers).toContainEqual(
-      expect.objectContaining({ id: "places-raster", layout: { visibility: "none" } }),
-    );
-    expect(style.layers).toContainEqual(
-      expect.objectContaining({ id: "places-earth", layout: { visibility: "visible" } }),
-    );
+    // The texture existed to give the globe a base without a provider. With one
+    // configured, the tiles wrap onto the sphere themselves and the texture would
+    // only be a lower-resolution duplicate.
+    expect(style.sources.placesEarth).toBeUndefined();
+    expect(style.layers.map((layer) => layer.id)).toEqual(["places-raster"]);
+    expect(style.layers.every((layer) => layer.layout?.visibility === undefined)).toBe(true);
   });
 
   it("serializes pins with stable ids, icons, precision colors and selection", () => {
