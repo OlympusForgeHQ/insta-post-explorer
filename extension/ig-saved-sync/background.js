@@ -996,8 +996,8 @@ async function startWebSync(data) {
   }
   const apiUrl = new URL(data.apiBaseUrl);
   if (![
-    "https://insta-saved-post-explorer.vercel.app",
-    "https://insta-saved-post-explorer-git-develop-l1nk4r1ms-projects.vercel.app",
+    "https://insta-explorer.hz.kalyros.dev",
+    "https://preview-insta-explorer.hz.kalyros.dev",
     "http://localhost:3000",
   ].includes(apiUrl.origin)) {
     throw new Error("invalid_sync_origin");
