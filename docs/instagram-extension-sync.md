@@ -19,9 +19,9 @@ Les objets sont écrits sous `originals/<username>/CODE.ext` ou
 `originals/<username>/CODE_X.ext` pour les carrousels. Les affiches vidéo utilisent
 le suffixe `_thumb`.
 
-## Variables Vercel
+## Variables serveur (Coolify)
 
-Ajouter en Production :
+Configurer dans le service Web/API Coolify de Production :
 
 ```dotenv
 R2_ENDPOINT=https://ACCOUNT_ID.r2.cloudflarestorage.com
@@ -39,7 +39,7 @@ lecture et écriture des objets. L’application a besoin de `PutObject` et
 
 ## Installation de l’extension
 
-1. Décompresser `insta-saved-sync-v4.2.6.zip` dans un dossier permanent.
+1. Décompresser `insta-saved-sync-v4.2.8.zip` dans un dossier permanent.
 2. Ouvrir `chrome://extensions`.
 3. Activer **Mode développeur**.
 4. Cliquer **Charger l’extension non empaquetée**.
@@ -79,13 +79,14 @@ le statut serveur `COMPLETED` ou `FAILED` termine quand même le bouton. Si ni l
 pont ni le job ne montrent un progrès réel, le chargement devient une erreur
 actionnable après 90 secondes sans avancée au lieu de tourner indéfiniment.
 
-La version 4.2.5 autorise aussi la Preview develop stable
-`https://insta-saved-post-explorer-git-develop-l1nk4r1ms-projects.vercel.app`
-aux trois barrières de l’extension : injection du content script, validation
-des messages de page et validation de l’origine API. Aucun wildcard
-`*.vercel.app` n’est accepté. Preview et Production utilisent chacune leur
-`DATABASE_URL` Vercel, respectivement vers les branches Neon `develop` et
-`main`; l’extension ne choisit jamais la base elle-même.
+La version 4.2.7 remplace les anciennes adresses Vercel par les domaines Coolify
+`https://insta-explorer.hz.kalyros.dev` et
+`https://preview-insta-explorer.hz.kalyros.dev` aux trois barrières de l’extension :
+injection du content script et permissions hôte, validation des messages de page,
+et validation de l’origine API. Seul `http://localhost:3000` reste aussi autorisé
+pour le développement local. Les anciens domaines Vercel sont retirés ; aucun
+wildcard de domaine n’est ajouté. L’extension utilise l’origine du site ouvert
+et ne choisit jamais la base de données elle-même.
 
 La version 4.2.6 verrouille PostgreSQL comme source de vérité et couvre les deux
 ordres de travail :
@@ -113,3 +114,10 @@ repoussent plus indéfiniment le délai de 90 secondes sans progression.
 - Les médias sont limités à 250 Mo par objet et 20 médias par post.
 - La classification `main_theme` et les tags éditoriaux ne sont pas inventés par
   l’extension. Ils restent modifiables ensuite par l’administrateur.
+
+## Adresse API derrière Coolify (4.2.8)
+
+Le pont de l’extension prend l’origine de la page déjà autorisée comme destination
+de synchronisation. Il ne réutilise plus une adresse `apiBaseUrl` reconstruite
+par Next.js à partir de l’adresse interne du serveur derrière le proxy.
+Les contrôles d’origine du pont et du service worker restent inchangés.
