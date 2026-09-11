@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -163,18 +164,23 @@ describe("extension-to-web reconciliation policy", () => {
       "utf8",
     );
     const allowedOrigins = [
-      "https://insta-saved-post-explorer.vercel.app",
-      "https://insta-saved-post-explorer-git-develop-l1nk4r1ms-projects.vercel.app",
+      "https://insta-explorer.hz.kalyros.dev",
+      "https://preview-insta-explorer.hz.kalyros.dev",
       "http://localhost:3000",
     ];
 
-    expect(manifest.version).toBe("4.2.6");
-    expect(readme).toContain("Insta Saved Sync 4.2.6");
+    expect(manifest.version).toBe("4.2.8");
+    expect(readme).toContain("Insta Saved Sync 4.2.8");
     for (const origin of allowedOrigins) {
       expect(manifest.host_permissions).toContain(`${origin}/*`);
       expect(manifest.content_scripts?.[0]?.matches).toContain(`${origin}/*`);
       expect(contentBridge).toContain(`"${origin}"`);
       expect(background).toContain(`"${origin}"`);
+    }
+    expect(manifest.content_scripts?.[0]?.matches).toEqual(allowedOrigins.map((origin) => `${origin}/*`));
+    for (const source of [JSON.stringify(manifest), contentBridge, background]) {
+      expect(source).not.toContain("vercel.app");
+      expect(source).not.toContain("*.kalyros.dev");
     }
     expect(JSON.stringify(manifest)).not.toContain("*.vercel.app");
     expect(contentBridge).not.toContain("*.vercel.app");
@@ -182,5 +188,47 @@ describe("extension-to-web reconciliation policy", () => {
     expect(background).toContain("progressVersion: task.progressVersion");
     expect(refreshButton).not.toContain("Insta Saved Sync 4.2.1");
     expect(refreshButton).toContain("dernière version d’Insta Saved Sync");
+  });
+});
+
+
+describe("extension bridge API destination", () => {
+  const bridge = readFileSync(resolve(process.cwd(), "extension/ig-saved-sync/content-bridge.js"), "utf8");
+
+  function startFrom(origin: string, apiBaseUrl: string) {
+    const forwarded: Array<{ type: string; data: Record<string, unknown> }> = [];
+    let listener: (event: unknown) => void = () => {};
+    const page = {
+      location: { origin },
+      addEventListener: (_type: string, callback: typeof listener) => { listener = callback; },
+      postMessage: () => {},
+    };
+    const chrome = { runtime: {
+      id: "test-extension",
+      getManifest: () => ({ version: "4.2.8" }),
+      sendMessage: (message: typeof forwarded[number]) => { forwarded.push(message); },
+    } };
+    runInNewContext(bridge, { window: page, chrome });
+    const payload = { apiBaseUrl, token: "synthetic-token", jobId: "test-job", knownPosts: [] };
+    listener({ source: page, origin, data: {
+      channel: "INSTA_POST_EXPLORER_SYNC_V2", type: "START",
+      targetExtensionId: "test-extension", requestId: "test-request", payload,
+    } });
+    return { forwarded, payload };
+  }
+
+  it("binds synchronization to the allowed page origin despite a proxy-derived API address", () => {
+    for (const origin of ["https://insta-explorer.hz.kalyros.dev", "https://preview-insta-explorer.hz.kalyros.dev", "http://localhost:3000"]) {
+      const internalUrl = "https://0.0.0.0:3000";
+      const { forwarded, payload } = startFrom(origin, internalUrl);
+      expect(forwarded).toEqual([{ type: "startWebSync", data: { ...payload, apiBaseUrl: origin } }]);
+      expect(payload.apiBaseUrl).toBe(internalUrl);
+    }
+  });
+
+  it("rejects a start from an unauthorized page even when its API destination is allowed", () => {
+    for (const origin of ["https://insta-saved-post-explorer.vercel.app", "https://unrelated.hz.kalyros.dev"]) {
+      expect(startFrom(origin, "https://insta-explorer.hz.kalyros.dev").forwarded).toEqual([]);
+    }
   });
 });

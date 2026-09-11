@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Insta Saved Sync",
-  "version": "4.2.6",
+  "version": "4.2.8",
   "description": "Exportez vos posts Instagram sauvegardés et synchronisez les nouveaux médias avec Insta Post Explorer.",
   "action": {
     "default_title": "Insta Saved Sync",
@@ -36,16 +36,16 @@
     "https://www.instagram.com/*",
     "https://*.cdninstagram.com/*",
     "https://*.fbcdn.net/*",
-    "https://insta-saved-post-explorer.vercel.app/*",
-    "https://insta-saved-post-explorer-git-develop-l1nk4r1ms-projects.vercel.app/*",
+    "https://insta-explorer.hz.kalyros.dev/*",
+    "https://preview-insta-explorer.hz.kalyros.dev/*",
     "http://localhost:3000/*",
     "https://insta-media.ea46bb39f3da0142d7eab15876a8a2a3.r2.cloudflarestorage.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "https://insta-saved-post-explorer.vercel.app/*",
-        "https://insta-saved-post-explorer-git-develop-l1nk4r1ms-projects.vercel.app/*",
+        "https://insta-explorer.hz.kalyros.dev/*",
+        "https://preview-insta-explorer.hz.kalyros.dev/*",
         "http://localhost:3000/*"
       ],
       "js": ["content-bridge.js"],
