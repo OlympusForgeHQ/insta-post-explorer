@@ -1,7 +1,7 @@
 const CHANNEL = "INSTA_POST_EXPLORER_SYNC_V2";
 const ALLOWED_ORIGINS = new Set([
-  "https://insta-saved-post-explorer.vercel.app",
-  "https://insta-saved-post-explorer-git-develop-l1nk4r1ms-projects.vercel.app",
+  "https://insta-explorer.hz.kalyros.dev",
+  "https://preview-insta-explorer.hz.kalyros.dev",
   "http://localhost:3000",
 ]);
 
@@ -25,7 +25,9 @@ window.addEventListener("message", (event) => {
   if (typeof message.requestId !== "string" || typeof message.payload?.token !== "string") return;
 
   try {
-    chrome.runtime.sendMessage({ type: "startWebSync", data: message.payload }, (response) => {
+    // The browser origin is authoritative; proxy-derived server URLs may be internal.
+    const data = { ...message.payload, apiBaseUrl: window.location.origin };
+    chrome.runtime.sendMessage({ type: "startWebSync", data }, (response) => {
       post("START_RESULT", message.requestId, withExtension(response ?? { ok: false, error: "EXTENSION_UNAVAILABLE" }));
       if (response?.ok) startPolling(message.requestId);
     });

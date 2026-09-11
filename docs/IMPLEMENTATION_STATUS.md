@@ -2,6 +2,19 @@
 
 Last updated: 24 August 2026 — `develop` at `a91f254`, `main` at `daaca2c` (aligned)
 
+## Extension 4.2.8 — 11 September 2026
+
+Coolify production/preview replace the old Vercel origins at every extension
+gate. The bridge uses the authorized browser page origin as the API destination,
+independently of proxy-derived server URLs. Package:
+`outputs/insta-saved-sync-v4.2.8.zip`. The user confirmed the fix works and
+authorized publication to `develop` and `main`.
+
+Lint/typecheck/build, 12 focused tests, 371 unit tests and package checks pass;
+132 database tests skipped. See `changes/2026-09-11-extension-coolify-origins.md`
+for scope, verification and update instructions.
+
+
 This file is the compact state ledger. Detailed scope, dependencies and exit gates remain authoritative in `CODEX_IMPLEMENTATION_ORDER.md` and `HANDOFF.md`.
 
 Status values:
