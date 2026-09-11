@@ -2,6 +2,18 @@
 
 Last updated: 24 August 2026 — `develop` at `a91f254`, `main` at `daaca2c` (aligned)
 
+## Daily sync worker — 11 September 2026
+
+AWAITING_REVIEW (publication gate): functional code is implemented and reviewed locally on `feat/daily-instagram-sync`
+from develop `3dc1e85`. The worker uses Chromium and extension 4.2.8, with dedicated
+revocable authorization, owner-scoped admission, daily deduplication, renewable
+leases and transactional imports. Manual PC sync is preserved. Synthetic browser,
+HTTP and PostgreSQL integration pass. App tests 527/527, worker tests 77/77,
+lint, both typechecks, both builds and independent review pass.
+The additive migration has run only on disposable PostgreSQL. No feature commit,
+push, live Instagram login, production migration or scheduler activation has occurred.
+See `daily-instagram-sync.md` and the functional-worker plan for operational gates.
+
 ## Extension 4.2.8 — 11 September 2026
 
 Coolify production/preview replace the old Vercel origins at every extension
