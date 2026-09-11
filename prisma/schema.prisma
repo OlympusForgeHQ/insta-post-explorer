@@ -238,6 +238,9 @@ model SyncJob {
   mediaUploaded Int        @default(0) @map("media_uploaded")
   mediaFailed   Int        @default(0) @map("media_failed")
   errorCode     String?    @map("error_code")
+  automationDay String?   @map("automation_day")
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+  runExpiresAt DateTime?   @map("run_expires_at") @db.Timestamptz(3)
   startedAt     DateTime   @default(now()) @map("started_at") @db.Timestamptz(3)
   heartbeatAt   DateTime   @default(now()) @map("heartbeat_at") @db.Timestamptz(3)
   finishedAt    DateTime?  @map("finished_at") @db.Timestamptz(3)
@@ -245,6 +248,7 @@ model SyncJob {
   updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([ownerId, startedAt], map: "sync_jobs_owner_started_idx")
+  @@index([ownerId, automationDay], map: "sync_jobs_owner_automation_day_idx")
   @@map("sync_jobs")
 }
 

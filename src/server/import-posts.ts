@@ -40,7 +40,9 @@ export async function importPosts(
     idempotencyKey?: string;
     batchSize?: number;
   } = {},
+  transaction?: Prisma.TransactionClient,
 ): Promise<ImportReport> {
+  const db = transaction ?? prisma;
   if (!databaseConfigured) {
     throw new Error("DATABASE_NOT_CONFIGURED");
   }
@@ -49,7 +51,7 @@ export async function importPosts(
   const ownerId = parseOwnerId(parsedOptions.ownerId ?? getApplicationOwnerId());
   const prepared = prepareImportPayload(input);
   if (parsedOptions.idempotencyKey) {
-    const existingJob = await prisma.importJob.findUnique({
+    const existingJob = await db.importJob.findUnique({
       where: {
         ownerId_idempotencyKey: {
           ownerId,
@@ -61,7 +63,7 @@ export async function importPosts(
     if (existingJob) throw new Error("IMPORT_ALREADY_STARTED");
   }
 
-  const job = await prisma.importJob
+  const job = await db.importJob
     .create({
       data: {
         ownerId,
@@ -90,12 +92,12 @@ export async function importPosts(
   try {
     for (let offset = 0; offset < prepared.items.length; offset += parsedOptions.batchSize) {
       const batch = prepared.items.slice(offset, offset + parsedOptions.batchSize);
-      const batchResult = await persistBatch(ownerId, batch);
+      const batchResult = await persistBatch(ownerId, batch, transaction);
       imported += batchResult.imported;
       updated += batchResult.updated;
     }
 
-    await prisma.importJob.update({
+    await db.importJob.update({
       where: { id: job.id },
       data: {
         status: ImportStatus.COMPLETED,
@@ -105,7 +107,7 @@ export async function importPosts(
       },
     });
   } catch (error: unknown) {
-    await prisma.importJob
+    await db.importJob
       .update({
         where: { id: job.id },
         data: {
@@ -151,11 +153,11 @@ function reportFromJob(job: {
 async function persistBatch(
   ownerId: string,
   batch: NormalizedImportPost[],
+  enclosingTransaction?: Prisma.TransactionClient,
 ): Promise<{ imported: number; updated: number }> {
   if (batch.length === 0) return { imported: 0, updated: 0 };
 
-  return prisma.$transaction(
-    async (transaction) => {
+  const persist = async (transaction: Prisma.TransactionClient) => {
       const urls = batch.map((post) => post.postUrl);
       const existingPosts = await transaction.post.findMany({
         where: { ownerId, postUrl: { in: urls } },
@@ -229,9 +231,9 @@ async function persistBatch(
 
       const updated = batch.filter((post) => existingUrls.has(post.postUrl)).length;
       return { imported: batch.length - updated, updated };
-    },
-    { maxWait: 5_000, timeout: 20_000 },
-  );
+    };
+  return enclosingTransaction ? persist(enclosingTransaction) :
+    prisma.$transaction(persist, { maxWait: 5_000, timeout: 20_000 });
 }
 
 function toPostData(post: NormalizedImportPost): Prisma.PostUncheckedCreateWithoutPostTagsInput {

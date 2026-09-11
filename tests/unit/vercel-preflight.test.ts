@@ -91,3 +91,28 @@ describe("vercel-preflight Places checks", () => {
     expect(output).not.toContain("secretpw");
   });
 });
+
+describe("deployment preflight automatic sync capability", () => {
+  const enabled = {
+    INSTAGRAM_AUTO_SYNC_ENABLED: "1",
+    INSTAGRAM_AUTO_SYNC_KEY_SHA256: "a".repeat(64),
+    NEXT_PUBLIC_APP_URL: "https://insta-explorer.hz.kalyros.dev",
+  };
+
+  it("requires separate credentials and a canonical HTTPS origin only when enabled", () => {
+    expect(runPreflight(enabled).status).toBe(0);
+    const invalidConfigurations: Record<string, string>[] = [
+      { INSTAGRAM_AUTO_SYNC_KEY_SHA256: "" },
+      { INSTAGRAM_AUTO_SYNC_KEY_SHA256: "malformed" },
+      { INSTAGRAM_AUTO_SYNC_TIMEZONE: "Invalid/Timezone" },
+      { EXTERNAL_API_KEY_SHA256: "a".repeat(64) },
+      { NEXT_PUBLIC_APP_URL: "http://example.test" },
+      { NEXT_PUBLIC_APP_URL: "https://example.test/path" },
+      { NEXT_PUBLIC_APP_URL: "https://user:secret@example.test/" },
+    ];
+    for (const override of invalidConfigurations) {
+      expect(runPreflight({ ...enabled, ...override }).status).toBe(1);
+    }
+    expect(runPreflight({ INSTAGRAM_AUTO_SYNC_ENABLED: "0" }).status).toBe(0);
+  });
+});

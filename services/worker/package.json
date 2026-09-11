@@ -12,12 +12,14 @@
     "test:postgres": "vitest run tests/jobs-postgres.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "sync": "node dist/sync/cli.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",
     "pg": "8.22.0",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "playwright": "1.61.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

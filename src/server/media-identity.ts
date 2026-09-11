@@ -1,6 +1,6 @@
 import "server-only";
 
-import { MediaIdentity } from "@prisma/client";
+import { MediaIdentity, type Prisma } from "@prisma/client";
 
 import { prisma } from "@/server/db";
 import { deriveObjectKey, headR2Object } from "@/server/r2";
@@ -22,10 +22,10 @@ export async function persistVerifiedMediaIdentity(input: {
   ownerId: string;
   postId: string;
   media: VerifiedMediaIdentity[];
-}): Promise<number> {
+}, db: Prisma.TransactionClient = prisma): Promise<number> {
   let updated = 0;
   for (const media of input.media) {
-    const result = await prisma.postMedia.updateMany({
+    const result = await db.postMedia.updateMany({
       where: { ownerId: input.ownerId, postId: input.postId, position: media.position },
       data: {
         objectKey: media.objectKey,
