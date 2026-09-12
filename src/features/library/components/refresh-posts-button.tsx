@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const CHANNEL = "INSTA_POST_EXPLORER_SYNC_V2";
 const JOB_POLL_INTERVAL_MS = 2_000;
 const BRIDGE_STALE_AFTER_MS = 90_000;
+const MANUAL_TOKEN_LIFETIME_MS = 86_400_000;
 
 function startErrorMessage(error: unknown) {
   switch (error) {
@@ -81,7 +82,9 @@ function sendStart(candidate: ExtensionCandidate, requestId: string, payload: Re
   }, window.location.origin);
 }
 
-export function RefreshPostsButton({ onCompleted, menuItem = false }: { onCompleted: () => void; menuItem?: boolean }) {
+export function useRefreshPosts(onCompleted: () => void, enabled = true) {
+  const onCompletedRef = useRef(onCompleted);
+  useEffect(() => { onCompletedRef.current = onCompleted; }, [onCompleted]);
   const [extensionReady, setExtensionReady] = useState(false);
   const [state, setState] = useState<SyncState>({ status: "idle" });
   const requestId = useRef<string | null>(null);
@@ -96,7 +99,11 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
   const lastProgressAt = useRef(0);
   const lastExtensionProgressKey = useRef<string | null>(null);
   const lastJobHeartbeat = useRef<string | null>(null);
+  const lastLeaseRenewalAt = useRef(0);
   const settled = useRef(false);
+  const plannedResumeAt = useRef(0);
+  const tokenExpiresAt = useRef(0);
+  const heartbeatRejectedAt = useRef<number | null>(null);
 
   const stopJobPolling = useCallback(() => {
     activeJobId.current = null;
@@ -111,12 +118,19 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
     settled.current = true;
     stopJobPolling();
     setState({ status: "success", synced });
-    onCompleted();
-  }, [onCompleted, stopJobPolling]);
+    onCompletedRef.current();
+  }, [stopJobPolling]);
 
   const settleError = useCallback((message: string) => {
     if (settled.current) return;
     settled.current = true;
+    const token = syncPayload.current?.token;
+    if (typeof token === "string") {
+      void fetch("/api/sync/complete", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status: "failed", error: "MANUAL_SYNC_INTERRUPTED", mediaFailed: 0 }),
+      }).catch(() => {});
+    }
     stopJobPolling();
     setState({ status: "error", message });
   }, [stopJobPolling]);
@@ -125,40 +139,68 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
     stopJobPolling();
     activeJobId.current = jobId;
 
-    const poll = async () => {
-      if (activeJobId.current !== jobId || settled.current) return;
+    const readJob = async () => {
       try {
-        const response = await fetch(`/api/sync/jobs/${encodeURIComponent(jobId)}`, {
-          cache: "no-store",
-        });
-        if (response.ok) {
-          const job = await response.json() as SyncJobSnapshot;
-          if (activeJobId.current !== jobId || settled.current) return;
-          if (job.status === "COMPLETED") {
-            settleSuccess(job.collected ?? 0);
-            return;
-          }
-          if (job.status === "FAILED") {
-            settleError(job.errorCode ?? "La synchronisation a échoué.");
-            return;
-          }
-          if (typeof job.heartbeatAt === "string" && job.heartbeatAt !== lastJobHeartbeat.current) {
-            lastJobHeartbeat.current = job.heartbeatAt;
-            lastProgressAt.current = Date.now();
-          }
+        const response = await fetch(`/api/sync/jobs/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const job = await response.json() as SyncJobSnapshot;
+        if (activeJobId.current !== jobId || settled.current) return;
+        if (job.status === "COMPLETED") {
+          settleSuccess(job.collected ?? 0);
+          return;
+        }
+        if (job.status === "FAILED") {
+          settleError(job.errorCode ?? "La synchronisation a échoué.");
+          return;
+        }
+        if (job.status !== "PENDING" && job.status !== "RUNNING") return;
+        if (heartbeatRejectedAt.current !== null) {
+          settleError("La session de synchronisation a expiré. Relancez la synchronisation.");
+          return;
+        }
+        if (typeof job.heartbeatAt === "string" && job.heartbeatAt !== lastJobHeartbeat.current) {
+          lastJobHeartbeat.current = job.heartbeatAt;
+          lastProgressAt.current = Date.now();
         }
       } catch {
-        // A bridge signal can still complete the refresh after a transient read failure.
+        // Retry transient reads; a rejected heartbeat can race durable completion.
       }
+    };
 
+    const poll = async () => {
       if (activeJobId.current !== jobId || settled.current) return;
-      if (Date.now() - lastProgressAt.current >= BRIDGE_STALE_AFTER_MS) {
+      await readJob();
+      if (activeJobId.current !== jobId || settled.current) return;
+      if (heartbeatRejectedAt.current !== null && Date.now() - heartbeatRejectedAt.current >= BRIDGE_STALE_AFTER_MS) {
+        settleError("Impossible de confirmer la fin de la synchronisation. Rechargez la page pour vérifier son état.");
+        return;
+      }
+      if (Date.now() >= tokenExpiresAt.current) {
+        settleError("La session de synchronisation a expiré. Relancez la synchronisation.");
+        return;
+      }
+      // A planned Instagram pause is not a stalled collector. Allow its advertised
+      // resume time, then require actual progress within the normal watchdog window.
+      if (Date.now() - Math.max(lastProgressAt.current, plannedResumeAt.current) >= BRIDGE_STALE_AFTER_MS) {
         settleError("La synchronisation ne répond plus. Rechargez la page puis réessayez.");
         return;
       }
-      jobPollTimer.current = window.setTimeout(() => {
-        void poll();
-      }, JOB_POLL_INTERVAL_MS);
+      if (heartbeatRejectedAt.current === null && Date.now() - lastLeaseRenewalAt.current >= 30_000 && typeof syncPayload.current?.token === "string") {
+        try {
+          const renewal = await fetch("/api/sync/heartbeat", {
+            method: "POST", headers: { Authorization: `Bearer ${syncPayload.current.token}` },
+          });
+          if (activeJobId.current !== jobId || settled.current) return;
+          if (renewal.status === 401) {
+            heartbeatRejectedAt.current = Date.now();
+            await readJob();
+          } else if (renewal.ok) lastLeaseRenewalAt.current = Date.now();
+        } catch {
+          // A transient heartbeat failure is retried before the lease expires.
+        }
+      }
+      if (activeJobId.current !== jobId || settled.current) return;
+      jobPollTimer.current = window.setTimeout(() => { void poll(); }, JOB_POLL_INTERVAL_MS);
     };
 
     void poll();
@@ -187,6 +229,7 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
   }, [settleError, stopJobPolling]);
 
   useEffect(() => {
+    if (!enabled) return;
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window || event.origin !== window.location.origin) return;
       const message = event.data as { channel?: string; type?: string; requestId?: string; payload?: Record<string, unknown> };
@@ -200,7 +243,7 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
         }
         return;
       }
-      if (!requestId.current || message.requestId !== requestId.current) return;
+      if (settled.current || !requestId.current || message.requestId !== requestId.current) return;
       if (message.payload?.extensionId !== currentTarget.current) return;
       if (message.type === "START_RESULT" && message.payload?.ok !== true) {
         if (attemptTimer.current) window.clearTimeout(attemptTimer.current);
@@ -224,6 +267,7 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
         lastExtensionProgressKey.current = progressKey;
         lastProgressAt.current = Date.now();
       }
+      if (task.status !== "paused") plannedResumeAt.current = 0;
       const synced = task.stats?.synced ?? 0;
       if (task.status === "completed") {
         settleSuccess(synced);
@@ -232,6 +276,12 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
       } else if (task.status === "paused" && !task.resumeAt) {
         settleError("Synchronisation en pause. Vérifiez votre session Instagram puis relancez.");
       } else if (task.status === "paused") {
+        const resumeAt = Date.parse(task.resumeAt as string);
+        if (!Number.isFinite(resumeAt) || resumeAt >= tokenExpiresAt.current) {
+          settleError("La pause dépasse la durée de cette session. Vérifiez Instagram puis relancez la synchronisation.");
+          return;
+        }
+        plannedResumeAt.current = resumeAt;
         const resumeTime = new Date(task.resumeAt as string).toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" });
         setState({
           status: "paused",
@@ -249,26 +299,35 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
       if (attemptTimer.current) window.clearTimeout(attemptTimer.current);
       stopJobPolling();
     };
-  }, [settleError, settleSuccess, stopJobPolling]);
+  }, [enabled, settleError, settleSuccess, stopJobPolling]);
 
   const start = async () => {
     setState({ status: "starting" });
     try {
       settled.current = false;
       stopJobPolling();
+      syncPayload.current = null;
+      lastLeaseRenewalAt.current = Date.now();
       lastProgressAt.current = Date.now();
       lastExtensionProgressKey.current = null;
       lastJobHeartbeat.current = null;
+      plannedResumeAt.current = 0;
+      heartbeatRejectedAt.current = null;
       attempted.current.clear();
       const candidate = nextCandidate(candidates.current, attempted.current);
       if (!candidate) throw new Error("EXTENSION_NOT_FOUND");
       const response = await fetch("/api/sync/session", { method: "POST" });
+      if (response.status === 409) throw new Error("SYNC_IN_PROGRESS");
       if (!response.ok) throw new Error("SESSION_FAILED");
       const payload = await response.json() as Record<string, unknown>;
       const jobId = typeof payload.jobId === "string" ? payload.jobId : null;
       if (!jobId) throw new Error("SESSION_FAILED");
       requestId.current = crypto.randomUUID();
       syncPayload.current = payload;
+      const lifetime = typeof payload.expiresInSeconds === "number" && payload.expiresInSeconds > 0
+        ? Math.min(payload.expiresInSeconds * 1000, MANUAL_TOKEN_LIFETIME_MS)
+        : MANUAL_TOKEN_LIFETIME_MS;
+      tokenExpiresAt.current = Date.now() + lifetime;
       currentTarget.current = null;
       startJobPolling(jobId);
       if (!attemptNext.current()) throw new Error("EXTENSION_NOT_FOUND");
@@ -280,11 +339,26 @@ export function RefreshPostsButton({ onCompleted, menuItem = false }: { onComple
     } catch (error) {
       settleError(error instanceof Error && error.message === "EXTENSION_NOT_FOUND"
         ? "Extension introuvable. Installez ou rechargez la dernière version d’Insta Saved Sync."
+        : error instanceof Error && error.message === "SYNC_IN_PROGRESS"
+          ? "Une synchronisation est déjà en cours sur le serveur ou sur un autre appareil. Réessayez après sa fin."
         : "Impossible de créer la session de synchronisation.");
     }
   };
 
-  const busy = state.status === "starting" || state.status === "running";
+  return { state, extensionReady, start };
+}
+
+export function RefreshPostsButton({ onCompleted, menuItem = false }: { onCompleted: () => void; menuItem?: boolean }) {
+  const controller = useRefreshPosts(onCompleted);
+  return <RefreshPostsControl controller={controller} menuItem={menuItem} />;
+}
+
+export function RefreshPostsControl({ controller, menuItem = false }: {
+  controller: ReturnType<typeof useRefreshPosts>;
+  menuItem?: boolean;
+}) {
+  const { state, extensionReady, start } = controller;
+  const busy = state.status === "starting" || state.status === "running" || state.status === "paused";
   const label = state.status === "running"
     ? `${state.synced} nouveau${state.synced > 1 ? "x" : ""}`
     : state.status === "paused"

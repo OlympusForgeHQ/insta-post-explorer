@@ -130,3 +130,12 @@ list_saved_collections → GET /api/v1/collections
 search_saved_authors   → GET /api/v1/authors
 get_library_stats      → GET /api/v1/stats
 ```
+
+## Dedicated automatic-sync capability
+
+`POST /api/v1/sync/session` is a separate, disabled-by-default capability for
+the future scheduled Instagram worker. It does not accept the read-only API key
+documented above and must remain disabled until the concurrency and worker pilot
+gates pass. See [daily sync](daily-instagram-sync.md) for its credential,
+revocation and session contract. The read-only endpoints retain their existing
+permissions.
