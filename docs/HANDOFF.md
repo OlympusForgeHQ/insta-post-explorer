@@ -7,6 +7,21 @@ Reference production base: `main` at `daaca2c` (PR #72, full develop alignment)
 Reference implementation: `main` and `develop` are aligned — `main` includes all
 develop work through PR #71 (D6 harness repair and DB error logging)
 
+## Current task — daily sync, 11 September 2026
+
+The active local branch `feat/daily-instagram-sync` starts at develop `3dc1e85`.
+Production main was last observed at `995c56e` after extension 4.2.8 publication;
+the older August references below are historical. Functional daily-sync code is
+implemented, independently reviewed and verified: app 527/527 + worker 77/77 tests,
+lint/types/builds, Chromium collector and real Next/PostgreSQL integration.
+The worker Docker image has been built and rehearsed locally. See
+[daily-sync operations](daily-instagram-sync.md) and
+[change/evidence matrix](changes/2026-09-11-functional-sync-worker.md).
+No feature commit/push, production migration, real-account pilot or schedule
+activation has occurred. Resume at the publication/deployment authorization gate,
+then provision the private profile, interactive login and first real import.
+Do not restart phase 1 implementation or modify unrelated Places gates.
+
 ## 1. Purpose and authority
 
 This file records the current operational state for the next agent session. It does not replace product or architecture contracts.

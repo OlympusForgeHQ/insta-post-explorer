@@ -14,7 +14,7 @@ import { LibraryStatsDialog } from "@/features/library/components/library-stats-
 import { MediaRepairDialog } from "@/features/library/components/media-repair-dialog";
 import { PostCard } from "@/features/library/components/post-card";
 import { PostDetailDialog } from "@/features/library/components/post-detail-dialog";
-import { RefreshPostsButton } from "@/features/library/components/refresh-posts-button";
+import { RefreshPostsControl, useRefreshPosts } from "@/features/library/components/refresh-posts-button";
 import { CollectionManager } from "@/features/library/components/collection-manager";
 import { AuthorAutocomplete, type AuthorOption } from "@/features/library/components/author-autocomplete";
 import { useDebouncedValue } from "@/features/library/hooks/use-debounced-value";
@@ -61,6 +61,7 @@ export function LibraryExplorer({
   initialError?: string;
   isAdmin: boolean;
 }) {
+  const refreshPosts = useRefreshPosts(() => window.location.reload(), isAdmin);
   const [posts, setPosts] = useState(initialPosts);
   const [nextCursor, setNextCursor] = useState(initialNextCursor);
   const [totalFiltered, setTotalFiltered] = useState(initialTotalFiltered);
@@ -368,7 +369,7 @@ export function LibraryExplorer({
               <DropdownMenu.Portal>
                 <DropdownMenu.Content className="menu-content manage-menu" align="end" sideOffset={8}>
                   <DropdownMenu.Label className="menu-label">Administration</DropdownMenu.Label>
-                  <RefreshPostsButton menuItem onCompleted={() => window.location.reload()} />
+                  <RefreshPostsControl menuItem controller={refreshPosts} />
                   <DropdownMenu.Item asChild>
                     <button className="menu-item" type="button" onClick={() => setMediaRepairOpen(true)}>
                       <Wrench aria-hidden="true" className="size-4" />Réparer les médias

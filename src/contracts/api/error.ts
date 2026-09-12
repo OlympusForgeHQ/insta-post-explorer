@@ -12,6 +12,9 @@ export type ExternalApiErrorCode =
   | "NOT_FOUND"
   | "RATE_LIMITED"
   | "INTERNAL_ERROR"
+  | "SYNC_IN_PROGRESS"
+  | "SYNC_ALREADY_COMPLETED"
+  | "SYNC_DAILY_LIMIT"
   | "SERVICE_UNAVAILABLE";
 
 const SECURITY_HEADERS: Record<string, string> = {

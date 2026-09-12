@@ -67,6 +67,28 @@ if (externalApiKeyHash) {
 }
 
 const publicUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+if (process.env.INSTAGRAM_AUTO_SYNC_ENABLED === "1") {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: process.env.INSTAGRAM_AUTO_SYNC_TIMEZONE?.trim() || "Europe/Brussels" }).format();
+  } catch {
+    errors.push("INSTAGRAM_AUTO_SYNC_TIMEZONE must be a valid IANA timezone.");
+  }
+  const syncHash = process.env.INSTAGRAM_AUTO_SYNC_KEY_SHA256?.trim().toLowerCase();
+  if (!syncHash || !/^[a-f0-9]{64}$/.test(syncHash)) {
+    errors.push("INSTAGRAM_AUTO_SYNC_KEY_SHA256 must be a 64-character hex SHA-256 hash when automatic sync is enabled.");
+  } else if (syncHash === externalApiKeyHash?.toLowerCase()) {
+    errors.push("INSTAGRAM_AUTO_SYNC_KEY_SHA256 must differ from EXTERNAL_API_KEY_SHA256.");
+  }
+  try {
+    const url = new URL(publicUrl ?? "");
+    if (url.protocol !== "https:" || url.username || url.password ||
+        url.pathname !== "/" || url.search || url.hash) {
+      throw new Error("INVALID_SYNC_ORIGIN");
+    }
+  } catch {
+    errors.push("Automatic sync requires NEXT_PUBLIC_APP_URL to be an HTTPS origin without credentials, path, query or fragment.");
+  }
+}
 if (publicUrl) {
   try {
     const parsed = new URL(publicUrl);
