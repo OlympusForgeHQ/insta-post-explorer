@@ -12,6 +12,8 @@ describe("worker container contract", () => {
     expect(dockerfile.match(/^FROM node:24[^\n]* AS /gm)?.length).toBeGreaterThanOrEqual(2);
     expect(dockerfile).toMatch(/^USER 10001:10001$/m);
     expect(dockerfile).toMatch(/^HEALTHCHECK /m);
+    expect(dockerfile).toMatch(/^ENTRYPOINT ["\/usr\/bin\/tini", "--"]$/m);
+    expect(dockerfile).toMatch(/^ENTRYPOINT \["\/usr\/bin\/tini", "--"\]$/m);
     expect(dockerfile).toMatch(/process\.env\.WORKER_HEALTH_PORT\|\|\\"8080\\"/);
     expect(dockerfile).not.toMatch(/^EXPOSE /m);
     expect(dockerfile).not.toMatch(/R2_(?:ACCESS|SECRET).*=/);
@@ -30,3 +32,4 @@ describe("worker container contract", () => {
     expect(compose).not.toMatch(/R2_ACCESS_KEY_ID:.*\$\{R2_ACCESS_KEY_ID/);
   });
 });
+
