@@ -13,7 +13,11 @@ COPY services/worker/package.json services/worker/package.json
 RUN npm ci --omit=dev --workspace services/worker --include-workspace-root=false
 
 FROM node:24-bookworm-slim AS runtime
-RUN groupadd --gid 10001 worker && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin worker
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 worker \
+    && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin worker
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -29,4 +33,6 @@ RUN node node_modules/playwright/cli.js install --with-deps chromium \
     && chmod 0700 /var/lib/insta-sync
 USER 10001:10001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD ["node", "-e", "const p=process.env.WORKER_HEALTH_PORT||\"8080\";fetch('http://127.0.0.1:'+p+'/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "services/worker/dist/index.js"]
+
