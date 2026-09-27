@@ -7,7 +7,20 @@ Reference production base: `main` at `daaca2c` (PR #72, full develop alignment)
 Reference implementation: `main` and `develop` are aligned — `main` includes all
 develop work through PR #71 (D6 harness repair and DB error logging)
 
-## Current task — daily sync, 11 September 2026
+## Current task — search result visibility, 27 September 2026
+
+The local branch `fix/search-results-count` starts at develop `ec46735`.
+The UI no longer repeats text search against truncated cards; stale pagination
+and discovery responses cannot pollute a newer search. Independent review
+approved the final diff. Verification: 396 unit tests passed (138 database-bound
+skips), 20 library browser tests passed, lint/typecheck/build passed.
+See [change and evidence](changes/2026-09-27-search-results-count.md).
+The owner authorized merge and production deployment after an exact
+`pomme de terre` check: the corrected build displayed all 14 production results,
+versus 7 with the old UI. Publication is proceeding through CI and pull requests;
+verify that query again after the production deployment. No migration.
+
+## Previous task — daily sync, 11 September 2026
 
 The active local branch `feat/daily-instagram-sync` starts at develop `3dc1e85`.
 Production main was last observed at `995c56e` after extension 4.2.8 publication;

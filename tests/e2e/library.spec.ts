@@ -275,7 +275,8 @@ test.describe("bibliotheque Mosaïque", () => {
     await search.fill("patisserie");
     const sparseGrid = page.locator(".posts-masonry-sparse");
     await expect(sparseGrid).toBeVisible();
-    await expect(sparseGrid.locator("[data-post-id]")).toHaveCount(1);
+    await expect(page.locator(".results-count:visible")).toHaveText(/^2\b/);
+    await expect(sparseGrid.locator("[data-post-id]")).toHaveCount(2);
   });
 
   test("structure la toolbar et la grille sans débordement à 360 px", async ({ page }) => {

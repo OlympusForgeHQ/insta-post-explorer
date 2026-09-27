@@ -2,6 +2,17 @@
 
 Last updated: 24 August 2026 — `develop` at `a91f254`, `main` at `daaca2c` (aligned)
 
+## Search result visibility — 27 September 2026
+
+AWAITING_REVIEW (publication gate): `fix/search-results-count`, from develop
+`ec46735`, corrects the redundant browser text filter and ignores stale paging
+and discovery responses. Independent code review approved the final diff.
+396 unit tests passed (138 database-bound skips), 20 library browser tests
+passed, lint/typecheck/build passed. The owner authorized merge and deployment
+after the exact `pomme de terre` check passed: 14/14 cards, previously 7/14.
+Publication is proceeding through CI and pull requests. No migration.
+See [change and evidence](changes/2026-09-27-search-results-count.md).
+
 ## Daily sync worker — 11 September 2026
 
 AWAITING_REVIEW (publication gate): functional code is implemented and reviewed locally on `feat/daily-instagram-sync`
