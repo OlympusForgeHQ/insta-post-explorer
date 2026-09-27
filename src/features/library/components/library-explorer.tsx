@@ -88,6 +88,8 @@ export function LibraryExplorer({
   const [showBackToTop, setShowBackToTop] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const loadMoreController = useRef<AbortController | null>(null);
+  const discoveryController = useRef<AbortController | null>(null);
   const initialRequest = useRef(true);
   const debouncedQuery = useDebouncedValue(query, 250);
   const debouncedAuthor = useDebouncedValue(selectedAuthor, 200);
@@ -124,20 +126,20 @@ export function LibraryExplorer({
   const mainThemes = initialMainThemes;
 
   const filteredPosts = useMemo(() => {
-    const normalizedQuery = normalize(debouncedQuery);
+    // The server searches full captions and themes, including full-text relevance.
+    // Compact cards must not re-check the query against their truncated captions.
     const filtered = posts.filter((post) => {
-      const matchesQuery = !normalizedQuery || normalize(`${post.caption} ${post.authorUsername} ${post.tags.join(" ")}`).includes(normalizedQuery);
       const matchesTags = selectedTags.length === 0 || (tagMode === "and"
         ? selectedTags.every((tag) => post.tags.includes(tag))
         : selectedTags.some((tag) => post.tags.includes(tag)));
-      return matchesQuery && matchesTags && (!selectedTheme || post.mainTheme === selectedTheme)
+      return matchesTags && (!selectedTheme || post.mainTheme === selectedTheme)
         && (!selectedContentType || post.contentType === selectedContentType)
         && (!selectedAuthor || normalize(post.authorUsername) === normalize(selectedAuthor))
         && (!selectedYear || (!!post.publishedAt && new Date(post.publishedAt).getUTCFullYear() === selectedYear))
         && (!selectedCollection || post.collections.includes(selectedCollection) || (selectedCollection === "favoris" && post.tags.includes("Favoris")));
     });
     return filtered.sort((a, b) => comparePosts(a, b, sort));
-  }, [debouncedQuery, posts, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
+  }, [posts, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
 
   const selectedIndex = filteredPosts.findIndex((post) => post.id === selectedPostId);
   const selectedPost = selectedIndex >= 0 ? filteredPosts[selectedIndex] : null;
@@ -171,12 +173,21 @@ export function LibraryExplorer({
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const cancelRequests = () => {
+      controller.abort();
+      loadMoreController.current?.abort();
+      loadMoreController.current = null;
+      discoveryController.current?.abort();
+      discoveryController.current = null;
+    };
     if (initialRequest.current) {
       initialRequest.current = false;
-      return;
+      return cancelRequests;
     }
 
-    const controller = new AbortController();
+    setLoadingMore(false);
+    setDiscovering(false);
     const refresh = async () => {
       setRequestError(null);
       setIsFiltering(true);
@@ -194,24 +205,27 @@ export function LibraryExplorer({
         })}`, { signal: controller.signal });
         if (!response.ok) throw new Error("REQUEST_FAILED");
         const page = (await response.json()) as { items: LibraryPost[]; nextCursor: string | null; totalFiltered: number; totalLibrary: number };
+        if (controller.signal.aborted) return;
         setPosts(page.items);
         setNextCursor(page.nextCursor);
         setTotalFiltered(page.totalFiltered);
         setTotalLibrary(page.totalLibrary);
         setSelectedPostId(null);
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
         setRequestError("Impossible d’actualiser les résultats.");
       } finally {
         if (!controller.signal.aborted) setIsFiltering(false);
       }
     };
     void refresh();
-    return () => controller.abort();
+    return cancelRequests;
   }, [debouncedQuery, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
 
   const loadMore = useCallback(async () => {
-    if (!nextCursor || loadingMore) return;
+    if (!nextCursor || loadingMore || isFiltering || loadMoreController.current) return;
+    const controller = new AbortController();
+    loadMoreController.current = controller;
     setLoadingMore(true);
     setRequestError(null);
     try {
@@ -226,9 +240,10 @@ export function LibraryExplorer({
         tagMode,
         sort,
         cursor: nextCursor,
-      })}`);
+      })}`, { signal: controller.signal });
       if (!response.ok) throw new Error("REQUEST_FAILED");
       const page = (await response.json()) as { items: LibraryPost[]; nextCursor: string | null; totalFiltered: number; totalLibrary: number };
+      if (controller.signal.aborted) return;
       setPosts((current) => {
         const byId = new Map(current.map((post) => [post.id, post]));
         for (const post of page.items) byId.set(post.id, post);
@@ -238,11 +253,14 @@ export function LibraryExplorer({
       setTotalFiltered(page.totalFiltered);
       setTotalLibrary(page.totalLibrary);
     } catch {
-      setRequestError("Impossible de charger la suite des résultats.");
+      if (!controller.signal.aborted) setRequestError("Impossible de charger la suite des résultats.");
     } finally {
-      setLoadingMore(false);
+      if (loadMoreController.current === controller) {
+        loadMoreController.current = null;
+        setLoadingMore(false);
+      }
     }
-  }, [debouncedQuery, loadingMore, nextCursor, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
+  }, [debouncedQuery, isFiltering, loadingMore, nextCursor, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
 
   useEffect(() => {
     const target = loadMoreRef.current;
@@ -288,6 +306,9 @@ export function LibraryExplorer({
   }, []);
 
   const discoverPost = useCallback(async () => {
+    if (isFiltering || discoveryController.current) return;
+    const controller = new AbortController();
+    discoveryController.current = controller;
     setDiscovering(true);
     setRequestError(null);
     try {
@@ -302,18 +323,21 @@ export function LibraryExplorer({
         tagMode,
         sort,
       });
-      const response = await fetch(`/api/posts?${params}&random=1`);
+      const response = await fetch(`/api/posts?${params}&random=1`, { signal: controller.signal });
       if (!response.ok) throw new Error("DISCOVERY_FAILED");
       const { item } = (await response.json()) as { item: LibraryPost | null };
-      if (!item) return;
+      if (controller.signal.aborted || !item) return;
       setPosts((current) => current.some((post) => post.id === item.id) ? current : [...current, item]);
       setSelectedPostId(item.id);
     } catch {
-      setRequestError("Impossible de proposer une découverte pour le moment.");
+      if (!controller.signal.aborted) setRequestError("Impossible de proposer une découverte pour le moment.");
     } finally {
-      setDiscovering(false);
+      if (discoveryController.current === controller) {
+        discoveryController.current = null;
+        setDiscovering(false);
+      }
     }
-  }, [debouncedQuery, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
+  }, [debouncedQuery, isFiltering, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
 
   const showPrevious = useCallback(() => {
     if (!filteredPosts.length) return;
