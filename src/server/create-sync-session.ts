@@ -4,6 +4,7 @@ import { AUTOMATIC_SYNC_TOKEN_SECONDS, createSyncToken, MANUAL_SYNC_TOKEN_SECOND
 import { buildSyncKnownPosts } from "@/server/sync-session";
 import { getSyncAutomationConfiguration } from "@/auth/sync-automation";
 import { admitSyncRun, SYNC_HEARTBEAT_SECONDS, SYNC_LEASE_MS, withSyncOwnerLock } from "@/server/sync-runs";
+import { lockPostWrites } from "@/server/post-deletions";
 
 export async function createSyncSession(input: {
   ownerId: string;
@@ -14,6 +15,15 @@ export async function createSyncSession(input: {
     const options = input.automationKeyId ? { automationKeyId: input.automationKeyId } : undefined;
     const automationDay = options ? getSyncAutomationConfiguration().localDay : null;
     await admitSyncRun(tx, input.ownerId, automationDay);
+    await lockPostWrites(tx, input.ownerId);
+    // Suppressed posts count as known so collectors do not download them again.
+    // The common import guard still covers deletions outside this bounded snapshot.
+    const deletedPosts = await tx.deletedPost.findMany({
+      where: { ownerId: input.ownerId },
+      select: { externalId: true, postUrl: true },
+      orderBy: [{ deletedAt: "desc" }, { postUrl: "asc" }],
+      take: 10_000,
+    });
     const knownPosts = await tx.post.findMany({
       where: { ownerId: input.ownerId },
       select: { externalId: true, postUrl: true },
@@ -22,9 +32,9 @@ export async function createSyncSession(input: {
         { createdAt: "desc" },
         { id: "desc" },
       ],
-      take: 10_000,
+      take: 10_000 - deletedPosts.length,
     });
-    const identities = buildSyncKnownPosts(knownPosts);
+    const identities = buildSyncKnownPosts([...deletedPosts, ...knownPosts]);
     const lifetime = options ? AUTOMATIC_SYNC_TOKEN_SECONDS : MANUAL_SYNC_TOKEN_SECONDS;
     const job = await tx.syncJob.create({ data: {
       ownerId: input.ownerId, automationDay,

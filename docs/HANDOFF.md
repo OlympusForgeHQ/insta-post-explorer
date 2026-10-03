@@ -1,13 +1,65 @@
 # Operational Handoff
 
-Last updated: 24 August 2026
+Last updated: 3 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development branch: `develop` at `a91f254`
-Reference production base: `main` at `daaca2c` (PR #72, full develop alignment)
-Reference implementation: `main` and `develop` are aligned — `main` includes all
-develop work through PR #71 (D6 harness repair and DB error logging)
+Reference development branch: `develop` at `0f81e60` (PR #81)
+Reference production base: `main` at `cd58ab9` (PR #80, search correction)
+Older phase references below are historical.
 
-## Current task — search result visibility, 27 September 2026
+## Current task — permanent deletions and mutation journal, 3 October 2026
+
+Local branch `fix/persist-manual-post-deletions` starts at develop `53db233`.
+Admin deletion atomically records minimal identities and removes linked URL
+aliases. Imports and sync snapshots honor these identities; concurrent imports
+cannot resurrect deleted posts. The admin-only mutation journal records actual
+row changes across all 13 business tables, including worker/direct SQL and
+cascades, with before/after values. Reads are excluded. Owner transfers split
+snapshots so neither owner sees the other's private values. Gérer exposes filters,
+keyset pagination and event details.
+
+Both changes passed independent source review. Fresh verification on the final
+migration: 557 application tests, 77 worker tests, lint, app/worker type checks,
+production build, and two targeted browser scenarios including the journal.
+The broader auth suite has an unrelated legacy selector/logout failure, recorded
+in the [deletion change](changes/2026-10-03-permanent-post-deletions.md).
+See the [audit design and evidence](changes/2026-10-03-database-audit.md).
+
+The user explicitly approved production access, migrations, merge and deployment.
+PR #81 merged at `0f81e60` after green CI and the preview database migration.
+Preview web/worker are healthy and the live deletion/reimport/journal smoke
+passed. Both database migrations and their exact post-checks have now succeeded;
+production application activation follows through the release PR.
+Native disabled, manually executed Coolify scheduled tasks use the running web
+application's existing DATABASE_URL; no sensitive-read permission or exported
+credential is needed. Do not use old Neon environment files or GitHub secrets for
+these current Coolify databases. Record the final production merge/deployment result in the release PR and local
+release receipts after the live checks pass.
+
+**Migration exception:** both current databases contain eight historical migration
+records, three absent legacy migrations and two legacy checksum differences.
+Sync/Collections objects already exist; the old Cuisine data update remains
+historically unverified and is not replayed.
+Preview schema comparison showed compatible, intentional raw-SQL indexes/
+defaults and owner constraints; both databases passed the catalogue checks. Do not run a full-repository `prisma migrate deploy`,
+`db push`, or replay old data migrations until that history is separately
+reconciled. This release uses an isolated bundle containing only
+`20261003150000_permanent_post_deletions` and
+`20261003170000_database_audit`, with original SQL, schema and lock file.
+Rehearsal on the observed divergent history proved that only these two migrations
+are applied, a retry is a no-op, and all old migration records remain unchanged.
+See [the release procedure and evidence](changes/2026-10-03-audit-release.md).
+
+Preserve audit events and deletion identities on rollback; suspend imports if
+reverting to application code without suppression. Both the fresh-database
+13-migration rehearsal and this targeted upgrade path passed independently.
+
+Historical recovery was investigated against the backup and live database
+metadata. Neither had a previous deletion/audit table or custom trigger. No
+reliable list of past manual deletions was found; import counts cannot establish
+that list. No historical posts were selected or deleted. The journal starts when
+its migration is applied and does not invent earlier events.
+
+## Previous task — search result visibility, 27 September 2026
 
 The local branch `fix/search-results-count` starts at develop `ec46735`.
 The UI no longer repeats text search against truncated cards; stale pagination
@@ -17,8 +69,9 @@ skips), 20 library browser tests passed, lint/typecheck/build passed.
 See [change and evidence](changes/2026-09-27-search-results-count.md).
 The owner authorized merge and production deployment after an exact
 `pomme de terre` check: the corrected build displayed all 14 production results,
-versus 7 with the old UI. Publication is proceeding through CI and pull requests;
-verify that query again after the production deployment. No migration.
+versus 7 with the old UI. PR #79 merged to develop and PR #80 to main; CI and
+production verification passed at `cd58ab9`, including 14/14 results and healthy
+web/worker deployments. No migration.
 
 ## Previous task — daily sync, 11 September 2026
 

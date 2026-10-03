@@ -1,16 +1,46 @@
 # Implementation Status
 
-Last updated: 24 August 2026 — `develop` at `a91f254`, `main` at `daaca2c` (aligned)
+Last updated: 3 October 2026 — `develop` at `0f81e60` (PR #81); production release follows the verified database gates
+
+## Permanent deletions and database journal — 3 October 2026
+
+IMPLEMENTED, REVIEWED AND MERGED: `fix/persist-manual-post-deletions`
+preserves owner-scoped deletion identities, removes aliases and suppresses future
+imports, including in-flight sync requests. The admin journal records committed
+INSERT/UPDATE/DELETE/TRUNCATE effects on all business tables, with before/after
+snapshots, transactional consistency, owner isolation and read-only consultation.
+No read-query logging. Both changes passed independent review.
+
+557 app tests and 77 worker tests passed on PostgreSQL; lint, both type checks,
+production build and two targeted auth/import/journal browser scenarios passed.
+Both additive migrations were rehearsed on a new database. The broader auth
+suite's unrelated legacy selector/logout issue remains documented.
+
+The user authorized access, migrations, merge and release. CI quality/browser
+checks passed. Preview web/worker and the live deletion/reimport/journal smoke
+passed. Both database upgrades completed with 40 active triggers and unchanged
+historical migration records. Native one-shot Coolify tasks provide access using the
+existing application connection. Fresh backups, exact-schema checks, a targeted
+migration rehearsal and preservation of the existing history gate deployment.
+Do not run full-repository migrations on these databases: the pre-existing
+migration history needs separate reconciliation. See the
+[release procedure and evidence](changes/2026-10-03-audit-release.md).
+
+Live schema and backup inspection found no prior deletion journal. Earlier
+manual deletions cannot be reliably reconstructed from the available evidence;
+no historical post was deleted based on inference. See
+[deletion evidence](changes/2026-10-03-permanent-post-deletions.md) and
+[audit evidence](changes/2026-10-03-database-audit.md).
 
 ## Search result visibility — 27 September 2026
 
-AWAITING_REVIEW (publication gate): `fix/search-results-count`, from develop
+DEPLOYED: `fix/search-results-count`, from develop
 `ec46735`, corrects the redundant browser text filter and ignores stale paging
 and discovery responses. Independent code review approved the final diff.
 396 unit tests passed (138 database-bound skips), 20 library browser tests
 passed, lint/typecheck/build passed. The owner authorized merge and deployment
 after the exact `pomme de terre` check passed: 14/14 cards, previously 7/14.
-Publication is proceeding through CI and pull requests. No migration.
+PRs #79 and #80 merged; CI and production checks passed at `cd58ab9`. No migration.
 See [change and evidence](changes/2026-09-27-search-results-count.md).
 
 ## Daily sync worker — 11 September 2026

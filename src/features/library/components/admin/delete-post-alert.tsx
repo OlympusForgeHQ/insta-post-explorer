@@ -60,6 +60,7 @@ export function DeletePostAlert({ postId, authorUsername, onDeleted }: DeletePos
               <AlertDialog.Title className="text-lg font-semibold">Supprimer cette publication ?</AlertDialog.Title>
               <AlertDialog.Description className="mt-2 text-sm text-muted">
                 La publication de @{authorUsername.replace(/^@/, "")} et ses associations de tags seront supprimées définitivement.
+                {" "}Elle ne sera plus réimportée lors des synchronisations.
               </AlertDialog.Description>
             </div>
             <AlertDialog.Cancel asChild>

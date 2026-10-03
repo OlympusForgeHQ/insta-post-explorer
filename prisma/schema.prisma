@@ -129,6 +129,20 @@ model Post {
   @@map("posts")
 }
 
+// Persistent suppression identities intentionally outlive their deleted Post.
+model DeletedPost {
+  ownerId    String   @map("owner_id")
+  postUrl    String   @map("post_url")
+  externalId String?  @map("external_id")
+  postCode   String?  @map("post_code")
+  deletedAt  DateTime @default(now()) @map("deleted_at") @db.Timestamptz(3)
+
+  @@id([ownerId, postUrl])
+  @@index([ownerId, externalId], map: "deleted_posts_owner_external_id_idx")
+  @@index([ownerId, postCode], map: "deleted_posts_owner_post_code_idx")
+  @@map("deleted_posts")
+}
+
 model Collection {
   id        String           @id @default(cuid())
   ownerId   String           @default("local") @map("owner_id")
@@ -370,4 +384,23 @@ model PlaceAnalysisJob {
   @@index([ownerId, status, priority, createdAt], map: "place_jobs_owner_status_priority_idx")
   @@index([ownerId, postId, createdAt], map: "place_jobs_owner_post_created_idx")
   @@map("place_analysis_jobs")
+}
+
+// Operational history; deliberately independent of cascading business records.
+model AuditEvent {
+  id              BigInt   @id @default(autoincrement())
+  ownerId         String   @map("owner_id")
+  occurredAt      DateTime @default(dbgenerated("clock_timestamp()")) @map("occurred_at") @db.Timestamptz(3)
+  tableName       String   @map("table_name")
+  operation       String
+  recordKey       Json     @map("record_key")
+  beforeData      Json?    @map("before_data")
+  afterData       Json?    @map("after_data")
+  databaseUser    String   @default(dbgenerated("SESSION_USER")) @map("database_user")
+  applicationName String   @default(dbgenerated("current_setting('application_name'::text)")) @map("application_name")
+  transactionId   BigInt   @default(dbgenerated("txid_current()")) @map("transaction_id")
+  action          String?
+
+  @@index([ownerId, id(sort: Desc)], map: "audit_events_owner_id_idx")
+  @@map("audit_events")
 }
