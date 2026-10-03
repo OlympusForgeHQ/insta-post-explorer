@@ -2,11 +2,29 @@
 
 Last updated: 3 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `b17c4a8` (PR #83)
-Reference production base: `main` at `f4aa7a2` (PR #82)
+Reference development base: `develop` at `0f348d9` (PR #84)
+Reference production base: `main` at `5c1667d` (PR #85)
 Older phase references below are historical.
 
-## Current task — admin multiselection, 3 October 2026
+## Current task — post links to Places and Google Maps, 3 October 2026
+
+`feat/post-place-navigation` starts at develop `0f348d9`. Full post details expose
+owner-scoped, valid associated places, primary first, with a distinct “Voir dans
+Places” link for each. The existing `placeId` route opens the selected place.
+Known addresses link to Google Maps from the post detail, Places detail and list;
+missing addresses fall back to the known name/locality. Free-text captions remain
+unchanged. Rejected results are excluded; theme changes do not erase prior links.
+No migration, dependency, worker or public V1 contract change.
+
+Local verification passed: 571 PostgreSQL-backed application tests, lint, types,
+build and one real-browser post → place → Maps journey using local synthetic data.
+Desktop/mobile layout has no horizontal overflow at 390px; links have 44px touch
+targets and visible keyboard focus. Independent review found no blocking issue.
+See [scope and evidence](changes/2026-10-03-post-place-navigation.md).
+Merge/deployment authorization persists; record live receipts in the associated
+PRs and `.tmp/place-links/`. Preserve the migration-history exception below.
+
+## Previous task — admin multiselection, 3 October 2026
 
 `feat/post-multiselection` starts at develop `b17c4a8`. Admins can select loaded
 cards in either grid, select all displayed cards, and confirm grouped permanent
@@ -20,9 +38,11 @@ Local verification: 566 PostgreSQL-backed application tests, lint, types, build,
 three real-auth/import browser scenarios, desktop/mobile layout and keyboard
 checks passed. Independent final review is favorable. See
 [scope and proof matrix](changes/2026-10-03-post-multiselection.md).
-The user already authorized merge/deployment after verification. Live release
-receipts belong in the associated PRs and `.tmp/multiselection/`; preserve the
-database-history exception below. Never use real posts for destructive QA.
+PR #84 merged to develop at `0f348d9`; release PR #85 merged to main at
+`5c1667d`. CI passed, preview and production web/worker are healthy. Three preview
+browser scenarios and production read-only verification passed, including search
+at 14/14 and private journal access. Receipts are in PRs #84/#85 and
+`.tmp/multiselection/`. Never use real posts for destructive QA.
 
 ## Previous task — permanent deletions and mutation journal, 3 October 2026
 
