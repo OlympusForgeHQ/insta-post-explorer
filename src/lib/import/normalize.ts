@@ -413,6 +413,17 @@ export function isSafeRemoteUrl(value: string): boolean {
   }
 }
 
+export function instagramPostCode(postUrl: string): string | null {
+  if (!isSafeInstagramPostUrl(postUrl)) return null;
+  try {
+    const segment = new URL(postUrl).pathname.split("/").filter(Boolean).at(-1) ?? "";
+    const code = decodeURIComponent(segment);
+    return /^[A-Za-z0-9_-]+$/.test(code) ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isSafeInstagramPostUrl(value: string): boolean {
   try {
     const url = new URL(value);

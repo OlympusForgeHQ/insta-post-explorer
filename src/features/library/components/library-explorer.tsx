@@ -1,13 +1,14 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ArrowUp, Grid2X2, LayoutGrid, LogIn, LogOut, MapPin, Search, Settings2, SlidersHorizontal, Sparkles, Upload, Wrench, X } from "lucide-react";
+import { ArrowUp, Grid2X2, History, LayoutGrid, LogIn, LogOut, MapPin, Search, Settings2, SlidersHorizontal, Sparkles, Upload, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThemeMenu } from "@/components/theme-menu";
 import { Brand } from "@/components/brand";
 import { FilterContent, MobileFilterDrawer, type TagFacet } from "@/features/library/components/filter-panel";
+import { AuditLogDialog } from "@/features/library/components/admin/audit-log-dialog";
 import { ImportDialog } from "@/features/library/components/import-dialog";
 import { EmptyLibrary, LibraryError, NoResults } from "@/features/library/components/library-states";
 import { LibraryStatsDialog } from "@/features/library/components/library-stats-dialog";
@@ -81,6 +82,7 @@ export function LibraryExplorer({
   const [selectedPostId, setSelectedPostId] = useState<string | null>(initialState.postId);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [mediaRepairOpen, setMediaRepairOpen] = useState(false);
   const [isFiltering, setIsFiltering] = useState(false);
@@ -404,6 +406,11 @@ export function LibraryExplorer({
                       <Upload aria-hidden="true" className="size-4" />Importer JSON
                     </button>
                   </DropdownMenu.Item>
+                  <DropdownMenu.Item asChild>
+                    <button className="menu-item" type="button" onClick={() => setAuditOpen(true)}>
+                      <History aria-hidden="true" className="size-4" />Journal des modifications
+                    </button>
+                  </DropdownMenu.Item>
                   <DropdownMenu.Separator className="menu-separator" />
                   <form action="/api/auth/logout" method="post" role="none">
                     <DropdownMenu.Item asChild>
@@ -569,6 +576,7 @@ export function LibraryExplorer({
       {showBackToTop ? <button className="back-to-top" type="button" aria-label="Retour en haut de la page" onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })}><ArrowUp aria-hidden="true" className="size-4" /><span>Retour en haut</span></button> : null}
       {isAdmin ? (
         <>
+          {auditOpen ? <AuditLogDialog onOpenChange={setAuditOpen} /> : null}
           <ImportDialog
             open={importOpen}
             onOpenChange={setImportOpen}

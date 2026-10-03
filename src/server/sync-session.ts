@@ -1,3 +1,5 @@
+import { instagramPostCode } from "@/lib/import/normalize";
+
 export type SyncKnownPost = {
   externalId: string | null;
   postCode: string | null;
@@ -6,13 +8,5 @@ export type SyncKnownPost = {
 export function buildSyncKnownPosts(
   posts: Array<{ externalId: string | null; postUrl: string }>,
 ): SyncKnownPost[] {
-  return posts.map((post) => {
-    let postCode: string | null = null;
-    try {
-      postCode = new URL(post.postUrl).pathname.split("/").filter(Boolean).at(-1) ?? null;
-    } catch {
-      postCode = null;
-    }
-    return { externalId: post.externalId, postCode };
-  });
+  return posts.map((post) => ({ externalId: post.externalId, postCode: instagramPostCode(post.postUrl) }));
 }

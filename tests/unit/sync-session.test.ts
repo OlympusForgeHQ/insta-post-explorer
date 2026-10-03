@@ -17,10 +17,12 @@ describe("sync session DB identity snapshot", () => {
         externalId: "456",
         postUrl: "not a URL",
       },
+      { externalId: null, postUrl: "https://instagram.com/p/%44ELETE_ME/" },
     ])).toEqual([
       { externalId: "123", postCode: "CURRENT_CODE" },
       { externalId: null, postCode: "LEGACY_CODE" },
       { externalId: "456", postCode: null },
+      { externalId: null, postCode: "DELETE_ME" },
     ]);
   });
 });

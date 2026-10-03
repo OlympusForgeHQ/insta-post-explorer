@@ -160,6 +160,26 @@ test.describe("import PostgreSQL idempotent", () => {
     });
     expect(afterDelete.ok()).toBe(true);
     expect((await afterDelete.json() as { items?: unknown[] }).items).toHaveLength(0);
+
+    const reimportAfterDelete = await page.request.post("/api/import?sourceName=qa-auth.json", {
+      headers: { ...authHeaders, "Idempotency-Key": `${nonce}:batch-3` },
+      data: payload,
+    });
+    expect(reimportAfterDelete.status()).toBe(201);
+    expect(await reimportAfterDelete.json()).toMatchObject({ imported: 0, updated: 0, skipped: 1 });
+    const afterSuppressedImport = await page.request.get(`/api/posts?q=${encodeURIComponent(nonce)}&limit=48`);
+    expect(afterSuppressedImport.ok()).toBe(true);
+    expect(await afterSuppressedImport.json()).toMatchObject({ items: [], total: 0 });
+
+    await page.getByRole("button", { name: "Gérer la bibliothèque" }).click();
+    await page.getByRole("menuitem", { name: "Journal des modifications" }).click();
+    const journal = page.getByRole("dialog", { name: "Journal des modifications" });
+    await journal.getByLabel("Données", { exact: true }).selectOption("posts");
+    await journal.getByLabel("Opération", { exact: true }).selectOption("DELETE");
+    await expect(journal.locator("details").first()).toContainText("Suppression manuelle");
+    await journal.locator("summary").first().click();
+    await expect(journal.locator("pre").first()).toContainText(nonce);
+    await journal.getByRole("button", { name: "Fermer le journal" }).click();
   });
 });
 
