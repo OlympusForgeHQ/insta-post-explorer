@@ -6,9 +6,11 @@ type CapturedMap = {
   getProjection(): { type: string } | undefined;
   getSource(id: string): { serialize(): { data?: unknown } } | undefined;
   getZoom(): number;
+  getBearing(): number;
+  getPitch(): number;
   isMoving(): boolean;
   flyTo(options: { center: [number, number]; duration: number; zoom: number }): void;
-  jumpTo(options: { center: [number, number]; zoom: number }): void;
+  jumpTo(options: { center: [number, number]; zoom: number; bearing?: number; pitch?: number }): void;
   once(event: string, listener: () => void): void;
   project(coordinates: [number, number]): { x: number; y: number };
   queryRenderedFeatures(options: { layers: string[] }): Array<{
@@ -203,6 +205,46 @@ test.describe("globe Places continu", () => {
     await expect(detail).toBeVisible();
     await page.getByRole("button", { name: /Liste/ }).click();
     await expect(page.locator('[data-place-id="places-visual-paris"]')).toHaveClass(/is-selected/);
+
+    await waitForCamera(page);
+    const camera = () => page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap;
+      if (!map) throw new Error("Places map was not captured.");
+      return { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+    });
+    // Closing a detail must retain the user's camera, even after inspecting
+    // the surrounding streets or opening the same detail again.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await page.evaluate(() => {
+        (window as MapWindow).__placesMap?.jumpTo({ center: [2.354, 48.857], zoom: 16, bearing: 25, pitch: 30 });
+      });
+      const beforeClose = await camera();
+      await detail.getByRole("button", { name: "Fermer le détail" }).click();
+      await expect(detail).toBeHidden();
+      // Cross a render boundary before checking movement triggered by React effects.
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      await waitForCamera(page);
+      expect(await camera()).toEqual(beforeClose);
+      await expect(page.locator('[data-place-id="places-visual-paris"]')).not.toHaveClass(/is-selected/);
+      if (attempt === 0) {
+        await page.locator('[data-place-id="places-visual-paris"]').click();
+        await expect(detail).toBeVisible();
+        await waitForCamera(page);
+      }
+    }
+
+    // Explicit filtering and incoming place links still frame their target.
+    await page.getByRole("searchbox", { name: "Rechercher un lieu" }).fill("Santorin");
+    await expect.poll(async () => (await camera()).center.lng).toBeCloseTo(25.4615, 4);
+    await waitForCamera(page);
+    expect((await camera()).center.lat).toBeCloseTo(36.3932, 4);
+    await page.goto("/places?placeId=places-visual-paris");
+    await waitForMap(page);
+    await waitForInitialViewport(page);
+    const linkedCamera = await camera();
+    expect(linkedCamera.center.lng).toBeCloseTo(2.3522, 4);
+    expect(linkedCamera.center.lat).toBeCloseTo(48.8566, 4);
+    expect(linkedCamera.zoom).toBeGreaterThanOrEqual(12);
   });
 
   test("agrandit un cluster sans remplacer le canvas", async ({ page }) => {

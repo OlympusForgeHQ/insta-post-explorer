@@ -1,10 +1,21 @@
 # Implementation Status
 
-Last updated: 3 October 2026 — place navigation from `develop` at `0f348d9`; prior production release at `5c1667d`
+Last updated: 4 October 2026 — camera fix from `develop` at `19b7825`; prior production release at `e620920`
+
+## Preserve Places camera on detail close — 4 October 2026
+
+IMPLEMENTED AND REVIEWED on `fix/preserve-places-viewport`: clearing selection
+preserves the user's zoom, center, bearing and pitch. Automatic framing remains
+for initial maps, filtered place sets and incoming selected-place links.
+Real MapLibre browser red/green, two close cycles, filter/deep-link checks, all
+571 application tests on PostgreSQL, lint/types/build and independent review
+passed. No migration, dependency, API or worker change. See
+[requirements and evidence](changes/2026-10-04-preserve-places-viewport.md).
+Live release receipts belong in the associated PRs.
 
 ## Post → Places and Google Maps — 3 October 2026
 
-IMPLEMENTED AND REVIEWED on `feat/post-place-navigation`: valid associated places
+DEPLOYED from `feat/post-place-navigation`: valid associated places
 appear in post details with direct `placeId` links, primary first. Known addresses
 are Maps links in post details, Places details and the Places list; missing street
 addresses use existing name/locality. Owner boundaries and rejected/unknown
@@ -12,7 +23,10 @@ exclusions are preserved. No migration, dependency, worker or V1 contract change
 571 PostgreSQL-backed tests, lint/types/build and the real-browser integration
 journey passed. Desktop/mobile and keyboard checks passed; independent review
 found no blocking issue. See [requirements and evidence](changes/2026-10-03-post-place-navigation.md).
-Live publication receipts belong in the associated PRs.
+PRs #86/#88 merged to develop at `19b7825`, release #87 to main at `e620920`.
+CI and read-only preview/production checks passed; web and worker are healthy.
+Two linked places, Maps popup, unlinked absence and mobile layout passed, with
+production search at 14/14. Receipts are on PR #87.
 
 ## Admin multiselection — 3 October 2026
 
