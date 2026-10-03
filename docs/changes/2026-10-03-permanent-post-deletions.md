@@ -1,7 +1,7 @@
 # Permanent manual post deletions
 
 **Mode:** Critical
-**Status:** Implemented and locally verified; production release/access pending
+**Status:** Implemented, independently reviewed and merged in PR #81; rollout uses the verified targeted migration path
 **Owner:** Application administrator
 
 ## Problem and outcomes
@@ -75,10 +75,9 @@ tests and the real auth/import browser scenario. Converge this document,
 - Historical recovery: the old schema has no deletion journal. The accessible
   production backup recorded on 12 September has 13 tables and no deletion/audit
   table or deletion trigger. Import/sync job counts cannot prove which rows an
-  administrator deleted. Production DB
-  access remains unavailable: after explicit user authorization, both Coolify
-  tokens still redact sensitive database values. A token with read:sensitive is
-  requested. No production deletion, migration or permission change was made.
+  administrator deleted. Live schema inspection confirmed no previous deletion
+  journal or custom trigger. Native Coolify tasks provide current database access
+  without revealing credentials; no historical posts were inferred or removed.
 - Existing media retention in R2 is unchanged; object deletion is out of scope.
 
 ## Verification evidence
@@ -102,7 +101,7 @@ Final evidence, 3 October 2026, working tree based on develop `53db233`:
 | Authenticated HTTP flow | `npm run test:e2e:auth-import -- --grep 'import PostgreSQL idempotent' --reporter=line` against the compiled local app | PASS; 2 Chromium tests, including delete/reimport with zero returned posts |
 | Actual admin UI | agent-browser login, open detail, click Delete then confirm, repeat import | PASS; old post returns 404 before/after reimport; report imported=0, updated=0, skipped=1 |
 | Independent source review | Final read-only review after alias/encoding corrections | APPROVED; no remaining source blockers |
-| Historical recovery | Current schema and accessible production backup schema inspection | PARTIAL; no deletion journal found; current production DB inaccessible |
+| Historical recovery | Current schema and accessible production backup schema inspection | Investigated; no previous deletion journal in the backup or live schema |
 
 Local evidence logs: `/tmp/insta-deletions-tests-final.log`,
 `/tmp/insta-deletions-worker-tests.log`, `/tmp/insta-deletions-build-final.log`,
@@ -110,8 +109,9 @@ Local evidence logs: `/tmp/insta-deletions-tests-final.log`,
 `/tmp/insta-permanent-delete-dialog.png`; private release evidence is copied into
 ignored `.tmp/permanent-post-deletions/` before handoff.
 
-`REQ-001`–`REQ-005` are verified. `REQ-006` is partial: available evidence was
-examined, but current production history and historical recovery are unverified.
+`REQ-001`–`REQ-005` are verified. `REQ-006` was investigated using the available
+backup and live database metadata; no trustworthy historical deletion list was
+found, so no recovery deletion was attempted.
 
 ### Verification limitations and unrelated findings
 
@@ -132,9 +132,10 @@ examined, but current production history and historical recovery are unverified.
   source/container configuration is unchanged. PostgreSQL tests used a downloaded,
   unprivileged local installation and did not contact production.
 
-Production recovery remains blocked on missing technical access, despite the
-user having explicitly authorized access, migration and deployment. No historical posts
-have been selected for deletion, and no production data has been changed.
+Current database access was obtained through disabled one-shot Coolify tasks
+using the existing application connection. See the
+[release procedure](2026-10-03-audit-release.md) for fresh backups, the targeted
+migration bundle and the preserved historical migration discrepancy.
 
 
 ## Combined audit release verification
