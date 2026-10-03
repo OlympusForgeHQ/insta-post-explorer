@@ -15,6 +15,7 @@ import {
 } from "@/lib/import/normalize";
 import { databaseConfigured, prisma } from "@/server/db";
 import { getApplicationOwnerId, parseOwnerId } from "@/server/owner";
+import { excludeDeletedPosts, lockPostWrites } from "@/server/post-deletions";
 
 const importOptionsSchema = z.object({
   ownerId: z.unknown().optional(),
@@ -88,6 +89,7 @@ export async function importPosts(
 
   let imported = 0;
   let updated = 0;
+  let skipped = prepared.skipped;
 
   try {
     for (let offset = 0; offset < prepared.items.length; offset += parsedOptions.batchSize) {
@@ -95,6 +97,7 @@ export async function importPosts(
       const batchResult = await persistBatch(ownerId, batch, transaction);
       imported += batchResult.imported;
       updated += batchResult.updated;
+      skipped += batchResult.skipped;
     }
 
     await db.importJob.update({
@@ -103,6 +106,7 @@ export async function importPosts(
         status: ImportStatus.COMPLETED,
         imported,
         updated,
+        skipped,
         finishedAt: new Date(),
       },
     });
@@ -114,6 +118,7 @@ export async function importPosts(
           status: ImportStatus.FAILED,
           imported,
           updated,
+          skipped,
           errorCode: classifyImportError(error),
           finishedAt: new Date(),
         },
@@ -127,7 +132,7 @@ export async function importPosts(
     total: prepared.total,
     imported,
     updated,
-    skipped: prepared.skipped,
+    skipped,
     invalid: prepared.invalid,
   };
 }
@@ -154,11 +159,15 @@ async function persistBatch(
   ownerId: string,
   batch: NormalizedImportPost[],
   enclosingTransaction?: Prisma.TransactionClient,
-): Promise<{ imported: number; updated: number }> {
-  if (batch.length === 0) return { imported: 0, updated: 0 };
+): Promise<{ imported: number; updated: number; skipped: number }> {
+  if (batch.length === 0) return { imported: 0, updated: 0, skipped: 0 };
 
   const persist = async (transaction: Prisma.TransactionClient) => {
-      const urls = batch.map((post) => post.postUrl);
+      await lockPostWrites(transaction, ownerId);
+      const allowed = await excludeDeletedPosts(transaction, ownerId, batch);
+      const skipped = batch.length - allowed.length;
+      if (allowed.length === 0) return { imported: 0, updated: 0, skipped };
+      const urls = allowed.map((post) => post.postUrl);
       const existingPosts = await transaction.post.findMany({
         where: { ownerId, postUrl: { in: urls } },
         select: { postUrl: true },
@@ -166,7 +175,7 @@ async function persistBatch(
       const existingUrls = new Set(existingPosts.map((post) => post.postUrl));
       const persistedPosts: Array<{ id: string; source: NormalizedImportPost }> = [];
 
-      for (const source of batch) {
+      for (const source of allowed) {
         const data = toPostData(source);
         const post = await transaction.post.upsert({
           where: { ownerId_postUrl: { ownerId, postUrl: source.postUrl } },
@@ -229,8 +238,8 @@ async function persistBatch(
         await transaction.postTag.createMany({ data: postTags, skipDuplicates: true });
       }
 
-      const updated = batch.filter((post) => existingUrls.has(post.postUrl)).length;
-      return { imported: batch.length - updated, updated };
+      const updated = allowed.filter((post) => existingUrls.has(post.postUrl)).length;
+      return { imported: allowed.length - updated, updated, skipped };
     };
   return enclosingTransaction ? persist(enclosingTransaction) :
     prisma.$transaction(persist, { maxWait: 5_000, timeout: 20_000 });

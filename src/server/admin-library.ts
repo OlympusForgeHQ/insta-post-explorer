@@ -3,9 +3,11 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { foldForSearch, tagSlug } from "@/lib/import/normalize";
+import { foldForSearch, instagramPostCode, tagSlug } from "@/lib/import/normalize";
 import { databaseConfigured, prisma } from "@/server/db";
+import { setAuditAction } from "@/server/audit-log";
 import { parseOwnerId } from "@/server/owner";
+import { findPostAliases, lockPostWrites } from "@/server/post-deletions";
 
 const postIdSchema = z.string().trim().min(1).max(256);
 const tagNameSchema = z
@@ -99,15 +101,26 @@ export async function deleteOwnedPost(input: {
   const postId = postIdSchema.parse(input.postId);
 
   await prisma.$transaction(async (transaction) => {
+    await setAuditAction(transaction, "admin.delete_post");
+    await lockPostWrites(transaction, ownerId);
+    const matchingPosts = await findPostAliases(transaction, ownerId, postId);
+    if (matchingPosts.length === 0) throw new AdminResourceNotFoundError();
+    await transaction.deletedPost.createMany({
+      data: matchingPosts.map((candidate) => ({
+        ownerId, postUrl: candidate.postUrl, externalId: candidate.externalId,
+        postCode: instagramPostCode(candidate.postUrl),
+      })),
+      skipDuplicates: true,
+    });
     const deleted = await transaction.post.deleteMany({
-      where: { id: postId, ownerId },
+      where: { id: { in: matchingPosts.map((candidate) => candidate.id) }, ownerId },
     });
     if (deleted.count === 0) throw new AdminResourceNotFoundError();
 
     await transaction.tag.deleteMany({
       where: { ownerId, postTags: { none: {} } },
     });
-  });
+  }, { maxWait: 5_000, timeout: 20_000 });
 }
 
 function requireDatabase(): void {

@@ -20,6 +20,20 @@ most three times per local day, and never again after one success that day. Manu
 runs remain available afterwards. Failed or crashed attempts can retry; completed
 posts are retained and the next run receives the known-post snapshot.
 
+Administrator deletions are permanent within the library. The app keeps minimal
+owner-scoped identities in `deleted_posts`, and includes these identities in the
+known-post snapshot so the collector skips them. Common imports also enforce
+these markers for in-flight requests and records outside the 10,000-entry
+snapshot. Such records count as skipped, not imported or updated. Existing URL
+aliases are removed together; identity checks accept equivalent Instagram URL
+forms. Re-importing a file cannot restore a manually deleted post.
+
+Deploy migration `20261003150000_permanent_post_deletions` before the matching
+application. Preserve its table if rolling back; suspend imports and sync while
+running old code that does not enforce the markers. Earlier hard deletions cannot
+be reconstructed from job counters alone; recovery requires exact identities or
+separate audit evidence.
+
 A lease lasts five minutes and is renewed every 30 seconds. A crashed collector
 loses the lease; the next admission marks its job failed. Obsolete imports cannot
 commit. Post, media identity and job counters commit in one transaction. R2 object

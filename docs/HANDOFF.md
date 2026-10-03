@@ -1,13 +1,55 @@
 # Operational Handoff
 
-Last updated: 24 August 2026
+Last updated: 3 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development branch: `develop` at `a91f254`
-Reference production base: `main` at `daaca2c` (PR #72, full develop alignment)
-Reference implementation: `main` and `develop` are aligned — `main` includes all
-develop work through PR #71 (D6 harness repair and DB error logging)
+Reference development branch: `develop` at `53db233`
+Reference production base: `main` at `cd58ab9` (PR #80, search correction)
+Older phase references below are historical.
 
-## Current task — search result visibility, 27 September 2026
+## Current task — permanent deletions and mutation journal, 3 October 2026
+
+Local branch `fix/persist-manual-post-deletions` starts at develop `53db233`.
+Admin deletion atomically records minimal identities and removes linked URL
+aliases. Imports and sync snapshots honor these identities; concurrent imports
+cannot resurrect deleted posts. The admin-only mutation journal records actual
+row changes across all 13 business tables, including worker/direct SQL and
+cascades, with before/after values. Reads are excluded. Owner transfers split
+snapshots so neither owner sees the other's private values. Gérer exposes filters,
+keyset pagination and event details.
+
+Both changes passed independent source review. Fresh verification on the final
+migration: 557 application tests, 77 worker tests, lint, app/worker type checks,
+production build, and two targeted browser scenarios including the journal.
+The broader auth suite has an unrelated legacy selector/logout failure, recorded
+in the [deletion change](changes/2026-10-03-permanent-post-deletions.md).
+See the [audit design and evidence](changes/2026-10-03-database-audit.md).
+
+The user explicitly approved production access, migration, merge and deployment,
+then requested mutation-only auditing. No further release approval is needed.
+Both available Coolify tokens were tried with authorization but redact sensitive
+values. Host Docker/sudo access is unavailable. Requested a token with
+`read:sensitive`; this is a missing technical capability, not pending permission
+from the user. Production and preview migrations must precede their auto-deployed
+application branches. Do not merge until that gate is satisfied. Do not use the
+old Neon environment files or unverified GitHub database secret as the current DB.
+
+The grouped GitHub publication exceeded the automatic review limit. The user
+subsequently explicitly authorized two separately reviewed commits: code/tests/
+migrations, then documentation. Publication is authorized; no new approval is
+required. The database migration gate remains separate.
+
+No production migration or deployment for this change has occurred. Migrations
+`20261003150000_permanent_post_deletions` and
+`20261003170000_database_audit` were rehearsed on a fresh disposable PostgreSQL 16
+instance through all 13 migrations. Preserve audit events and deletion identities
+on rollback; suspend imports if reverting to application code without suppression.
+
+Historical recovery remains unverified. The accessible September backup has no
+deletion/audit table or trigger; current production DB history remains inaccessible.
+Never infer manual deletion from missing rows or import counts. No historical
+posts were selected or deleted. The journal starts when its migration is applied.
+
+## Previous task — search result visibility, 27 September 2026
 
 The local branch `fix/search-results-count` starts at develop `ec46735`.
 The UI no longer repeats text search against truncated cards; stale pagination
@@ -17,8 +59,9 @@ skips), 20 library browser tests passed, lint/typecheck/build passed.
 See [change and evidence](changes/2026-09-27-search-results-count.md).
 The owner authorized merge and production deployment after an exact
 `pomme de terre` check: the corrected build displayed all 14 production results,
-versus 7 with the old UI. Publication is proceeding through CI and pull requests;
-verify that query again after the production deployment. No migration.
+versus 7 with the old UI. PR #79 merged to develop and PR #80 to main; CI and
+production verification passed at `cd58ab9`, including 14/14 results and healthy
+web/worker deployments. No migration.
 
 ## Previous task — daily sync, 11 September 2026
 

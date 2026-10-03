@@ -47,6 +47,7 @@ describe("manual and automatic sync sessions", () => {
     db.createJob.mockResolvedValue({ id: "new-job" });
     db.transaction.mockImplementation((operation) => operation({
       $queryRaw: async () => [],
+      deletedPost: { findMany: async () => [] },
       post: { findMany: db.posts }, syncJob: { create: db.createJob, findMany: async () => [] },
     }));
   });

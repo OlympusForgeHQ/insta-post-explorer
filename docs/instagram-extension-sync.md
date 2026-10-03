@@ -61,9 +61,15 @@ déjà présents dans la DB pour amorcer l’index incrémental. Les anciens imp
 `external_id` restent donc détectables. Les upserts par URL canonique constituent
 une seconde protection contre les doublons.
 
+Les publications supprimées manuellement par l’administrateur sont également
+considérées comme connues : elles ne sont plus des cibles de réconciliation.
+Le serveur conserve leurs identifiants par propriétaire et les ignore aussi
+lorsqu’une synchronisation était déjà en cours ou qu’un fichier est réimporté.
+La suppression couvre les différentes URL représentant la même publication.
+
 Depuis la version 4.2.3, l’archive IndexedDB de l’extension et l’état de la web
 app restent séparés. Un post déjà exporté localement mais absent de PostgreSQL
-reste une cible de réconciliation; il ne peut plus provoquer un faux résultat
+reste une cible de réconciliation, sauf suppression manuelle enregistrée; il ne peut plus provoquer un faux résultat
 « à jour ». Si un post archivé n’est plus retrouvable dans le flux Instagram,
 la synchronisation affiche le nombre de cibles non résolues au lieu d’annoncer
 un succès.
