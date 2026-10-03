@@ -1,16 +1,37 @@
 # Implementation Status
 
-Last updated: 24 August 2026 — `develop` at `a91f254`, `main` at `daaca2c` (aligned)
+Last updated: 3 October 2026 — `develop` at `53db233`, `main` at `cd58ab9`
+
+## Permanent deletions and database journal — 3 October 2026
+
+VERIFIED LOCALLY, DATABASE ACCESS PENDING: `fix/persist-manual-post-deletions`
+preserves owner-scoped deletion identities, removes aliases and suppresses future
+imports, including in-flight sync requests. The admin journal records committed
+INSERT/UPDATE/DELETE/TRUNCATE effects on all business tables, with before/after
+snapshots, transactional consistency, owner isolation and read-only consultation.
+No read-query logging. Both changes passed independent review.
+
+557 app tests and 77 worker tests passed on PostgreSQL; lint, both type checks,
+production build and two targeted auth/import/journal browser scenarios passed.
+Both additive migrations were rehearsed on a new database. The broader auth
+suite's unrelated legacy selector/logout issue remains documented.
+
+The user authorized access, migration, merge and release. Existing Coolify tokens
+still redact DB credentials; a token with read:sensitive is requested. No preview
+or production migration/release has occurred. Historical deletion recovery remains
+unverified; the available backup has no journal. See
+[deletion evidence](changes/2026-10-03-permanent-post-deletions.md) and
+[audit evidence](changes/2026-10-03-database-audit.md).
 
 ## Search result visibility — 27 September 2026
 
-AWAITING_REVIEW (publication gate): `fix/search-results-count`, from develop
+DEPLOYED: `fix/search-results-count`, from develop
 `ec46735`, corrects the redundant browser text filter and ignores stale paging
 and discovery responses. Independent code review approved the final diff.
 396 unit tests passed (138 database-bound skips), 20 library browser tests
 passed, lint/typecheck/build passed. The owner authorized merge and deployment
 after the exact `pomme de terre` check passed: 14/14 cards, previously 7/14.
-Publication is proceeding through CI and pull requests. No migration.
+PRs #79 and #80 merged; CI and production checks passed at `cd58ab9`. No migration.
 See [change and evidence](changes/2026-09-27-search-results-count.md).
 
 ## Daily sync worker — 11 September 2026
