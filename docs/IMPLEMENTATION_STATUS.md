@@ -1,10 +1,22 @@
 # Implementation Status
 
-Last updated: 3 October 2026 — multiselection from `develop` at `b17c4a8`; prior production release at `f4aa7a2`
+Last updated: 3 October 2026 — place navigation from `develop` at `0f348d9`; prior production release at `5c1667d`
+
+## Post → Places and Google Maps — 3 October 2026
+
+IMPLEMENTED AND REVIEWED on `feat/post-place-navigation`: valid associated places
+appear in post details with direct `placeId` links, primary first. Known addresses
+are Maps links in post details, Places details and the Places list; missing street
+addresses use existing name/locality. Owner boundaries and rejected/unknown
+exclusions are preserved. No migration, dependency, worker or V1 contract change.
+571 PostgreSQL-backed tests, lint/types/build and the real-browser integration
+journey passed. Desktop/mobile and keyboard checks passed; independent review
+found no blocking issue. See [requirements and evidence](changes/2026-10-03-post-place-navigation.md).
+Live publication receipts belong in the associated PRs.
 
 ## Admin multiselection — 3 October 2026
 
-IMPLEMENTED AND REVIEWED on `feat/post-multiselection`: explicit selection of
+DEPLOYED from `feat/post-multiselection`: explicit selection of
 loaded cards, count, select-all-displayed and confirmed grouped deletion. Existing
 owner-scoped suppression/audit endpoint reused sequentially; partial retry,
 lost responses, failed filters and unmount are handled. No migration or dependency.
@@ -12,7 +24,9 @@ lost responses, failed filters and unmount are handled. No migration or dependen
 browser scenarios passed. Desktop/mobile layout and keyboard checks passed;
 independent review has no remaining important findings. See
 [requirements and evidence](changes/2026-10-03-post-multiselection.md).
-Publication/live verification receipts are recorded on the associated PRs.
+PR #84 merged at `0f348d9`, release PR #85 at `5c1667d`; CI and preview browser
+verification passed. Production web/worker are healthy, with read-only admin,
+journal and 14/14 search checks passed. Receipts are recorded on those PRs.
 
 ## Permanent deletions and database journal — 3 October 2026
 

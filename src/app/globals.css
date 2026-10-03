@@ -791,6 +791,19 @@ select { min-height: 38px; border-radius: 9px; color: var(--text); padding: 0 30
   .places-globe-canvas { transition: none; }
 }
 
+/* Known place addresses remain keyboard-accessible without nesting links in buttons. */
+.place-address-link { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; max-width: 100%; color: var(--accent); font-size: .82rem; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.place-address-link span { min-width: 0; }
+.place-address-link svg { flex-shrink: 0; }
+.place-address-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.post-place-links { display: grid; gap: 10px; margin: 8px 0 0; padding: 0; list-style: none; }
+.post-place-links li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+.post-place-links li > div { display: grid; flex: 1 1 180px; min-width: 0; }
+.post-place-links strong { font-size: .85rem; overflow-wrap: anywhere; }
+.post-place-links .button { min-height: 44px; }
+.places-sheet-address { padding: 0 14px; }
+.places-row-address { padding: 0 12px 4px; }
+
 /* Library multiselection uses the same cards in grid and masonry layouts. */
 .library-admin-tools { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .library-admin-tools .button { min-height: 44px; }

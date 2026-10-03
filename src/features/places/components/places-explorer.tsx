@@ -27,6 +27,7 @@ import {
   type ReviewFilter,
 } from "@/features/places/query-state";
 import { PlaceDetailSheet } from "@/features/places/components/place-detail-sheet";
+import { PlaceAddressLink } from "@/features/places/components/place-address-link";
 import { PlacesMapA11yList, PlacesRenderer, type ResolvedPlacesView } from "@/features/places/components/places-renderer";
 import type { ScreenPoint } from "@/features/places/renderer-contract";
 
@@ -449,6 +450,7 @@ export function PlacesExplorer({
                       </span>
                     </span>
                   </button>
+                  {place.address ? <div className="places-row-address"><PlaceAddressLink place={place} /></div> : null}
                 </li>
               ))}
               {visible.length === 0 ? <li className="places-empty">Aucun lieu ne correspond à ces filtres.</li> : null}

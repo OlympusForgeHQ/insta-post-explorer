@@ -6,6 +6,7 @@ import { ExternalLink, Loader2, MapPin, X } from "lucide-react";
 import type { PlacesMapItem } from "@/server/places/map-view";
 import { cn } from "@/lib/utils";
 import { confirmPlaceAction, loadPlacePostsAction, rejectPlaceAction, type PlacePostDetailDto } from "@/features/places/actions";
+import { PlaceAddressLink } from "@/features/places/components/place-address-link";
 
 // Detail sheet for the selected place. Review writes call the internal Server
 // Actions (never the read-only external API); each action is guarded against
@@ -95,6 +96,8 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
           <X size={15} aria-hidden="true" />
         </button>
       </header>
+
+      <div className="places-sheet-address"><PlaceAddressLink place={place} /></div>
 
       <div className="places-sheet-badges">
         <span className={cn("places-badge", `is-${place.precision.toLowerCase()}`)}>
