@@ -194,6 +194,7 @@ export function PlacesMap({
   const vector = Boolean(styleUrl);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const framedPlacesRef = useRef<{ map: MapLibreMap; places: readonly PlacesMapItem[] } | null>(null);
   const readyRef = useRef(false);
   const placesRef = useRef<readonly PlacesMapItem[]>(places);
   const selectedIdRef = useRef(selectedId);
@@ -443,9 +444,11 @@ export function PlacesMap({
 
     const applyViewport = async () => {
       const { LngLatBounds } = await import("maplibre-gl");
-      if (cancelled || !mapRef.current) return;
+      if (cancelled || mapRef.current !== map) return;
       const reduceMotion = reducedMotion ?? prefersReducedMotion();
       const selected = selectedId ? places.find((place) => place.id === selectedId) : null;
+      const placesChanged = framedPlacesRef.current?.map !== map || framedPlacesRef.current.places !== places;
+      framedPlacesRef.current = { map, places };
       if (selected) {
         map.easeTo({
           center: [selected.longitude, selected.latitude],
@@ -454,6 +457,10 @@ export function PlacesMap({
         });
         return;
       }
+
+      // Closing a detail only clears the selection. Keep the user's camera
+      // unless this map is new or the filtered set of places has changed.
+      if (!placesChanged) return;
 
       // Fitting every place is what puts the camera far enough out for `globe`
       // to show a sphere on first load; zooming in flattens it by itself.

@@ -1,12 +1,28 @@
 # Operational Handoff
 
-Last updated: 3 October 2026
+Last updated: 4 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `0f348d9` (PR #84)
-Reference production base: `main` at `5c1667d` (PR #85)
+Reference development base: `develop` at `19b7825` (PRs #86/#88)
+Reference production base: `main` at `e620920` (PR #87)
 Older phase references below are historical.
 
-## Current task — post links to Places and Google Maps, 3 October 2026
+## Current task — preserve Places camera on detail close, 4 October 2026
+
+`fix/preserve-places-viewport` starts at develop `19b7825`. Closing a place/post
+sheet used to fit all visible places again, losing the user's zoom and center.
+The renderer now fits an unselected view only for a new map or a changed filtered
+place set. Closing the sheet preserves center, zoom, bearing and pitch. Initial
+place links, selection focus and deliberate filtering retain their behavior.
+No migration, dependency, API or worker change.
+
+The real MapLibre browser regression failed before the patch (zoom 16 → 1.847)
+and passed after, including repeat close/reopen, filter framing and deep links.
+571 PostgreSQL-backed tests, lint/types/build and independent review passed.
+See [scope and proof](changes/2026-10-04-preserve-places-viewport.md).
+Merge/deployment authorization persists; record live receipts in the associated
+PRs and `.tmp/camera/`. Preserve the database-history exception below.
+
+## Previous task — post links to Places and Google Maps, 3 October 2026
 
 `feat/post-place-navigation` starts at develop `0f348d9`. Full post details expose
 owner-scoped, valid associated places, primary first, with a distinct “Voir dans
@@ -21,8 +37,11 @@ build and one real-browser post → place → Maps journey using local synthetic
 Desktop/mobile layout has no horizontal overflow at 390px; links have 44px touch
 targets and visible keyboard focus. Independent review found no blocking issue.
 See [scope and evidence](changes/2026-10-03-post-place-navigation.md).
-Merge/deployment authorization persists; record live receipts in the associated
-PRs and `.tmp/place-links/`. Preserve the migration-history exception below.
+PR #86 and test follow-up #88 merged to develop at `19b7825`; release #87 merged
+to main at `e620920`. CI passed, both environments' web/worker are healthy, and
+read-only browser checks passed on existing posts with two linked places. Google
+Maps, unlinked absence and mobile layout passed; production search was 14/14.
+Receipts are in PR #87 and `.tmp/place-links/`. No database migration.
 
 ## Previous task — admin multiselection, 3 October 2026
 
