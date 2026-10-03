@@ -1,10 +1,10 @@
 # Implementation Status
 
-Last updated: 3 October 2026 — `develop` at `53db233`, `main` at `cd58ab9`
+Last updated: 3 October 2026 — `develop` at `0f81e60` (PR #81); production release follows the verified database gates
 
 ## Permanent deletions and database journal — 3 October 2026
 
-VERIFIED LOCALLY, DATABASE ACCESS PENDING: `fix/persist-manual-post-deletions`
+IMPLEMENTED, REVIEWED AND MERGED: `fix/persist-manual-post-deletions`
 preserves owner-scoped deletion identities, removes aliases and suppresses future
 imports, including in-flight sync requests. The admin journal records committed
 INSERT/UPDATE/DELETE/TRUNCATE effects on all business tables, with before/after
@@ -16,10 +16,19 @@ production build and two targeted auth/import/journal browser scenarios passed.
 Both additive migrations were rehearsed on a new database. The broader auth
 suite's unrelated legacy selector/logout issue remains documented.
 
-The user authorized access, migration, merge and release. Existing Coolify tokens
-still redact DB credentials; a token with read:sensitive is requested. No preview
-or production migration/release has occurred. Historical deletion recovery remains
-unverified; the available backup has no journal. See
+The user authorized access, migrations, merge and release. CI quality/browser
+checks passed. Preview web/worker and the live deletion/reimport/journal smoke
+passed. Both database upgrades completed with 40 active triggers and unchanged
+historical migration records. Native one-shot Coolify tasks provide access using the
+existing application connection. Fresh backups, exact-schema checks, a targeted
+migration rehearsal and preservation of the existing history gate deployment.
+Do not run full-repository migrations on these databases: the pre-existing
+migration history needs separate reconciliation. See the
+[release procedure and evidence](changes/2026-10-03-audit-release.md).
+
+Live schema and backup inspection found no prior deletion journal. Earlier
+manual deletions cannot be reliably reconstructed from the available evidence;
+no historical post was deleted based on inference. See
 [deletion evidence](changes/2026-10-03-permanent-post-deletions.md) and
 [audit evidence](changes/2026-10-03-database-audit.md).
 

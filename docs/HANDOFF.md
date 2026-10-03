@@ -2,7 +2,7 @@
 
 Last updated: 3 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development branch: `develop` at `53db233`
+Reference development branch: `develop` at `0f81e60` (PR #81)
 Reference production base: `main` at `cd58ab9` (PR #80, search correction)
 Older phase references below are historical.
 
@@ -24,30 +24,40 @@ The broader auth suite has an unrelated legacy selector/logout failure, recorded
 in the [deletion change](changes/2026-10-03-permanent-post-deletions.md).
 See the [audit design and evidence](changes/2026-10-03-database-audit.md).
 
-The user explicitly approved production access, migration, merge and deployment,
-then requested mutation-only auditing. No further release approval is needed.
-Both available Coolify tokens were tried with authorization but redact sensitive
-values. Host Docker/sudo access is unavailable. Requested a token with
-`read:sensitive`; this is a missing technical capability, not pending permission
-from the user. Production and preview migrations must precede their auto-deployed
-application branches. Do not merge until that gate is satisfied. Do not use the
-old Neon environment files or unverified GitHub database secret as the current DB.
+The user explicitly approved production access, migrations, merge and deployment.
+PR #81 merged at `0f81e60` after green CI and the preview database migration.
+Preview web/worker are healthy and the live deletion/reimport/journal smoke
+passed. Both database migrations and their exact post-checks have now succeeded;
+production application activation follows through the release PR.
+Native disabled, manually executed Coolify scheduled tasks use the running web
+application's existing DATABASE_URL; no sensitive-read permission or exported
+credential is needed. Do not use old Neon environment files or GitHub secrets for
+these current Coolify databases. Record the final production merge/deployment result in the release PR and local
+release receipts after the live checks pass.
 
-The grouped GitHub publication exceeded the automatic review limit. The user
-subsequently explicitly authorized two separately reviewed commits: code/tests/
-migrations, then documentation. Publication is authorized; no new approval is
-required. The database migration gate remains separate.
-
-No production migration or deployment for this change has occurred. Migrations
+**Migration exception:** both current databases contain eight historical migration
+records, three absent legacy migrations and two legacy checksum differences.
+Sync/Collections objects already exist; the old Cuisine data update remains
+historically unverified and is not replayed.
+Preview schema comparison showed compatible, intentional raw-SQL indexes/
+defaults and owner constraints; both databases passed the catalogue checks. Do not run a full-repository `prisma migrate deploy`,
+`db push`, or replay old data migrations until that history is separately
+reconciled. This release uses an isolated bundle containing only
 `20261003150000_permanent_post_deletions` and
-`20261003170000_database_audit` were rehearsed on a fresh disposable PostgreSQL 16
-instance through all 13 migrations. Preserve audit events and deletion identities
-on rollback; suspend imports if reverting to application code without suppression.
+`20261003170000_database_audit`, with original SQL, schema and lock file.
+Rehearsal on the observed divergent history proved that only these two migrations
+are applied, a retry is a no-op, and all old migration records remain unchanged.
+See [the release procedure and evidence](changes/2026-10-03-audit-release.md).
 
-Historical recovery remains unverified. The accessible September backup has no
-deletion/audit table or trigger; current production DB history remains inaccessible.
-Never infer manual deletion from missing rows or import counts. No historical
-posts were selected or deleted. The journal starts when its migration is applied.
+Preserve audit events and deletion identities on rollback; suspend imports if
+reverting to application code without suppression. Both the fresh-database
+13-migration rehearsal and this targeted upgrade path passed independently.
+
+Historical recovery was investigated against the backup and live database
+metadata. Neither had a previous deletion/audit table or custom trigger. No
+reliable list of past manual deletions was found; import counts cannot establish
+that list. No historical posts were selected or deleted. The journal starts when
+its migration is applied and does not invent earlier events.
 
 ## Previous task — search result visibility, 27 September 2026
 

@@ -50,8 +50,10 @@ status. No dependency, provider, worker or new database is introduced.
 
 Rehearse additive migrations on disposable PostgreSQL before preview/production.
 Deploy tables/triggers before application code and verify normal writes and
-owner-scoped reads. Both existing Coolify tokens currently redact DB credentials;
-permission read:sensitive has been requested, not another release approval.
+owner-scoped reads. Native disabled one-shot Coolify tasks use the current web
+application connection without extracting credentials. The existing migration
+history is divergent; use the reviewed targeted bundle described in the
+[release procedure](2026-10-03-audit-release.md), not a full-repository deploy.
 Preserve the audit table during rollback. Old application code remains compatible
 with the audit triggers. To disable capture during an incident, explicitly remove
 only the audit triggers; retain all recorded events. Monitor table size and write
@@ -87,12 +89,7 @@ content; the existing browser scenario proves the complete admin journey.
 
 Evidence logs are copied to ignored `.tmp/permanent-post-deletions/`. The new
 journal cannot reconstruct earlier deletions absent a trustworthy historical
-record. Production data has not been changed; release is pending technical DB
-access and migration, not another user authorization.
-
-
-Publication note: the grouped GitHub create-tree call exceeded automatic approval
-review's 200,000-byte input limit. The user subsequently explicitly authorized
-publishing code/tests/migrations and documentation as two separately reviewed
-commits. No further publication approval is required; current database access
-and migration remain the release gate.
+record. The live database schema also contained no previous audit/deletion table
+or custom trigger. PR #81 and its quality/browser CI passed. See the
+[release procedure and database evidence](2026-10-03-audit-release.md) for the
+subsequent native Coolify migration path and historical migration exception.
