@@ -203,6 +203,7 @@ function buildFixtures() {
     {
       id: "places-visual-paris",
       displayName: "Café du Globe Paris",
+      address: "12 rue de l'Église & Café",
       city: "Paris",
       country: "France",
       countryCode: "FR",
@@ -355,6 +356,7 @@ async function seed(databaseUrl) {
           category: fixture.category,
           provider: "visual-harness",
           providerPlaceId: fixture.id,
+          address: fixture.address ?? null,
           city: fixture.city,
           country: fixture.country,
           countryCode: fixture.countryCode,

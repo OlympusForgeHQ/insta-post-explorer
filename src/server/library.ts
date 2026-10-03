@@ -396,9 +396,16 @@ export async function getLibraryPost(
 
   const row = await prisma.post.findFirst({
     where: { id: postId, ownerId },
-    include: postInclude,
+    include: {
+      ...postInclude,
+      placeLinks: {
+        where: { ownerId, place: { ownerId, reviewStatus: { not: "REJECTED" }, precision: { in: ["EXACT", "PROBABLE", "APPROXIMATE"] } } },
+        orderBy: [{ isPrimary: "desc" }, { confidence: "desc" }, { id: "asc" }],
+        select: { place: { select: { id: true, displayName: true, address: true, city: true, region: true, country: true } } },
+      },
+    },
   });
-  return row ? toLibraryPost(row, false) : null;
+  return row ? { ...toLibraryPost(row, false), places: row.placeLinks.map((link) => link.place) } : null;
 }
 
 // Single source for the Prisma predicates shared by the normal list, count

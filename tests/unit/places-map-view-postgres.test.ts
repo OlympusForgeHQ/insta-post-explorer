@@ -30,6 +30,26 @@ describeWithDatabase("Places map view on PostgreSQL", () => {
 
   beforeEach(resetDatabase);
 
+  it("loads valid post-place links in primary order without leaking another owner's links", async () => {
+    const library = await import("@/server/library");
+    const post = await seedPost(OWNER_A, "Cuisine");
+    const primary = await seedPlace(OWNER_A, { providerPlaceId: "primary", address: "12 rue de l'Église" });
+    const secondary = await seedPlace(OWNER_A, { providerPlaceId: "secondary" });
+    const rejected = await seedPlace(OWNER_A, { providerPlaceId: "rejected", reviewStatus: "REJECTED" });
+    await linkPostPlace(OWNER_A, post, secondary.id, { confidence: 1 });
+    await linkPostPlace(OWNER_A, post, primary.id, { isPrimary: true, confidence: 0.8 });
+    await linkPostPlace(OWNER_A, post, rejected.id);
+    const unlinked = await seedPost(OWNER_A, "Voyages");
+
+    expect(await library.getLibraryPost(post, OWNER_A)).toMatchObject({
+      places: [{ id: primary.id, address: "12 rue de l'Église" }, { id: secondary.id }],
+    });
+    expect(await library.getLibraryPost(unlinked, OWNER_A)).toMatchObject({ places: [] });
+    expect(await library.getLibraryPost(post, OWNER_B)).toBeNull();
+    expect((await mapView.loadPlacesMapView(OWNER_A)).items.find((place) => place.id === primary.id))
+      .toMatchObject({ address: "12 rue de l'Église" });
+  });
+
   it("returns only the requesting owner's places with their post count", async () => {
     const place = await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-1", category: "catering.cafe" });
     await seedPlace(OWNER_B, { providerPlaceId: "geo-mv-b" });

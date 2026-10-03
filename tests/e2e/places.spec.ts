@@ -68,6 +68,41 @@ test.describe("page Places avec le harnais local", () => {
     await expect(page).not.toHaveURL(/placeId=/);
   });
 
+  test("relie le détail du post à son lieu et ouvre son adresse dans un nouvel onglet", async ({ page, context }) => {
+    const response = await page.request.get("/api/posts?q=Caf%C3%A9%20du%20Globe%20Paris");
+    expect(response.ok()).toBe(true);
+    const { items } = await response.json();
+    const post = items.find((item: { postUrl: string }) => item.postUrl.endsWith("/places-visual-paris"));
+    expect(post).toBeDefined();
+
+    await page.goto(`/?post=${encodeURIComponent(post.id)}`);
+    const postDetail = page.getByRole("dialog");
+    await expect(postDetail.getByRole("link", { name: "Voir dans Places" })).toBeVisible();
+    await expect(postDetail.getByRole("link", { name: /dans Google Maps/ })).toContainText("12 rue de l'Église & Café");
+    await postDetail.getByRole("link", { name: "Voir dans Places" }).click();
+
+    await expect(page).toHaveURL(/\/places\?placeId=places-visual-paris/);
+    const placeDetail = page.getByRole("dialog", { name: "Détail de Café du Globe Paris" });
+    await expect(placeDetail).toBeVisible();
+    const mapsLink = placeDetail.getByRole("link", { name: /dans Google Maps/ });
+    // Intercept only the external destination; app routing and database reads stay real.
+    await context.route("https://www.google.com/maps/**", (route) => route.fulfill({ body: "Maps destination" }));
+    const popupPromise = page.waitForEvent("popup");
+    await mapsLink.click();
+    const popup = await popupPromise;
+    await popup.waitForLoadState();
+    const mapsUrl = new URL(popup.url());
+    expect(mapsUrl.origin + mapsUrl.pathname).toBe("https://www.google.com/maps/search/");
+    expect(mapsUrl.searchParams.get("query")).toBe("12 rue de l'Église & Café, Paris, France");
+    await expect(placeDetail).toBeVisible();
+    await popup.close();
+
+    await placeDetail.getByRole("button", { name: "Fermer le détail" }).click();
+    await page.getByRole("button", { name: /Liste/ }).click();
+    await expect(page.getByRole("complementary", { name: "Liste des lieux" })
+      .getByRole("link", { name: /12 rue de l'Église & Café/ })).toBeVisible();
+  });
+
   test("n'affiche qu'un panneau entre filtres et liste", async ({ page }) => {
     await page.getByRole("button", { name: /Liste/ }).click();
     const list = page.getByRole("complementary", { name: "Liste des lieux" });

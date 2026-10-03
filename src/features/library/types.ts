@@ -30,6 +30,16 @@ export type LibraryPost = {
   commentsCount: number | null;
   metadata: Record<string, unknown>;
   collections: string[];
+  places?: LibraryPostPlace[];
+};
+
+export type LibraryPostPlace = {
+  id: string;
+  displayName: string;
+  address: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
 };
 
 export type LibraryCollection = { id: string; name: string; slug: string; isSystem: boolean; count: number };
