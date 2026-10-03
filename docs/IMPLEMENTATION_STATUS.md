@@ -1,10 +1,22 @@
 # Implementation Status
 
-Last updated: 3 October 2026 — `develop` at `0f81e60` (PR #81); production release follows the verified database gates
+Last updated: 3 October 2026 — multiselection from `develop` at `b17c4a8`; prior production release at `f4aa7a2`
+
+## Admin multiselection — 3 October 2026
+
+IMPLEMENTED AND REVIEWED on `feat/post-multiselection`: explicit selection of
+loaded cards, count, select-all-displayed and confirmed grouped deletion. Existing
+owner-scoped suppression/audit endpoint reused sequentially; partial retry,
+lost responses, failed filters and unmount are handled. No migration or dependency.
+566 application tests against PostgreSQL, lint/types/build and three real-auth
+browser scenarios passed. Desktop/mobile layout and keyboard checks passed;
+independent review has no remaining important findings. See
+[requirements and evidence](changes/2026-10-03-post-multiselection.md).
+Publication/live verification receipts are recorded on the associated PRs.
 
 ## Permanent deletions and database journal — 3 October 2026
 
-IMPLEMENTED, REVIEWED AND MERGED: `fix/persist-manual-post-deletions`
+DEPLOYED: `fix/persist-manual-post-deletions`
 preserves owner-scoped deletion identities, removes aliases and suppresses future
 imports, including in-flight sync requests. The admin journal records committed
 INSERT/UPDATE/DELETE/TRUNCATE effects on all business tables, with before/after
@@ -19,7 +31,9 @@ suite's unrelated legacy selector/logout issue remains documented.
 The user authorized access, migrations, merge and release. CI quality/browser
 checks passed. Preview web/worker and the live deletion/reimport/journal smoke
 passed. Both database upgrades completed with 40 active triggers and unchanged
-historical migration records. Native one-shot Coolify tasks provide access using the
+historical migration records. PR #82 merged at `f4aa7a2`; production web and worker
+finished healthy. Live checks passed for private journal access and search at
+14/14 results; PR #83 synced docs to develop. Native one-shot Coolify tasks provide access using the
 existing application connection. Fresh backups, exact-schema checks, a targeted
 migration rehearsal and preservation of the existing history gate deployment.
 Do not run full-repository migrations on these databases: the pre-existing
