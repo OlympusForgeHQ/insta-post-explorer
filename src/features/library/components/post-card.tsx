@@ -7,7 +7,7 @@ import { BrokenImage } from "@/features/library/components/library-states";
 import type { LibraryPost, ViewMode } from "@/features/library/types";
 import { cn } from "@/lib/utils";
 
-export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite }: { post: LibraryPost; view: ViewMode; onOpen: () => void; isAdmin: boolean; onToggleFavorite: () => void }) {
+export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, selection }: { post: LibraryPost; view: ViewMode; onOpen: () => void; isAdmin: boolean; onToggleFavorite: () => void; selection?: { checked: boolean; disabled: boolean; onToggle: () => void } }) {
   const [imageFailed, setImageFailed] = useState(false);
   const [videoPreviewActive, setVideoPreviewActive] = useState(false);
   const [mediaRatio, setMediaRatio] = useState<number | null>(null);
@@ -18,19 +18,21 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite }: { po
   const visibleTags = isAdmin ? post.tags : post.tags.filter((tag) => tag !== "Favoris");
 
   return (
-    <article className={cn("post-card", view === "masonry" && "post-card-masonry")}>
+    <article className={cn("post-card", view === "masonry" && "post-card-masonry", selection?.checked && "is-selected")}>
       <button
         className="post-card-button"
         type="button"
         data-post-id={post.id}
-        onClick={onOpen}
+        onClick={selection ? selection.onToggle : onOpen}
+        disabled={selection?.disabled}
+        aria-pressed={selection?.checked}
         onMouseEnter={() => {
-          if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) setVideoPreviewActive(true);
+          if (!selection && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) setVideoPreviewActive(true);
         }}
         onMouseLeave={() => setVideoPreviewActive(false)}
-        onFocus={() => setVideoPreviewActive(true)}
+        onFocus={() => { if (!selection) setVideoPreviewActive(true); }}
         onBlur={() => setVideoPreviewActive(false)}
-        aria-label={`Ouvrir la publication de ${post.authorUsername}`}
+        aria-label={`${selection ? "Sélectionner" : "Ouvrir"} la publication de ${post.authorUsername}`}
       >
         <div className="post-media" style={{ aspectRatio: view === "masonry" ? mediaRatio ?? "4 / 5" : "1" }}>
           {videoPreviewActive && previewVideo?.url ? (
@@ -73,7 +75,13 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite }: { po
           </div>
         </div>
       </button>
-      {isAdmin ? (
+      {isAdmin && selection ? (
+        <label className="post-selection-control">
+          <input type="checkbox" checked={selection.checked} disabled={selection.disabled}
+            onChange={selection.onToggle} aria-label={`Sélectionner la publication de ${post.authorUsername}`}
+            data-selection-id={post.id} />
+        </label>
+      ) : isAdmin ? (
         <button
           className={cn("favorite-button", favorite && "is-favorite")}
           type="button"

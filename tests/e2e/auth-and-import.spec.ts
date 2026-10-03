@@ -71,6 +71,71 @@ test.describe("import PostgreSQL idempotent", () => {
     });
   });
 
+  test("supprime uniquement la sélection et conserve suppression et journal après réimport", async ({ context, page }) => {
+    await context.clearCookies();
+    await page.goto("/login");
+    await expectRealLoginForm(page);
+    await login(page);
+    const nonce = `qa-multi-${randomUUID()}`;
+    const sessionCookie = (await context.cookies()).find((cookie) => cookie.name === "mosaic_session");
+    expect(sessionCookie).toBeDefined();
+    const authHeaders = { Cookie: `${sessionCookie!.name}=${sessionCookie!.value}` };
+    const payload = ["first", "second", "retained"].map((name) => ({
+      post_url: `https://www.instagram.com/p/${nonce}-${name}/`,
+      thumbnail_url: "https://scontent.cdninstagram.com/qa-auth-placeholder.jpg",
+      username: `qa_multi_${name}`,
+      caption: `Multiselection ${nonce}`,
+      tags: [nonce],
+    }));
+    const listUrl = `/api/posts?q=${encodeURIComponent(nonce)}&limit=48`;
+    const imported = await page.request.post("/api/import?sourceName=qa-multiselection.json", {
+      headers: { ...authHeaders, "Idempotency-Key": `${nonce}:initial` }, data: payload,
+    });
+    expect(imported.status()).toBe(201);
+    expect(await imported.json()).toMatchObject({ imported: 3 });
+    const { items } = await (await page.request.get(listUrl, { headers: authHeaders })).json() as {
+      items: Array<{ id: string; authorUsername: string }>;
+    };
+    expect(items).toHaveLength(3);
+    const retained = items.find((post) => post.authorUsername === "qa_multi_retained")!;
+    const selected = items.filter((post) => post.id !== retained.id);
+
+    try {
+      await page.goto(`/?q=${encodeURIComponent(nonce)}`);
+      await expect(page.locator(".post-card")).toHaveCount(3);
+      await page.getByRole("button", { name: "Sélectionner des publications" }).click();
+      for (const post of selected) await page.locator(`[data-selection-id="${post.id}"]`).check();
+      await expect(page.getByText("2 publications sélectionnées", { exact: true })).toBeVisible();
+      await expect(page.locator(`[data-selection-id="${retained.id}"]`)).not.toBeChecked();
+      await page.getByRole("button", { name: "Supprimer la sélection" }).click();
+      const dialog = page.getByRole("alertdialog", { name: "Supprimer 2 publications ?" });
+      await dialog.getByRole("button", { name: "Supprimer définitivement" }).click();
+      await expect(page.locator(".post-card")).toHaveCount(1);
+      await expect(page.locator(`[data-post-id="${retained.id}"]`)).toBeVisible();
+
+      const reimport = await page.request.post("/api/import?sourceName=qa-multiselection.json", {
+        headers: { ...authHeaders, "Idempotency-Key": `${nonce}:retry` }, data: payload,
+      });
+      expect(reimport.status()).toBe(201);
+      expect(await reimport.json()).toMatchObject({ imported: 0, updated: 1, skipped: 2 });
+      expect(await (await page.request.get(listUrl, { headers: authHeaders })).json()).toMatchObject({
+        total: 1, items: [{ id: retained.id }],
+      });
+      const journalResponse = await page.request.get("/api/admin/audit?table=posts&operation=DELETE&limit=100", { headers: authHeaders });
+      expect(journalResponse.status()).toBe(200);
+      const journal = await journalResponse.json() as { items: Array<{ beforeData: { id: string; caption: string }; action: string }> };
+      for (const post of selected) expect(journal.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ beforeData: expect.objectContaining({ id: post.id, caption: `Multiselection ${nonce}` }), action: "admin.delete_post" }),
+      ]));
+    } finally {
+      // Only this scenario's unique synthetic posts can be cleanup targets.
+      for (const post of items) {
+        const removed = await page.request.delete(`/api/posts/${post.id}`, { headers: authHeaders });
+        expect([200, 404]).toContain(removed.status());
+      }
+    }
+  });
+
   test("importe une seule publication puis permet de l'administrer", async ({ context, page }) => {
     await context.clearCookies();
     await page.goto("/login");

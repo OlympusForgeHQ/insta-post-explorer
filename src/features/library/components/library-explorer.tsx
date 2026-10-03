@@ -1,13 +1,14 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ArrowUp, Grid2X2, History, LayoutGrid, LogIn, LogOut, MapPin, Search, Settings2, SlidersHorizontal, Sparkles, Upload, Wrench, X } from "lucide-react";
+import { ArrowUp, Grid2X2, History, LayoutGrid, LogIn, LogOut, MapPin, Search, Settings2, SlidersHorizontal, Sparkles, SquareCheckBig, Upload, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThemeMenu } from "@/components/theme-menu";
 import { Brand } from "@/components/brand";
 import { FilterContent, MobileFilterDrawer, type TagFacet } from "@/features/library/components/filter-panel";
+import { BulkDeletePostsAlert } from "@/features/library/components/admin/bulk-delete-posts-alert";
 import { AuditLogDialog } from "@/features/library/components/admin/audit-log-dialog";
 import { ImportDialog } from "@/features/library/components/import-dialog";
 import { EmptyLibrary, LibraryError, NoResults } from "@/features/library/components/library-states";
@@ -86,8 +87,11 @@ export function LibraryExplorer({
   const [importOpen, setImportOpen] = useState(false);
   const [mediaRepairOpen, setMediaRepairOpen] = useState(false);
   const [isFiltering, setIsFiltering] = useState(false);
+  const [resultsCurrent, setResultsCurrent] = useState(!initialError);
   const [discovering, setDiscovering] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selection, setSelection] = useState<{ scope: string; ids: string[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const loadMoreController = useRef<AbortController | null>(null);
@@ -145,6 +149,23 @@ export function LibraryExplorer({
 
   const selectedIndex = filteredPosts.findIndex((post) => post.id === selectedPostId);
   const selectedPost = selectedIndex >= 0 ? filteredPosts[selectedIndex] : null;
+  const selectionScope = JSON.stringify([query, selectedTags, selectedTheme, selectedContentType, selectedAuthor, selectedYear, selectedCollection, tagMode, sort]);
+  const selectionIds = new Set(selection?.scope === selectionScope ? selection.ids : []);
+  const selectedVisibleIds = filteredPosts.filter((post) => selectionIds.has(post.id)).map((post) => post.id);
+  const selectionReady = resultsCurrent && !isFiltering && query === debouncedQuery && selectedAuthor === debouncedAuthor;
+
+  // Drop the previous scope, including when the user later returns to it.
+  if (selection && (selection.scope !== selectionScope || !isAdmin)) setSelection(null);
+
+  const exitSelection = () => { setSelectionMode(false); setSelection(null); };
+  const toggleSelection = (id: string) => {
+    if (!selectionReady) return;
+    setSelection((current) => {
+      const ids = new Set(current?.scope === selectionScope ? current.ids : []);
+      if (ids.has(id)) ids.delete(id); else ids.add(id);
+      return { scope: selectionScope, ids: [...ids] };
+    });
+  };
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -193,6 +214,7 @@ export function LibraryExplorer({
     const refresh = async () => {
       setRequestError(null);
       setIsFiltering(true);
+      setResultsCurrent(false);
       try {
         const response = await fetch(`/api/posts?${librarySearchParams({
           query: debouncedQuery,
@@ -213,6 +235,7 @@ export function LibraryExplorer({
         setTotalFiltered(page.totalFiltered);
         setTotalLibrary(page.totalLibrary);
         setSelectedPostId(null);
+        setResultsCurrent(true);
       } catch (error) {
         if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
         setRequestError("Impossible d’actualiser les résultats.");
@@ -534,14 +557,33 @@ export function LibraryExplorer({
 
       <main className={cn("library-layout", filtersVisible && "has-filters")}>
         {filtersVisible ? <aside className="desktop-filter-panel desktop-only"><FilterContent {...filterProps} />{isAdmin ? <CollectionManager initialCollections={initialCollections} /> : null}</aside> : null}
-        <section className="library-content" aria-label="Publications sauvegardées" aria-live="polite" aria-busy={isFiltering}>
+        <section className={cn("library-content", isAdmin && selectionMode && "is-selecting")} aria-label="Publications sauvegardées" aria-live="polite" aria-busy={isFiltering}>
+          {isAdmin ? <div className="library-admin-tools">
+            <button className="button" type="button" aria-label={selectionMode ? "Annuler la sélection" : "Sélectionner des publications"} aria-pressed={selectionMode}
+              disabled={!selectionMode && (!selectionReady || !filteredPosts.length)}
+              onClick={() => { if (selectionMode) exitSelection(); else { setSelectedPostId(null); setSelectionMode(true); } }}>
+              <SquareCheckBig aria-hidden="true" className="size-4" />{selectionMode ? "Annuler la sélection" : "Sélectionner"}
+            </button>
+          </div> : null}
+          {isAdmin && selectionMode ? <div className="selection-toolbar" role="region" aria-label="Sélection de publications">
+            <strong className="selection-summary" role="status">{selectedVisibleIds.length} publication{selectedVisibleIds.length > 1 ? "s" : ""} sélectionnée{selectedVisibleIds.length > 1 ? "s" : ""}</strong>
+            <div className="selection-actions">
+              <button className="button" type="button" disabled={!selectionReady || !filteredPosts.length}
+                onClick={() => setSelection({ scope: selectionScope, ids: filteredPosts.map((post) => post.id) })}>
+                Sélectionner les {filteredPosts.length} publications affichées
+              </button>
+              <button className="button" type="button" disabled={!selectedVisibleIds.length} onClick={() => setSelection(null)}>Tout désélectionner</button>
+              <BulkDeletePostsAlert key={selectionScope} postIds={selectedVisibleIds} disabled={!selectionReady} onDeleted={() => window.location.reload()} />
+            </div>
+            <button className="icon-button" type="button" aria-label="Quitter la sélection" onClick={exitSelection}><X aria-hidden="true" className="size-4" /></button>
+          </div> : null}
           {requestError ? <p className="request-error" role="alert">{requestError}</p> : null}
           {isFiltering ? (
             <div className="filter-loading" role="status"><span className="loading-spinner" aria-hidden="true" />Chargement des résultats…</div>
           ) : initialError ? <LibraryError message={initialError} /> : posts.length === 0 ? <EmptyLibrary onImport={isAdmin ? () => setImportOpen(true) : undefined} /> : filteredPosts.length === 0 ? <NoResults onReset={resetFilters} /> : (
             <>
               <div className={cn("posts-grid", view === "masonry" ? "posts-masonry" : "posts-regular", view === "masonry" && filteredPosts.length <= 4 && "posts-masonry-sparse", view === "masonry" && filteredPosts.length === 1 && "posts-masonry-single")}>
-                {filteredPosts.map((post) => <PostCard key={post.id} post={post} view={view} onOpen={() => setSelectedPostId(post.id)} isAdmin={isAdmin} onToggleFavorite={() => void toggleFavorite(post)} />)}
+                {filteredPosts.map((post) => <PostCard key={post.id} post={post} view={view} onOpen={() => setSelectedPostId(post.id)} isAdmin={isAdmin} onToggleFavorite={() => void toggleFavorite(post)} selection={isAdmin && selectionMode ? { checked: selectionIds.has(post.id), disabled: !selectionReady, onToggle: () => toggleSelection(post.id) } : undefined} />)}
               </div>
               {nextCursor ? (
                 <div className="load-more-row" ref={loadMoreRef}>
@@ -573,7 +615,7 @@ export function LibraryExplorer({
         )}
         {...filterProps}
       />
-      {showBackToTop ? <button className="back-to-top" type="button" aria-label="Retour en haut de la page" onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })}><ArrowUp aria-hidden="true" className="size-4" /><span>Retour en haut</span></button> : null}
+      {showBackToTop && !selectionMode ? <button className="back-to-top" type="button" aria-label="Retour en haut de la page" onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })}><ArrowUp aria-hidden="true" className="size-4" /><span>Retour en haut</span></button> : null}
       {isAdmin ? (
         <>
           {auditOpen ? <AuditLogDialog onOpenChange={setAuditOpen} /> : null}
