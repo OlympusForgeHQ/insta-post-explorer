@@ -2,11 +2,29 @@
 
 Last updated: 3 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development branch: `develop` at `0f81e60` (PR #81)
-Reference production base: `main` at `cd58ab9` (PR #80, search correction)
+Reference development base: `develop` at `b17c4a8` (PR #83)
+Reference production base: `main` at `f4aa7a2` (PR #82)
 Older phase references below are historical.
 
-## Current task — permanent deletions and mutation journal, 3 October 2026
+## Current task — admin multiselection, 3 October 2026
+
+`feat/post-multiselection` starts at develop `b17c4a8`. Admins can select loaded
+cards in either grid, select all displayed cards, and confirm grouped permanent
+deletion. Filter/search/sort changes clear selection; pagination and view changes
+preserve explicit choices. Deletion reuses the existing authenticated endpoint
+sequentially, freezes confirmed IDs, stops on error and retries only remaining IDs.
+Lost responses, partial completion, unmount and failed filter refresh are covered.
+No server, worker, dependency or database migration changes.
+
+Local verification: 566 PostgreSQL-backed application tests, lint, types, build,
+three real-auth/import browser scenarios, desktop/mobile layout and keyboard
+checks passed. Independent final review is favorable. See
+[scope and proof matrix](changes/2026-10-03-post-multiselection.md).
+The user already authorized merge/deployment after verification. Live release
+receipts belong in the associated PRs and `.tmp/multiselection/`; preserve the
+database-history exception below. Never use real posts for destructive QA.
+
+## Previous task — permanent deletions and mutation journal, 3 October 2026
 
 Local branch `fix/persist-manual-post-deletions` starts at develop `53db233`.
 Admin deletion atomically records minimal identities and removes linked URL
@@ -27,13 +45,16 @@ See the [audit design and evidence](changes/2026-10-03-database-audit.md).
 The user explicitly approved production access, migrations, merge and deployment.
 PR #81 merged at `0f81e60` after green CI and the preview database migration.
 Preview web/worker are healthy and the live deletion/reimport/journal smoke
-passed. Both database migrations and their exact post-checks have now succeeded;
-production application activation follows through the release PR.
+passed. Both database migrations and their exact post-checks succeeded.
+PR #82 merged to main at `f4aa7a2`, both production web/worker deployments finished
+and were healthy. Production checks confirmed authenticated journal access,
+anonymous denial and `pomme de terre` at 14/14 displayed results. PR #83 synced
+the release documentation to develop at `b17c4a8`.
 Native disabled, manually executed Coolify scheduled tasks use the running web
 application's existing DATABASE_URL; no sensitive-read permission or exported
 credential is needed. Do not use old Neon environment files or GitHub secrets for
-these current Coolify databases. Record the final production merge/deployment result in the release PR and local
-release receipts after the live checks pass.
+these current Coolify databases. Completed release receipts are recorded in
+PR #82 and `.tmp/permanent-post-deletions/release/`.
 
 **Migration exception:** both current databases contain eight historical migration
 records, three absent legacy migrations and two legacy checksum differences.
