@@ -20,6 +20,20 @@ const { PlaceDetailSheet } = await import("@/features/places/components/place-de
 afterEach(cleanup);
 
 describe("Place detail sheet", () => {
+  it.each([
+    { address: "12 rue de l'Église & Café", precision: "EXACT", expected: "12 rue de l'Église & Café, Paris, France" },
+    { address: null, precision: "APPROXIMATE", expected: "Fraté, Paris, France" },
+  ])("opens the known location in Google Maps ($precision)", async ({ address, precision, expected }) => {
+    render(<PlaceDetailSheet place={{ id: "place-1", displayName: "Fraté", address, city: "Paris", region: null, country: "France", precision, approximationRadiusMeters: null, isUserConfirmed: false, sourceThemes: ["Restaurant"], postCount: 2, confidence: 1 } as never} isAdmin={false} onClose={() => {}} />);
+    const link = await screen.findByRole("link", { name: /Google Maps/ });
+    const url = new URL(link.getAttribute("href")!);
+    expect(url.origin + url.pathname).toBe("https://www.google.com/maps/search/");
+    expect(url.searchParams.get("api")).toBe("1");
+    expect(url.searchParams.get("query")).toBe(expected);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
   it("does not duplicate the post thumbnail when only one post is linked", async () => {
     loadPlacePostsAction.mockResolvedValueOnce({
       ok: true,

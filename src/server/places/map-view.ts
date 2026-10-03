@@ -20,6 +20,7 @@ export const PLACES_MAP_MAX = 1_000;
 export type PlacesMapItem = {
   id: string;
   displayName: string;
+  address?: string | null;
   category: string | null;
   categoryGroup: PlaceCategoryGroupKey | null;
   city: string | null;
@@ -74,6 +75,7 @@ export async function loadPlacesMapView(ownerId: string, max: number = PLACES_MA
     select: {
       id: true,
       displayName: true,
+      address: true,
       category: true,
       city: true,
       region: true,
@@ -105,6 +107,7 @@ export async function loadPlacesMapView(ownerId: string, max: number = PLACES_MA
     return {
       id: row.id,
       displayName: row.displayName,
+      address: row.address,
       category: row.category,
       categoryGroup: groupForRawCategory(row.category),
       city: row.city,

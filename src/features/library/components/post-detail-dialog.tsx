@@ -1,7 +1,8 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, FileWarning, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, FileWarning, MapPin, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { DeletePostAlert } from "@/features/library/components/admin/delete-post-alert";
@@ -9,6 +10,7 @@ import { PostTagEditor } from "@/features/library/components/admin/post-tag-edit
 import { BrokenImage } from "@/features/library/components/library-states";
 import { parseCaptionMetrics } from "@/features/library/caption-metrics";
 import type { LibraryPost, LibraryPostMedia } from "@/features/library/types";
+import { PlaceAddressLink } from "@/features/places/components/place-address-link";
 
 type PostDetailDialogProps = {
   post: LibraryPost | null;
@@ -42,7 +44,7 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
     void fetch(`/api/posts/${encodeURIComponent(post.id)}`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : null))
       .then((value: unknown) => {
-        if (value && typeof value === "object") setDetailPost(value as LibraryPost);
+        if (!controller.signal.aborted && value && typeof value === "object") setDetailPost(value as LibraryPost);
       })
       .catch((error: unknown) => {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -112,6 +114,22 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
               <div><dt>Likes</dt><dd className="tabular-nums">{formatMetric(displayPost.likesCount ?? caption.likes)}</dd></div>
               <div><dt>Date</dt><dd>{formatPublishedAt(displayPost.publishedAt ?? caption.publishedAt?.toISOString() ?? null)}</dd></div>
             </dl>
+
+            {displayPost.places?.length ? (
+              <section className="detail-section" aria-labelledby="detail-places">
+                <h2 id="detail-places" className="field-label">{displayPost.places.length === 1 ? "Lieu associé" : "Lieux associés"}</h2>
+                <ul className="post-place-links">
+                  {displayPost.places.map((place) => (
+                    <li key={place.id}>
+                      <div><strong>{place.displayName}</strong><PlaceAddressLink place={place} /></div>
+                      <Link className="button" href={`/places?${new URLSearchParams({ placeId: place.id })}`}>
+                        <MapPin className="size-4" aria-hidden="true" />Voir dans Places
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
             <p className="detail-caption text-pretty">{caption.text || "Aucune légende disponible."}</p>
 
