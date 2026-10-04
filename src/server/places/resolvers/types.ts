@@ -13,6 +13,8 @@ export type ResolvedPlaceCandidate = {
   provider: "geoapify";
   providerPlaceId: string;
   displayName: string;
+  // Raw provider entity name, distinct from a formatted address fallback.
+  providerName?: string | null;
   category: string | null;
   address: string | null;
   city: string | null;

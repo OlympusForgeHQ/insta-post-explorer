@@ -1,4 +1,5 @@
 import { foldForSearch } from "@/lib/import/normalize";
+import { continentCodeForCountry } from "@/lib/places/continents";
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 
@@ -106,6 +107,28 @@ function fieldAgreement(candidateValue: string | null, resolvedValue: string | n
     : { match: 0, contradiction: true };
 }
 
+// Compare source-language country labels against the provider's verified ISO
+// code. ICU supplies exact translations; no fuzzy match can erase a conflict.
+const countryNames = ['fr', 'en', 'nl'].map(locale => new Intl.DisplayNames([locale], { type: 'region' }));
+function countryAgreement(candidateValue: string | null, resolved: ResolvedPlaceCandidate) {
+  const code = resolved.countryCode?.trim().toUpperCase();
+  if (candidateValue && code && continentCodeForCountry(code)) {
+    const aliases = [code, ...countryNames.map(names => names.of(code) ?? '')];
+    if (aliases.some(alias => normalizedEquals(candidateValue, alias))) return { match: 1, contradiction: false };
+  }
+  return fieldAgreement(candidateValue, resolved.country);
+}
+
+function cityAgreement(candidateValue: string | null, resolvedValue: string | null) {
+  if (candidateValue && resolvedValue) {
+    // Only a complete bilingual component asserted by the provider is an alias.
+    // Do not split ordinary hyphenated names or accept arbitrary substrings.
+    const aliases = resolvedValue.split(/\s+[-–—/]\s+/u);
+    if (aliases.some(alias => normalizedEquals(candidateValue, alias))) return { match: 1, contradiction: false };
+  }
+  return fieldAgreement(candidateValue, resolvedValue);
+}
+
 type AddressAgreement = {
   match: boolean;
   houseNumberMatch: boolean;
@@ -165,19 +188,47 @@ function round4(value: number): number {
   return Math.round(value * 1e4) / 1e4;
 }
 
+function explicitlyNamesCity(candidate: ScoringInput['candidate']): boolean {
+  if (candidate.category !== 'voyage' || candidate.address || !candidate.name || !candidate.city) return false;
+  const name = foldForSearch(candidate.name)
+    .replace(/^(?:ville de|village de|city of|village of)\s+/u, '')
+    .replace(/\s+(?:ville|city|village)$/u, '');
+  return name === foldForSearch(candidate.city);
+}
+
+function normalizedEntityName(value: string): string {
+  return foldForSearch(value)
+    .replace(/[-’‘`']/gu, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+function entityNamesAgree(left: string, right: string): boolean {
+  const a = normalizedEntityName(left), b = normalizedEntityName(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const prefix = /^(restaurant|hotel|plage)\s+/u;
+  const aPrefix = a.match(prefix), bPrefix = b.match(prefix);
+  // An omitted generic prefix is compatible; two different explicit entity
+  // descriptors (for example a hotel and a restaurant) are not interchangeable.
+  if (aPrefix && bPrefix) return false;
+  return a.replace(prefix, '') === b.replace(prefix, '');
+}
+
 export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): ScoredResolution {
   const reasons: string[] = [];
 
-  // Name only ever contributes positively: caption names and provider display
-  // names vary too much to treat a mismatch as a contradiction.
+  // Match the entity itself, never a city embedded in its formatted address or
+  // a different entity with a longer name (for example a park's motorway stop).
+  const entityName = resolved.providerName ?? resolved.displayName.split(',')[0];
   const nameMatch =
-    candidate.name && resolved.displayName && foldForSearch(resolved.displayName).replace(/[’‘`]/g, "'").includes(foldForSearch(candidate.name).replace(/[’‘`]/g, "'"))
+    candidate.name && entityName && entityNamesAgree(candidate.name, entityName)
       ? 1
       : 0;
   if (nameMatch) reasons.push("name_match");
 
-  const city = fieldAgreement(candidate.city, resolved.city);
-  const country = fieldAgreement(candidate.country, resolved.country);
+  const city = cityAgreement(candidate.city, resolved.city);
+  const country = countryAgreement(candidate.country, resolved);
   const region = fieldAgreement(candidate.region, resolved.region);
   const address = addressAgreement(candidate.address, resolved.address);
   if (city.match) reasons.push("city_match");
@@ -219,6 +270,20 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
 
   const resultKind = classifyResultType(resolved.providerResultType);
 
+  // A verified street address does not establish that its named occupant is
+  // the business in the source. Old tenants are common in provider datasets.
+  if (resultKind.kind === 'specific' && candidate.name && !candidate.name.startsWith('@') &&
+    resolved.providerName && nameMatch === 0) {
+    reasons.push('provider_entity_name_unverified');
+    return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
+  }
+
+  // A destination city cannot become a station or shop sharing the city name.
+  if (resultKind.kind === 'specific' && explicitlyNamesCity(candidate)) {
+    reasons.push('city_candidate_requires_area');
+    return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
+  }
+
   if (resultKind.kind === "country") {
     reasons.push("country_only");
     return { confidence, precision: "UNKNOWN", approximationRadiusMeters: null, reasons };
@@ -246,6 +311,11 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   }
 
   // Area kind.
+  if (!nameMatch && !cityAgreement(candidate.city, entityName).match &&
+    !fieldAgreement(candidate.region, entityName).match) {
+    reasons.push('area_identity_unverified');
+    return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
+  }
   if (confidence >= PRECISION_THRESHOLDS.APPROXIMATE) {
     reasons.push("approximate_area_match");
     return { confidence, precision: "APPROXIMATE", approximationRadiusMeters: resultKind.radius, reasons };

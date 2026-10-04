@@ -12,6 +12,7 @@ import {
   PlacesResolverConfigError,
 } from "@/server/places/resolvers";
 import type { PlaceResolutionInput } from "@/server/places/resolvers/types";
+import { scoreResolvedCandidate } from "@/lib/places/scoring";
 
 const SECRET_KEY = "super-secret-geoapify-key";
 
@@ -73,6 +74,18 @@ function resolver(fetchImpl: typeof fetch) {
 }
 
 describe("GeoapifyPlaceResolver", () => {
+  it("does not turn an address match into a different business, while retaining unnamed buildings", async () => {
+    const candidate = restaurantCandidate({ name: 'New Bakery', address: '12 Rue de la Paix, 75002 Paris', city: 'Paris', country: 'France' });
+    for (const [name, precision] of [['Old Grocer', 'UNKNOWN'], [undefined, 'EXACT']] as const) {
+      const body = { results: [{ place_id: 'address-12', name, formatted: '12 Rue de la Paix, 75002 Paris, France',
+        city: 'Paris', country: 'France', country_code: 'fr', lat: 48.87, lon: 2.33, result_type: name ? 'amenity' : 'building',
+        rank: { confidence: 1, match_type: 'full_match' } }] };
+      const fetchMock = vi.fn().mockImplementation(async (url: string) => jsonResponse(new URL(url).searchParams.has('name') ? {results: []} : body));
+      const [match] = await resolver(fetchMock).resolve({candidate, sourceTheme: 'Restaurant'});
+      expect(scoreResolvedCandidate({candidate, resolved: match}).precision).toBe(precision);
+    }
+  });
+
   it("builds a structured request without leaking the key or caption", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(validGeoapifyBody()));
     await resolver(fetchMock).resolve(resolutionInput());

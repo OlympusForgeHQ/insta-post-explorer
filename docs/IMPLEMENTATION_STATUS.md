@@ -2,6 +2,18 @@
 
 Last updated: 4 October 2026 — Places pipeline release `main` at `810ad41`, PR #93
 
+## Places geographic language matching — 4 October 2026
+
+IMPLEMENTED AND REVIEWED on `fix/places-geographic-matching`. Geographic pilot
+results exposed false rejections of translated country names and provider
+bilingual localities. Exact ISO-backed country aliases and complete locality
+components now match; conflicting entity names and unresolved branch identities
+are rejected. Real geographic contradictions, precision thresholds and categories
+remain protected. 580 app tests and 90 worker tests with disposable PostgreSQL,
+lint/types/build and independent review pass. Pilot persistence and full-library
+review remain in progress.
+See [requirements and verification](changes/2026-10-04-places-geographic-matching.md).
+
 ## Places 40-post pilot and execution hardening — 4 October 2026
 
 IN PROGRESS on `fix/places-pilot-hardening`. A fixed sample of 20 Restaurant and
