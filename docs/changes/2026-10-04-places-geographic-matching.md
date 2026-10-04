@@ -37,11 +37,14 @@ The owner authorized correction, publication and deployment in this session.
    unnamed verified buildings retain address resolution.
 6. R6: explicit city/village destinations require an area result rather than a
    namesake specific amenity. A specifically named museum remains eligible.
-7. R7: a fallback area must represent an asserted name, city or region, not an
-   unrelated quarter that merely sits in the same municipality.
+7. R7 (superseded by the subsequent [area identity correction](2026-10-04-places-unverified-areas.md)):
+   the initial city/region fallback rejected unrelated quarters but did not prove
+   that a named venue lay within the fixed area radius. The follow-up now requires
+   the area to represent the requested geographic entity itself.
 8. R8: distinct plausible sites more than 100 metres apart cannot be selected by
-   provider ID ordering, even if an uncorroborated address was supplied. Keep a valid approximate
-   area if available, otherwise UNKNOWN. Nearby duplicate entrances retain
+   provider ID ordering, even if an uncorroborated address was supplied. Keep an
+   approximate area only when it independently represents the requested geographic
+   entity, otherwise UNKNOWN. Nearby duplicate entrances retain
    deterministic selection using the resolver's existing corroboration radius.
    Exact entity names are compared independently of formatted address context;
    punctuation variants and omitted generic restaurant/hotel/beach prefixes are accepted,

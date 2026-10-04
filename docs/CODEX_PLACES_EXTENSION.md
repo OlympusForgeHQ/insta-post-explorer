@@ -590,7 +590,9 @@ Le scoring doit être déterministe et testé.
 Une adresse candidate ne peut autoriser `EXACT` qu'après accord textuel incluant
 le numéro, résultat provider spécifique, confiance provider d'au moins `0.90`,
 niveau de correspondance adresse complet ou bâtiment, et absence de
-contradiction. Un résultat provider de niveau ville reste `APPROXIMATE`.
+contradiction. Un résultat provider de niveau ville ne vérifie pas à lui seul
+un établissement, monument ou une adresse précise : le candidat reste `UNKNOWN`.
+Une ville ou zone explicitement reconnue pour elle-même peut rester `APPROXIMATE`.
 
 ### 9.7 Persistance
 

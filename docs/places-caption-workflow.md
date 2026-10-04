@@ -179,9 +179,11 @@ must agree, including the house number; Geoapify must return a specific result,
 `rank.confidence >= 0.90`, and `rank.match_type` equal to `full_match` or
 `match_by_building`. `inner_part` is accepted only with the stricter
 `rank.confidence >= 0.95`, matching textual address and house number, and no
-location contradiction. A different house number is a contradiction. A city
-result always remains `APPROXIMATE`, even if the candidate contained a street
-address.
+location contradiction. A different house number is a contradiction. An area result stays `UNKNOWN` when it only verifies the city or region of a
+named business, monument or street address. Its fixed circle does not prove that
+the requested place lies inside it. Explicitly named geographic destinations and
+area-only candidates can remain `APPROXIMATE`; a named business cannot become a
+city simply because they share a label.
 
 When a committed re-analysis creates a new exact primary, it removes only the
 previous unconfirmed automatic approximate primary link when that place is not

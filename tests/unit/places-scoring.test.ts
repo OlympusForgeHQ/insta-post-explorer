@@ -48,7 +48,7 @@ describe("scoreResolvedCandidate", () => {
     const source = {name:'River Valley',city:'Example City',country:'France',category:'voyage' as const};
     const provider = {displayName:'Garden Quarter',city:'Example City',country:'France',countryCode:'FR',providerResultType:'district'};
     expect(scoreResolvedCandidate(input(source,provider)).precision).toBe('UNKNOWN');
-    expect(scoreResolvedCandidate(input(source,{...provider,displayName:'Example City',providerResultType:'city'})).precision).toBe('APPROXIMATE');
+    expect(scoreResolvedCandidate(input(source,{...provider,displayName:'Example City',providerResultType:'city'})).precision).toBe('UNKNOWN');
     expect(scoreResolvedCandidate(input({...source,name:'Example City'},
       {...provider,displayName:'Garden Quarter, Example City, France',providerName:null})).precision).toBe('UNKNOWN');
     expect(scoreResolvedCandidate(input({...source,name:'Example Park'},
@@ -62,12 +62,24 @@ describe("scoreResolvedCandidate", () => {
     }
   });
 
+  it("does not treat hotel prefixes or an explicit address as proof of a city area", () => {
+    const area = {displayName:'Paris',providerName:'Paris',city:'Paris',country:'France',countryCode:'FR',providerResultType:'city'};
+    for (const source of [
+      {name:'Hotel Paris',address:null},
+      {name:'Paris',address:'12 Rue Example, Paris'},
+    ]) {
+      const result = scoreResolvedCandidate(input({...source,city:'Paris',country:'France',category:'voyage'},area));
+      expect(result.precision).toBe('UNKNOWN');
+      expect(result.approximationRadiusMeters).toBeNull();
+    }
+  });
+
   it("keeps an explicitly named city or village as an area instead of selecting its namesake station", () => {
-    for (const name of ['Springfield', 'Springfield village']) {
-      const city = { name, city: 'Springfield', country: 'United States', category: 'voyage' as const };
+    for (const [name, category] of [['Springfield','voyage'], ['Springfield village','voyage'], ['Springfield village','city']] as const) {
+      const city = { name, city: 'Springfield', country: 'United States', category };
       const station = { displayName: name, city: 'Springfield', country: 'United States', countryCode: 'US', providerResultType: 'amenity' };
       expect(scoreResolvedCandidate(input(city, station)).precision).toBe('UNKNOWN');
-      expect(scoreResolvedCandidate(input(city, {...station, providerResultType: 'city'})).precision).toBe('APPROXIMATE');
+      expect(scoreResolvedCandidate(input(city, {...station, displayName: 'Springfield', providerResultType: 'city'})).precision).toBe('APPROXIMATE');
     }
     expect(scoreResolvedCandidate(input({name: 'Springfield Museum', city:'Springfield', category:'voyage'},
       {displayName:'Springfield Museum', city:'Springfield'})).precision).toBe('EXACT');
@@ -266,7 +278,7 @@ describe("scoreResolvedCandidate", () => {
     expect(result.reasons).not.toContain("address_provider_verified");
   });
 
-  it("keeps an address candidate approximate when Geoapify resolves only the city", () => {
+  it("leaves a named address unresolved when Geoapify verifies only the city", () => {
     const result = scoreResolvedCandidate(
       input(
         {
@@ -290,8 +302,8 @@ describe("scoreResolvedCandidate", () => {
       ),
     );
 
-    expect(result.precision).toBe("APPROXIMATE");
-    expect(result.approximationRadiusMeters).toBe(10_000);
+    expect(result.precision).toBe("UNKNOWN");
+    expect(result.approximationRadiusMeters).toBeNull();
   });
 
   it.each([
