@@ -144,7 +144,7 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
 
     await analysis.analyzeCandidateBatchRecord({
       ownerId: OWNER_A,
-      record: await freshRecord(OWNER_A, "kyoto-post", [candidate({ name: "Kyoto", city: "Kyoto", country: "Japan", confidence: 0.7 })]),
+      record: await freshRecord(OWNER_A, "kyoto-post", [candidate({ name: "Kyoto", city: "Kyoto", country: "Japan", category: "voyage", confidence: 0.7 })]),
       resolver,
       commit: true,
     });
@@ -165,7 +165,7 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     for (const postId of ["kyoto-first", "kyoto-second"]) {
       await analysis.analyzeCandidateBatchRecord({
         ownerId: OWNER_A,
-        record: await freshRecord(OWNER_A, postId, [candidate({ name: "Kyoto", city: "Kyoto", country: "Japan", confidence: 0.7 })]),
+        record: await freshRecord(OWNER_A, postId, [candidate({ name: "Kyoto", city: "Kyoto", country: "Japan", category: "voyage", confidence: 0.7 })]),
         resolver,
         commit: true,
       });

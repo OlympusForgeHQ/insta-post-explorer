@@ -2,6 +2,14 @@
 
 Last updated: 4 October 2026 — Places pipeline release `main` at `810ad41`, PR #93
 
+## Places area identity correction — 4 October 2026
+
+Branch `fix/places-unverified-areas` prevents named venues from becoming a city
+circle based only on contextual locality. The pilot demonstrated incorrect
+envelopes and category collisions. Explicit geographic areas remain supported.
+581 app tests and 90 worker tests, lint/typecheck/build and independent review
+pass. See [scope and evidence](changes/2026-10-04-places-unverified-areas.md).
+
 ## Places geographic language matching — 4 October 2026
 
 IMPLEMENTED AND REVIEWED on `fix/places-geographic-matching`. Geographic pilot

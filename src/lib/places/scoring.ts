@@ -189,7 +189,7 @@ function round4(value: number): number {
 }
 
 function explicitlyNamesCity(candidate: ScoringInput['candidate']): boolean {
-  if (candidate.category !== 'voyage' || candidate.address || !candidate.name || !candidate.city) return false;
+  if (!['voyage', 'city'].includes(candidate.category) || candidate.address || !candidate.name || !candidate.city) return false;
   const name = foldForSearch(candidate.name)
     .replace(/^(?:ville de|village de|city of|village of)\s+/u, '')
     .replace(/\s+(?:ville|city|village)$/u, '');
@@ -308,6 +308,17 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
     }
     reasons.push("below_probable_threshold");
     return { confidence, precision: "UNKNOWN", approximationRadiusMeters: null, reasons };
+  }
+
+  // An area can locate itself, but its city/region label cannot verify that a
+  // named business or monument lies inside the area's fixed uncertainty radius.
+  // In particular, unrelated businesses must not collapse into one city record.
+  const namesArea = (candidate.name && normalizedEntityName(candidate.name) === normalizedEntityName(entityName)) ||
+    (explicitlyNamesCity(candidate) && cityAgreement(candidate.city, entityName).match === 1);
+  const businessCategory = ['restaurant', 'cafe', 'patisserie', 'lodging'].includes(candidate.category);
+  if (candidate.address || (candidate.name && (!namesArea || businessCategory))) {
+    reasons.push('specific_candidate_area_unverified');
+    return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
   }
 
   // Area kind.

@@ -6,6 +6,14 @@ Reference development base: `develop` at `9b58e84` (PRs #91/#92)
 Reference production base: `main` at `810ad41` (PR #93)
 Older phase references below are historical.
 
+## Current correction — unverified area substitutions — 4 October 2026
+
+Branch `fix/places-unverified-areas` prevents named venues from becoming a city
+circle based only on contextual locality. The pilot demonstrated incorrect
+envelopes and category collisions. Explicit geographic areas remain supported.
+581 app tests and 90 worker tests, lint/typecheck/build and independent review
+pass. See [scope and evidence](changes/2026-10-04-places-unverified-areas.md).
+
 ## Current correction — geographic language matching, 4 October 2026
 
 The owner authorized geographic verification, full eligible-library review and

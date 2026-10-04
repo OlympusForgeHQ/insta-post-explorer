@@ -20,6 +20,11 @@ describe('geographic identity selection',()=>{
         else expect(plan.best?.resolved.providerPlaceId).toBe('branch-a');
       }
     }
+    const area:ResolvedPlaceCandidate={...venue,providerPlaceId:'paris-area',displayName:'Paris',providerName:'Paris',
+      address:'Paris, France',providerResultType:'city',providerRank:.25,providerMatchType:'match_by_city_or_disrict'};
+    const areaPlans=await planAll([candidate,{...candidate,name:'Example Pastry',category:'patisserie'},{...candidate,name:'Paris'}],
+      'Restaurant',{resolve:async()=>[area]});
+    expect(areaPlans.map(plan=>plan.best)).toEqual([null,null,null]);
     const [located]=await planAll([{...candidate,address:'12 Rue Example, Paris'}],'Restaurant',{resolve:async()=>[venue]});
     expect(located.best?.resolved.providerPlaceId).toBe('branch-a');
     const [ambiguousAddress]=await planAll([{...candidate,address:'Rue Example, Paris'}],'Restaurant',
