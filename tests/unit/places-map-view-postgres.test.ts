@@ -51,7 +51,7 @@ describeWithDatabase("Places map view on PostgreSQL", () => {
   });
 
   it("returns only the requesting owner's places with their post count", async () => {
-    const place = await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-1", category: "catering.cafe" });
+    const place = await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-1", category: "cafe" });
     await seedPlace(OWNER_B, { providerPlaceId: "geo-mv-b" });
     await linkPostPlace(OWNER_A, await seedPost(OWNER_A, "Voyages"), place.id);
     await linkPostPlace(OWNER_A, await seedPost(OWNER_A, "Voyages"), place.id);

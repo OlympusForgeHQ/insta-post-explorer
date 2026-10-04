@@ -71,9 +71,12 @@ plusieurs domaines et handlers internes
 - La synchronisation Instagram conserve son déploiement Coolify et son calendrier.
 - `insta-explorer-places.service` exécute Hermes avec son état, ses secrets et ses
   limites de ressources propres ; son API est privée et locale.
-- Le runtime Places est configuré ; le handler multimodal et le raccordement aux
-  jobs et aux écritures métier restent à implémenter. Ne pas déclarer une analyse
-  réussie ni réclamer des jobs tant que ce handler n'existe pas.
+- Le runtime Places est configuré. Le client multimodal de `services/worker/src/places`
+  consomme les jobs via `/api/v1/places/worker` sur invocation explicite ; aucune
+  planification ni analyse globale n'est activée par un déploiement.
+- Les catégories Places sont exclusivement restaurant, cafe, patisserie, voyage,
+  divers (critères du propriétaire). Geoapify vérifie les lieux et coordonnées,
+  jamais leur classification. Le pilote mesuré reste la gate de généralisation.
 - Réutiliser les contrats ownerId, retry, lease, heartbeat et les services métier
   de l'application. Tout autre service asynchrone nécessite une décision distincte.
 - La table `place_analysis_jobs` peut rester spécifique à Places pour la première version. Ne pas généraliser la queue avant qu’un second domaine asynchrone réel le justifie.

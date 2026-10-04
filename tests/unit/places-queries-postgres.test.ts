@@ -150,29 +150,17 @@ describeWithDatabase("Places read queries on PostgreSQL", () => {
 
   // --- Phase G additive read-only filters ---
 
-  it("filters places on several place-type groups at once", async () => {
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-resto", category: "catering.restaurant" });
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-cafe", category: "catering.cafe" });
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-bakery", category: "catering.bakery" });
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-shop", category: "commercial.supermarket" });
-
-    const page = await queries.queryPlaces(
-      { limit: 50, categoryGroups: ["restaurant", "cafe"] } as never,
-      OWNER_A,
-    );
-    expect(page.items.map((item) => item.category).sort()).toEqual(["catering.cafe", "catering.restaurant"]);
-  });
-
-  it("matches hierarchical provider categories through their group prefix", async () => {
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-italian", category: "catering.restaurant.italian" });
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-museum", category: "tourism.sights.monument" });
-
-    const restaurants = await queries.queryPlaces({ limit: 50, categoryGroups: ["restaurant"] } as never, OWNER_A);
-    expect(restaurants.items).toHaveLength(1);
-    expect(restaurants.items[0].category).toBe("catering.restaurant.italian");
-
-    const monuments = await queries.queryPlaces({ limit: 50, categoryGroups: ["monument"] } as never, OWNER_A);
-    expect(monuments.items).toHaveLength(1);
+  it("filters owner categories and sends unclassified provider strings to Divers", async () => {
+    await seedPlace(OWNER_A,{providerPlaceId:"classified-cafe",category:"cafe"});
+    await seedPlace(OWNER_A,{providerPlaceId:"classified-restaurant",category:"restaurant"});
+    await seedPlace(OWNER_A,{providerPlaceId:"legacy-cafe",category:"catering.cafe"});
+    await seedPlace(OWNER_A,{providerPlaceId:"empty",category:null});
+    await seedPlace(OWNER_A,{providerPlaceId:"other",category:"divers"});
+    const food=await queries.queryPlaces({limit:50,categoryGroups:["restaurant","cafe"]} as never,OWNER_A);
+    expect(food.items.map(p=>p.category).sort()).toEqual(["cafe","restaurant"]);
+    const other=await queries.queryPlaces({limit:50,categoryGroups:["divers"]} as never,OWNER_A);
+    expect(other.items.map(p=>p.category)).toEqual(expect.arrayContaining([null,"divers","catering.cafe"]));
+    expect(other.items).toHaveLength(3);
   });
 
   it("keeps the historical single-category filter working", async () => {
@@ -199,9 +187,9 @@ describeWithDatabase("Places read queries on PostgreSQL", () => {
   });
 
   it("combines the place-type and source-theme filters and stays owner-scoped", async () => {
-    const mine = await seedPlace(OWNER_A, { providerPlaceId: "geo-mine", category: "catering.cafe" });
-    const otherTheme = await seedPlace(OWNER_A, { providerPlaceId: "geo-other-theme", category: "catering.cafe" });
-    await seedPlace(OWNER_B, { providerPlaceId: "geo-b-cafe", category: "catering.cafe" });
+    const mine = await seedPlace(OWNER_A, { providerPlaceId: "geo-mine", category: "cafe" });
+    const otherTheme = await seedPlace(OWNER_A, { providerPlaceId: "geo-other-theme", category: "cafe" });
+    await seedPlace(OWNER_B, { providerPlaceId: "geo-b-cafe", category: "cafe" });
     const travelPost = await seedPost(OWNER_A, "Voyages");
     const foodPost = await seedPost(OWNER_A, "Restaurant");
     await linkPostPlace(OWNER_A, travelPost, mine.id);

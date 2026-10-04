@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { ExternalLink, Loader2, MapPin, X } from "lucide-react";
 
 import type { PlacesMapItem } from "@/server/places/map-view";
+import { PLACE_CATEGORY_GROUPS } from "@/lib/places/categories";
 import { cn } from "@/lib/utils";
 import { confirmPlaceAction, loadPlacePostsAction, rejectPlaceAction, type PlacePostDetailDto } from "@/features/places/actions";
 import { PlaceAddressLink } from "@/features/places/components/place-address-link";
@@ -104,11 +105,7 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
           {radiusKm ? `Zone ~${radiusKm} km` : PRECISION_LABEL[place.precision]}
         </span>
         {place.isUserConfirmed ? <span className="places-badge is-confirmed">Confirmé</span> : null}
-        {place.sourceThemes.map((theme) => (
-          <span className="places-chip" key={theme}>
-            {theme}
-          </span>
-        ))}
+        <span className="places-chip">{PLACE_CATEGORY_GROUPS.find(group => group.key === place.categoryGroup)?.label ?? "Divers"}</span>
       </div>
 
       <p className="places-sheet-meta">

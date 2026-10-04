@@ -94,7 +94,7 @@ describe("places URL state", () => {
   it("counts active filters including the search term", () => {
     expect(countActiveFilters(EMPTY_FILTERS)).toBe(0);
     expect(
-      countActiveFilters({ ...EMPTY_FILTERS, q: "a", themes: ["Voyages"], categories: ["cafe", "bar"] }),
+      countActiveFilters({ ...EMPTY_FILTERS, q: "a", themes: ["Voyages"], categories: ["cafe", "divers"] }),
     ).toBe(4);
   });
 
@@ -152,7 +152,7 @@ describe("places view mode", () => {
 describe("places filtering", () => {
   const nobu = place();
   const cafe = place({ id: "p2", displayName: "Bar San Calisto", categoryGroup: "cafe", category: "catering.cafe", city: "Rome", country: "Italie", countryCode: "IT", precision: "PROBABLE", sourceThemes: ["Voyages"] });
-  const zone = place({ id: "p3", displayName: "Caldeira de Santorin", categoryGroup: "plage", category: "beach", city: "Oia", country: "Grèce", countryCode: "GR", precision: "APPROXIMATE", approximationRadiusMeters: 5000, sourceThemes: ["Voyages"], reviewStatus: "CONFLICT" });
+  const zone = place({ id: "p3", displayName: "Caldeira de Santorin", categoryGroup: "voyage", category: "beach", city: "Oia", country: "Grèce", countryCode: "GR", precision: "APPROXIMATE", approximationRadiusMeters: 5000, sourceThemes: ["Voyages"], reviewStatus: "CONFLICT" });
   const confirmed = place({ id: "p4", displayName: "Tsukiji", categoryGroup: "patisserie", category: "catering.bakery", city: "Tokyo", country: "Japon", countryCode: "JP", reviewStatus: "CONFIRMED", isUserConfirmed: true, sourceThemes: ["Restaurant"] });
   const all = [nobu, cafe, zone, confirmed];
 
@@ -173,7 +173,7 @@ describe("places filtering", () => {
   });
 
   it("filters by several place types at once", () => {
-    expect(withFilters({ categories: ["cafe", "plage"] }).map((p) => p.id).sort()).toEqual(["p2", "p3"]);
+    expect(withFilters({ categories: ["cafe", "voyage"] }).map((p) => p.id).sort()).toEqual(["p2", "p3"]);
   });
 
   it("filters by precision", () => {

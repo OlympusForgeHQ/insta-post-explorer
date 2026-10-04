@@ -6,7 +6,41 @@ Reference development base: `develop` at `19b7825` (PRs #86/#88)
 Reference production base: `main` at `e620920` (PR #87)
 Older phase references below are historical.
 
-## Current task — separate Places service and OpenRouter, 4 October 2026
+## Current task — owner categories and serial Places pipeline, 4 October 2026
+
+Implementation branch: `feat/places-analysis-pipeline`. The owner requires exactly
+Restaurant, Café & brunch, Pâtisserie, Voyage and Divers. Geoapify classification
+has no authority: the model proposes one of these categories with evidence.
+Legacy provider category strings appear in Divers until reanalysis; confirmed
+manual records remain protected. The detail sheet displays the actual category.
+
+The application owns the new scoped `POST /api/v1/places/worker` queue, signed
+media reads, geocoding and atomic completion. The CLI in `services/worker/src/places`
+processes serially through the existing isolated Hermes service. Caption, up to
+12 video frames, full available audio (local Whisper), OCR and fusion are joined
+before persistence. No DB/bucket credentials enter the CLI or Hermes. All media
+artifacts are temporary. No unattended backfill or third service is installed.
+
+Code review is clear after fixing truncated-media detection, interrupted response
+replay, private-content logging and street-first house-number matching. Local
+PostgreSQL suites: application 570/570, worker 85/85; lint/types/build pass.
+An isolated additive evidence-enum migration was rehearsed against divergent
+legacy history. Never run the repository's full historical migrations on live DB.
+
+Real named-post analysis completed in 57.351 seconds: one 42.768-second video,
+12 sampled frames, 11 audio segments, three DeepSeek V4.1 Flash calls, 13,680 input
+and 2,058 output tokens, one candidate categorized cafe. PyAV 19 broke the pinned
+Whisper API; requirements now pin PyAV 18.0.0 and actual transcription passes.
+A zero-write geographic preview and production pilot remain pending deployment verification; explicit geographic-data egress was
+reconfirmed by the owner; do not claim production rollout
+or Phase H completion. Private operator receipts live under `.tmp/places-pipeline-release`.
+The measured 30–50 post pilot and unattended scheduling remain separate gates.
+
+Contracts: `docs/places-worker-api.md`; operations:
+`services/worker/places-hermes/README.md`; scope and verification:
+`docs/changes/2026-10-04-places-pipeline/`.
+
+## Previous task — separate Places service and OpenRouter, 4 October 2026
 
 The owner approved two execution services and requested the new service be
 configured with OpenRouter DeepSeek V4.1 Flash. Branch

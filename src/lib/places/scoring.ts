@@ -119,7 +119,16 @@ function normalizeAddress(value: string): string {
 }
 
 function likelyHouseNumber(value: string): string | null {
-  return normalizeAddress(value).match(/\b\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)?\b/)?.[0] ?? null;
+  // Ignore postal codes and ordinal district names; a number must introduce
+  // a street/address segment, rather than appear anywhere in formatted text.
+  const cleaned = value.replace(/\b\d{1,3}(?:st|nd|rd|th|er|e|eme|ème)\b/gi, '').replace(/\b\d{5,}\b/g, '');
+  for (const [index, segment] of cleaned.split(',').entries()) {
+    const leading = segment.match(/^\s*(\d{1,4}[a-z]?(?:[-/]\d{1,4}[a-z]?)?)\s+\p{L}/iu)?.[1];
+    if (leading && !(index > 0 && /^\d{4}$/.test(leading))) return leading.toLowerCase();
+    const trailing = segment.match(/\p{L}\s+(\d{1,4}[a-z]?(?:[-/]\d{1,4}[a-z]?)?)\s*$/iu)?.[1];
+    if (trailing) return trailing.toLowerCase();
+  }
+  return null;
 }
 
 function addressAgreement(candidateValue: string | null, resolvedValue: string | null): AddressAgreement {
@@ -162,7 +171,7 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   // Name only ever contributes positively: caption names and provider display
   // names vary too much to treat a mismatch as a contradiction.
   const nameMatch =
-    candidate.name && resolved.displayName && foldForSearch(resolved.displayName).includes(foldForSearch(candidate.name))
+    candidate.name && resolved.displayName && foldForSearch(resolved.displayName).replace(/[’‘`]/g, "'").includes(foldForSearch(candidate.name).replace(/[’‘`]/g, "'"))
       ? 1
       : 0;
   if (nameMatch) reasons.push("name_match");
