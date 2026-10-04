@@ -2,11 +2,24 @@
 
 Last updated: 4 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `9b58e84` (PRs #91/#92)
-Reference production base: `main` at `810ad41` (PR #93)
+Reference development base: `develop` at `70efed4` (PR #99)
+Reference production base: `main` at `afaf5ec` (PR #100)
 Older phase references below are historical.
 
-## Current correction — unverified area substitutions — 4 October 2026
+## Current correction — library review quality — 4 October 2026
+
+The40-post pilot is persisted and verified; its measured gate passed. The first
+example is also rechecked. Serial analysis and manual review of381remaining posts
+are running, with incremental synchronization checking for arrivals. This does not
+complete the entire library or enable unattended scheduling.
+
+Branch `fix/places-review-quality` fixes speech segment ends beyond real audio,
+GB-scoped London locality context, and zero-confidence specific matches. See
+[scope and evidence](changes/2026-10-04-places-review-quality.md). Prior geographic
+previews must be refreshed before persistence. Temporary sync auto-deployment
+protection must be restored after the active manual synchronization terminates.
+
+## Previous correction — unverified area substitutions — 4 October 2026
 
 Branch `fix/places-unverified-areas` prevents named venues from becoming a city
 circle based only on contextual locality. The pilot demonstrated incorrect
@@ -14,7 +27,7 @@ envelopes and category collisions. Explicit geographic areas remain supported.
 581 app tests and 90 worker tests, lint/typecheck/build and independent review
 pass. See [scope and evidence](changes/2026-10-04-places-unverified-areas.md).
 
-## Current correction — geographic language matching, 4 October 2026
+## Previous correction — geographic language matching, 4 October 2026
 
 The owner authorized geographic verification, full eligible-library review and
 correction, including newly arrived Restaurant/Voyages posts. The geographic
@@ -28,14 +41,14 @@ Source results and geographic previews remain private and resumable. The full
 library remains gated on measured pilot quality. See
 [scope and evidence](changes/2026-10-04-places-geographic-matching.md).
 
-## Current task — 40-post pilot and execution hardening, 4 October 2026
+## Previous task — 40-post pilot and execution hardening, 4 October 2026
 
 Branch `fix/places-pilot-hardening` starts at develop `e3cd1d5`. The owner approved
 a fixed 40-post pilot (20 Restaurant, 20 Voyages), then review/correction of the
 eligible library after the pilot succeeds. The live inventory contains 422
 eligible posts, including the already completed named-post pilot. Local private
 operator checkpoints are resumable and keep original and reviewed results apart.
-The pilot is not yet a passed Phase H gate and no all-library run is enabled.
+The40-post pilot gate subsequently passed; the remaining-library run is now active.
 
 Real attempts exposed strict JSON failures and frame seeks beyond the actual
 video stream end when audio lasts longer. Bounded inference repair and video

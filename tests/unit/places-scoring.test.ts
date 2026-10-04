@@ -44,6 +44,73 @@ function input(c: Partial<PlaceCandidate>, r: Partial<ResolvedPlaceCandidate>): 
 }
 
 describe("scoreResolvedCandidate", () => {
+  it.each(['street', 'amenity'])("rejects a zero-confidence %s even when its name matches the requested park", (providerResultType) => {
+    const result = scoreResolvedCandidate(input(
+      { name: "St. James's Park", city: 'London', region: 'England', country: 'United Kingdom', category: 'voyage', confidence: 0.8 },
+      {
+        displayName: "St James's Park", providerName: "St James's Park",
+        address: "St James's Park, London, CR0 2UT, United Kingdom",
+        city: 'London', region: 'England', country: 'United Kingdom', countryCode: 'GB',
+        latitude: 51.384155, longitude: -0.101136,
+        providerResultType, providerRank: 0, providerMatchType: 'match_by_street',
+      },
+    ));
+    expect(result.precision).toBe('UNKNOWN');
+    expect(result.approximationRadiusMeters).toBeNull();
+  });
+
+  it.each([
+    ['Barbican Conservatory', 'London', 'City of London', 0.81],
+    ["St. Paul's Cathedral", 'London', 'City of London', 0.81],
+    ['British Museum', 'London', 'Greater London', 1],
+    ['British Museum', 'Londres', 'Greater London', 1],
+    ['British Museum', 'Londres', 'London', 1],
+  ])("accepts %s when %s is the broad GB context of %s", (name, city, providerCity, providerRank) => {
+    const result = scoreResolvedCandidate(input(
+      { name, city, region: 'England', country: 'United Kingdom', category: 'voyage', confidence: 0.85 },
+      { displayName: name, providerName: name, city: providerCity, region: 'England',
+        country: 'United Kingdom', countryCode: 'GB', providerRank },
+    ));
+    expect(result.precision).toBe('EXACT');
+    expect(result.reasons).not.toContain('city_contradiction');
+  });
+
+  it.each([
+    ['City of London', 'Greater London', 'GB', 'United Kingdom', 'United Kingdom'],
+    ['City of London', 'London', 'GB', 'United Kingdom', 'United Kingdom'],
+    ['London', 'City of London', 'CA', 'Canada', 'Canada'],
+    ['London', 'Greater London', null, 'United Kingdom', 'United Kingdom'],
+    ['London', 'Londonderry', 'GB', 'United Kingdom', 'United Kingdom'],
+    ['London', 'Greater London', 'GB', 'France', 'United Kingdom'],
+    ['Paris', 'Greater Paris', 'FR', 'France', 'France'],
+  ])("keeps incompatible city context %s / %s / %s rejected", (city, providerCity, countryCode, country, providerCountry) => {
+    const result = scoreResolvedCandidate(input(
+      { name: 'Example Museum', city, region: null, country, category: 'voyage' },
+      { displayName: 'Example Museum', providerName: 'Example Museum', city: providerCity,
+        country: providerCountry, countryCode },
+    ));
+    expect(result.precision).toBe('UNKNOWN');
+  });
+
+  it("does not use broad London context to verify another entity or a city namesake station", () => {
+    const source = { name: 'British Museum', city: 'London', country: 'United Kingdom', category: 'voyage' as const };
+    const provider = { displayName: 'British Museum', providerName: 'British Museum', city: 'Greater London',
+      country: 'United Kingdom', countryCode: 'GB', providerResultType: 'amenity', providerRank: 1 };
+    expect(scoreResolvedCandidate(input(source, { ...provider, displayName: 'Other Museum', providerName: 'Other Museum' })).precision).toBe('UNKNOWN');
+    expect(scoreResolvedCandidate(input(source, { ...provider, displayName: 'Greater London', providerName: 'Greater London', providerResultType: 'city' })).precision).toBe('UNKNOWN');
+    expect(scoreResolvedCandidate(input({ ...source, name: 'London' }, { ...provider, displayName: 'London', providerName: 'London' })).precision).toBe('UNKNOWN');
+  });
+
+  it("preserves a corroborated named building with low positive provider confidence", () => {
+    const result = scoreResolvedCandidate(input(
+      { name: 'Au Fond du Jardin', address: '6 rue de la Râpe', city: 'Strasbourg', country: 'France', category: 'patisserie' },
+      { displayName: 'Au Fond du Jardin', providerName: 'Au Fond du Jardin', address: '6 Rue de la Râpe, Strasbourg, France',
+        city: 'Strasbourg', country: 'France', countryCode: 'FR', providerResultType: 'building',
+        providerRank: 1 / 6, providerMatchType: 'full_match' },
+    ));
+    expect(result.precision).toBe('EXACT');
+  });
+
   it("does not replace a named destination with an unrelated district in the same city", () => {
     const source = {name:'River Valley',city:'Example City',country:'France',category:'voyage' as const};
     const provider = {displayName:'Garden Quarter',city:'Example City',country:'France',countryCode:'FR',providerResultType:'district'};

@@ -119,8 +119,16 @@ function countryAgreement(candidateValue: string | null, resolved: ResolvedPlace
   return fieldAgreement(candidateValue, resolved.country);
 }
 
-function cityAgreement(candidateValue: string | null, resolvedValue: string | null) {
+function cityAgreement(candidateValue: string | null, resolvedValue: string | null, countryCode: string | null = null) {
   if (candidateValue && resolvedValue) {
+    // London is often source context for a POI whose provider locality is the
+    // City of London or Greater London. This is directional and GB-only; it
+    // does not make those areas interchangeable or verify a different POI.
+    if (countryCode?.trim().toUpperCase() === 'GB' &&
+      ['london', 'londres'].includes(foldForSearch(candidateValue)) &&
+      ['london', 'city of london', 'greater london'].includes(foldForSearch(resolvedValue))) {
+      return { match: 1, contradiction: false };
+    }
     // Only a complete bilingual component asserted by the provider is an alias.
     // Do not split ordinary hyphenated names or accept arbitrary substrings.
     const aliases = resolvedValue.split(/\s+[-–—/]\s+/u);
@@ -227,7 +235,7 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
       : 0;
   if (nameMatch) reasons.push("name_match");
 
-  const city = cityAgreement(candidate.city, resolved.city);
+  const city = cityAgreement(candidate.city, resolved.city, resolved.countryCode);
   const country = countryAgreement(candidate.country, resolved);
   const region = fieldAgreement(candidate.region, resolved.region);
   const address = addressAgreement(candidate.address, resolved.address);
@@ -269,6 +277,13 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   if (strongAddressMatch) reasons.push("address_provider_verified");
 
   const resultKind = classifyResultType(resolved.providerResultType);
+
+  // Text agreement cannot verify a POI/address that the provider itself gives
+  // zero confidence, such as a homonymous street returned for a named park.
+  if (resultKind.kind === 'specific' && resolved.providerRank === 0) {
+    reasons.push('provider_zero_confidence');
+    return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
+  }
 
   // A verified street address does not establish that its named occupant is
   // the business in the source. Old tenants are common in provider datasets.
