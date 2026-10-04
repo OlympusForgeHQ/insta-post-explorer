@@ -6,7 +6,41 @@ Reference development base: `develop` at `19b7825` (PRs #86/#88)
 Reference production base: `main` at `e620920` (PR #87)
 Older phase references below are historical.
 
-## Current task — preserve Places camera on detail close, 4 October 2026
+## Current task — separate Places service and OpenRouter, 4 October 2026
+
+The owner approved two execution services and requested the new service be
+configured with OpenRouter DeepSeek V4.1 Flash. Branch
+`feat/places-worker-openrouter` starts at develop `a9b18da`.
+
+`insta-explorer-places.service` is installed, enabled and running on the VPS.
+It reuses Hermes 0.21.5 with a dedicated `/var/lib/insta-explorer-places` state,
+loopback API `127.0.0.1:8645`, its own API credential, and the existing upstream
+OpenRouter credential. Model and vision model: `deepseek/deepseek-v4.1-flash`.
+One admitted API run, 1 CPU, 2 GiB RAM; no agent tools or inherited messaging
+profiles. This runtime does not yet consume the post queue or write Places.
+
+Live synthetic text and image OCR passed. Session metadata confirms all three
+inference calls used OpenRouter and the exact requested model, with zero tool
+calls. Simultaneous requests returned 200 and 429. Unauthenticated access returns
+401; only loopback listens. Namespace checks hide Argos/Cortana configs and the
+source secret. State is 0700, secrets 0600. Sync/web remain healthy and both
+existing Hermes gateways remain active.
+
+Independent review caught and resolved the UV interpreter bind and native HTTP
+concurrency limit. Startup additionally proved that the interpreter's `3.11`
+alias must be bound as well as the real `3.11.15` directory. Artifacts and rollback:
+`services/worker/places-hermes/README.md`; accepted architecture:
+`docs/decisions/2026-10-04-separate-places-service.md`. Sanitized live evidence:
+`.tmp/places-worker/verification.json` (never copy the runtime `.env`).
+
+Verification: installer 3/3, app lint/types/build, worker types/build, app tests
+412 passed with 159 DB-dependent skips, worker tests 70 passed with 7 DB skips.
+Sandbox port/subprocess restrictions required rerunning app/worker suites and
+the build outside the sandbox; those reruns passed. No DB migration or schema
+change. Next work is the multimodal handler/API integration and a measured pilot;
+the 421-post backfill has not been started.
+
+## Previous task — preserve Places camera on detail close, 4 October 2026
 
 `fix/preserve-places-viewport` starts at develop `19b7825`. Closing a place/post
 sheet used to fit all visible places again, losing the user's zoom and center.

@@ -2,6 +2,23 @@
 
 Last updated: 4 October 2026 — camera fix from `develop` at `19b7825`; prior production release at `e620920`
 
+## Separate Places inference service — 4 October 2026
+
+CONFIGURED AND ACTIVE on the VPS as `insta-explorer-places.service`, independently
+of the existing Instagram sync worker. Hermes 0.21.5 uses OpenRouter model
+`deepseek/deepseek-v4.1-flash`, including vision. Local authenticated API on
+127.0.0.1:8645; one concurrent request, 1 CPU, 2 GiB RAM, isolated state and no
+agent tools. Real synthetic text/OCR calls and recorded runtime model/provider
+passed; two simultaneous requests produced 200/429. Existing services are healthy.
+
+Installer tests 3/3, lint/types/app+worker builds and available suites passed
+(app 412 with 159 DB skips; worker 70 with 7 DB skips). Independent review issues
+were resolved and verified live. No database change. The analysis handler,
+automatic post processing, category changes and Places write integration remain
+unfinished; this is not completion of phases H/J. See
+[architecture](decisions/2026-10-04-separate-places-service.md) and
+[operations](../services/worker/places-hermes/README.md).
+
 ## Preserve Places camera on detail close — 4 October 2026
 
 IMPLEMENTED AND REVIEWED on `fix/preserve-places-viewport`: clearing selection
