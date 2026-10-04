@@ -2,6 +2,17 @@
 
 Last updated: 4 October 2026 — Places pipeline release `main` at `810ad41`, PR #93
 
+## Places 40-post pilot and execution hardening — 4 October 2026
+
+IN PROGRESS on `fix/places-pilot-hardening`. A fixed sample of 20 Restaurant and
+20 Voyages posts is being analyzed and manually reviewed. The owner authorized
+library-wide review/correction conditional on a successful pilot; that gate is
+not yet passed. Malformed model JSON now receives one strict repair attempt
+within the same deadline, and sampled frames use video stream timing while audio
+remains complete. Application 570/570 and worker 90/90 tests pass; lint/types/app
+build and independent code review pass. No migration, dependency or scheduler
+change. See [evidence](changes/2026-10-04-places-pilot-hardening.md).
+
 ## Places multimodal integration and owner categories — 4 October 2026
 
 DEPLOYED AND VERIFIED on the authorized named-post pilot. Only the owner's five

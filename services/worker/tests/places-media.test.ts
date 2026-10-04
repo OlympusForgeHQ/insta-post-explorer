@@ -36,3 +36,19 @@ it('refuses a truncated MP4 even when ffprobe and ffmpeg exit successfully',asyn
     await expect(extractLocalMedia({id:'media',kind:'VIDEO',mimeType:'video/mp4',byteSize:bytes.length,versionTag:null,url:'https://account.r2.cloudflarestorage.com/b/o'},source,0,dir,{python:'/not-called',transcribeScript:'/not-called',modelCache:'/not-called'},signal)).rejects.toThrow('MEDIA_UNAVAILABLE');
   }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+it('samples existing video frames when audio outlasts video or frame rate is low',async()=>{
+  for(const audioTail of [true,false]){
+    const dir=await mkdtemp(path.join(os.tmpdir(),'places-stream-timing-')),signal=new AbortController().signal;
+    try{
+      const source=path.join(dir,'source.mp4'),transcribe=path.join(dir,'transcribe.py');
+      await writeFile(transcribe,'import json, sys, wave\nwith wave.open(sys.argv[2]) as audio:\n assert audio.getnframes()/audio.getframerate() >= 2.9\nprint(json.dumps({"segments":[{"startMs":2500,"endMs":3000,"text":"Later audio"}]}))\n');
+      await runProcess('/usr/bin/ffmpeg',['-nostdin','-v','error','-f','lavfi','-i',`color=c=blue:s=160x120:r=${audioTail?30:1}:d=2`,...(audioTail?['-f','lavfi','-i','sine=frequency=440:duration=3']:[]),'-c:v','libx264','-threads','1',...(audioTail?['-c:a','aac']:[]),source],signal);
+      const result=await extractLocalMedia({id:'media',kind:'VIDEO',mimeType:'video/mp4',byteSize:1,versionTag:null,url:'https://account.r2.cloudflarestorage.com/b/o'},source,0,dir,{python:'/usr/bin/python3',transcribeScript:transcribe,modelCache:dir},signal);
+      expect(result.coverage).toMatchObject({durationMs:audioTail?3000:2000,frameCount:2,audio:audioTail?'transcribed':'absent'});
+      expect(result.frames.map(f=>f.timestampMs)).toEqual([0,audioTail?1750:1000]);
+      for(const frame of result.frames)expect((await readFile(frame.path)).length).toBeGreaterThan(0);
+      if(audioTail)expect(result.transcript.segments.at(-1)?.endMs).toBe(3000);
+    }finally{await rm(dir,{recursive:true,force:true});}
+  }
+});
