@@ -64,7 +64,7 @@ async function seed(count) {
       ownerId: OWNER_ID,
       displayName: `Lieu de test ${index}`,
       normalizedName: `lieu de test ${index}`,
-      category: index % 2 === 0 ? "catering.restaurant" : "catering.cafe",
+      category: index % 2 === 0 ? "restaurant" : "cafe",
       provider: "perf",
       providerPlaceId: `perf-${index}`,
       city: `Ville ${index % 120}`,

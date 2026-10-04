@@ -20,6 +20,7 @@
 | Independent review | Fresh reviewer and follow-up | Pass | four important findings corrected; 8 worker and 56 geographic tests independently rerun |
 | Real multimodal analysis | Named existing example through installed Hermes/OpenRouter | Pass | 42.768 s video, 12 frames, 11 transcript segments, one cafe candidate; 57.351 s total |
 | Geographic preview | Named-post pilot, zero writes | Pass | same canonical provider identity, EXACT 0.92, cafe; caption/audio/OCR evidence |
+| Browser category journey | Places disposable harness + Chromium | Pass | real cafe filter and category detail badge, 2 tests |
 | Production persistence/browser | Named-post pilot | Pending | explicit owner authorization; awaiting deployment |
 
 ## Original scenario and traceability
