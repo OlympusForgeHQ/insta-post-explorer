@@ -1,7 +1,7 @@
 # Places multimodal integration verification
 
 **Date:** 2026-10-04
-**Revision:** feat/places-analysis-pipeline (reviewed working tree)
+**Revision:** production `810ad4151dd44bf41ed4a6ccfd9600247af35643`, release PR #93
 
 ## Evidence
 
@@ -21,7 +21,9 @@
 | Real multimodal analysis | Named existing example through installed Hermes/OpenRouter | Pass | 42.768 s video, 12 frames, 11 transcript segments, one cafe candidate; 57.351 s total |
 | Geographic preview | Named-post pilot, zero writes | Pass | same canonical provider identity, EXACT 0.92, cafe; caption/audio/OCR evidence |
 | Browser category journey | Places disposable harness + Chromium | Pass | real cafe filter and category detail badge, 2 tests |
-| Production persistence/browser | Named-post pilot | Pending | explicit owner authorization; awaiting deployment |
+| Production persistence/browser | Authorized named-post pilot | Pass | existing place/link updated to cafe, EXACT; nine evidence records, atomic audit, live navigation/category/Maps |
+| Production deployment | Coolify deployment receipts and runtime health | Pass | web and sync finished on release SHA; isolated Places service active; normal main tracking restored |
+| Cleanup | Local workspace and private input/result inspection | Pass | zero temporary media; private candidate and signed-media payload files removed |
 
 ## Original scenario and traceability
 
@@ -32,10 +34,16 @@ reported usage; no claim about billed cost. Actual configured model route was
 checked before execution. Audio is local Whisper small int8 with language detection.
 The real pilot exposed the PyAV 19 incompatibility; pinning 18.0.0 fixed it.
 
-AC-004 geographic preview passed; write/browser checks remain pending. AC-005 code-level
-gates and review pass; production/browser verification is not yet claimed.
-Temporary raw media have been removed. Detailed candidate output is held privately
-for the pending pilot, excluded from Git/logs, and must be removed afterwards.
+AC-004 and AC-005 pass. The final production run completed in 60.412 seconds with
+13,761 input and 2,106 output tokens. The existing place and association retained
+their identities, with no duplicate. The nine new evidence records include
+CAPTION, HASHTAG, AUDIO_TRANSCRIPT, VIDEO_OCR and PROVIDER_MATCH. The job completed
+with a cleared lease; place, link, evidence and completion audit events share one
+database transaction. The live browser verifies the owner category, associated
+post, map canvas and Google Maps link with no page errors. Private receipts under
+`.tmp/places-pipeline-release` retain identifiers and metrics, not candidate
+excerpts or signed URLs. Temporary media and the private input/result files were
+removed. Final release evidence is also recorded on PR #93.
 
 ## Limits
 

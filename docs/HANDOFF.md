@@ -2,11 +2,27 @@
 
 Last updated: 4 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `19b7825` (PRs #86/#88)
-Reference production base: `main` at `e620920` (PR #87)
+Reference development base: `develop` at `9b58e84` (PRs #91/#92)
+Reference production base: `main` at `810ad41` (PR #93)
 Older phase references below are historical.
 
-## Current task — owner categories and serial Places pipeline, 4 October 2026
+## Current task — 40-post pilot and execution hardening, 4 October 2026
+
+Branch `fix/places-pilot-hardening` starts at develop `e3cd1d5`. The owner approved
+a fixed 40-post pilot (20 Restaurant, 20 Voyages), then review/correction of the
+eligible library after the pilot succeeds. The live inventory contains 422
+eligible posts, including the already completed named-post pilot. Local private
+operator checkpoints are resumable and keep original and reviewed results apart.
+The pilot is not yet a passed Phase H gate and no all-library run is enabled.
+
+Real attempts exposed strict JSON failures and frame seeks beyond the actual
+video stream end when audio lasts longer. Bounded inference repair and video
+stream-aware frame sampling are covered by 90 passing worker tests; 570 app tests,
+lint, type checks and app build pass. Independent review is clear. See
+[scope and verification](changes/2026-10-04-places-pilot-hardening.md).
+Never publish private source/evidence payloads, signed URLs or operator secrets.
+
+## Previous task — owner categories and serial Places pipeline, 4 October 2026
 
 Implementation branch: `feat/places-analysis-pipeline`. The owner requires exactly
 Restaurant, Café & brunch, Pâtisserie, Voyage and Divers. Geoapify classification
@@ -31,9 +47,19 @@ Real named-post analysis completed in 57.351 seconds: one 42.768-second video,
 12 sampled frames, 11 audio segments, three DeepSeek V4.1 Flash calls, 13,680 input
 and 2,058 output tokens, one candidate categorized cafe. PyAV 19 broke the pinned
 Whisper API; requirements now pin PyAV 18.0.0 and actual transcription passes.
-A zero-write geographic preview and production pilot remain pending deployment verification; explicit geographic-data egress was
-reconfirmed by the owner; do not claim production rollout
-or Phase H completion. Private operator receipts live under `.tmp/places-pipeline-release`.
+A zero-write geographic preview passed. PRs #91/#92 are merged; release #93 is
+deployed at `810ad4151dd44bf41ed4a6ccfd9600247af35643`. Production web and sync
+deployments finished healthy, and the isolated Places service remains active.
+The authorized production pilot completed in 60.412 seconds using the same model,
+12 frames and 11 audio segments (13,761 input / 2,106 output tokens). It updated
+the existing Terre d'Azur place and link to cafe with EXACT precision, without a
+duplicate. Nine evidence records include caption, audio and OCR. Database audit
+events confirm atomic persistence; the live post → Places → Google Maps browser
+journey and Café & brunch badge pass with no page errors. The additive migration
+was applied alone. The temporary media workspace is empty, and private candidate
+and signed-media payload files were removed after verification. Sanitized private
+operator receipts live under `.tmp/places-pipeline-release`; release evidence is
+also recorded on PR #93. This does not complete Phase H.
 The measured 30–50 post pilot and unattended scheduling remain separate gates.
 
 Contracts: `docs/places-worker-api.md`; operations:

@@ -29,7 +29,7 @@ export async function downloadMedia(media:MediaDescriptor,target:string,signal:A
   catch(error){throw Error(error instanceof Error&&error.message==='MEDIA_LIMIT'?'MEDIA_LIMIT':'MEDIA_UNAVAILABLE');}
   if(size!==media.byteSize)throw Error('MEDIA_UNAVAILABLE');
 }
-const probeSchema=z.object({format:z.object({duration:z.string().optional(),format_name:z.string()}),streams:z.array(z.object({codec_type:z.string(),width:z.number().optional(),height:z.number().optional()}))});
+const probeSchema=z.object({format:z.object({duration:z.string().optional(),format_name:z.string()}),streams:z.array(z.object({codec_type:z.string(),width:z.number().optional(),height:z.number().optional(),duration:z.string().optional(),avg_frame_rate:z.string().optional()}))});
 const transcriptSchema=z.object({segments:z.array(z.object({startMs:z.number().int().nonnegative(),endMs:z.number().int().nonnegative(),text:z.string().max(5000)})).max(2000)});
 export async function extractMedia(media:MediaDescriptor,index:number,dir:string,config:Pick<PlacesConfig,'python'|'transcribeScript'|'modelCache'>,signal:AbortSignal):Promise<ExtractedMedia>{
   const source=path.join(dir,`media-${index}`);
@@ -45,11 +45,18 @@ export async function extractLocalMedia(media:MediaDescriptor,source:string,inde
   const durationMs=media.kind==='VIDEO'?Math.round(Number(probe.format.duration)*1000):null;
   if(durationMs!==null&&(!Number.isFinite(durationMs)||durationMs<=0||durationMs>300_000))throw Error('MEDIA_LIMIT');
   if(media.kind==='VIDEO')await runProcess('/usr/bin/ffmpeg',['-nostdin','-v','error','-threads','2','-protocol_whitelist','file,pipe','-i',source,'-map','0:v:0','-f','null','-'],signal);
-  const count=durationMs===null?1:Math.min(12,Math.max(1,Math.ceil(durationMs/1000)));
+  // The container can continue after its video stream ends (audio tail). Keep
+  // its full duration for ASR, but sample only the actual video timeline.
+  const streamDurationMs=Number(video.duration)*1000;
+  const videoDurationMs=durationMs===null?0:Number.isFinite(streamDurationMs)&&streamDurationMs>0?Math.min(durationMs,streamDurationMs):durationMs;
+  const [rateNumerator,rateDenominator]=video.avg_frame_rate?.split('/').map(Number)??[];
+  const frameIntervalMs=rateNumerator>0&&rateDenominator>0?1000*rateDenominator/rateNumerator:0;
+  const lastFrameMs=Math.max(0,videoDurationMs-Math.max(250,frameIntervalMs));
+  const count=durationMs===null?1:Math.min(12,Math.max(1,Math.ceil(videoDurationMs/1000)));
   const frames:Frame[]=[];
   for(let i=0;i<count;i++){
     signal.throwIfAborted();
-    const timestampMs=durationMs===null?0:Math.floor(i*(Math.max(0,durationMs-250))/Math.max(1,count-1));
+    const timestampMs=durationMs===null?0:Math.floor(i*lastFrameMs/Math.max(1,count-1));
     const framePath=path.join(dir,`frame-${index}-${i}.jpg`);
     await runProcess('/usr/bin/ffmpeg',['-nostdin','-v','error','-threads','2','-protocol_whitelist','file,pipe',...(durationMs!==null?['-ss',String(timestampMs/1000)]:[]),'-i',source,'-frames:v','1','-vf',"scale=w='min(1280,iw)':h=-2",'-q:v','3','-y',framePath],signal);
     frames.push({path:framePath,timestampMs,mediaId:media.id});
@@ -65,6 +72,7 @@ export async function extractLocalMedia(media:MediaDescriptor,source:string,inde
     audio='transcribed';
   }
   // Verify outputs exist before handing them to the inference client.
-  for(const frame of frames){if(!(await readFile(frame.path)).length)throw Error('MEDIA_UNAVAILABLE');}
+  try{for(const frame of frames){if(!(await readFile(frame.path)).length)throw Error('MEDIA_UNAVAILABLE');}}
+  catch{throw Error('MEDIA_UNAVAILABLE');}
   return {frames,transcript:{mediaId:media.id,segments},coverage:{mediaId:media.id,kind:media.kind,durationMs,frameCount:frames.length,audio}};
 }
