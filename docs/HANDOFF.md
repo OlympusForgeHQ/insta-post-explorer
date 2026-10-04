@@ -6,7 +6,23 @@ Reference development base: `develop` at `9b58e84` (PRs #91/#92)
 Reference production base: `main` at `810ad41` (PR #93)
 Older phase references below are historical.
 
-## Current task — owner categories and serial Places pipeline, 4 October 2026
+## Current task — 40-post pilot and execution hardening, 4 October 2026
+
+Branch `fix/places-pilot-hardening` starts at develop `e3cd1d5`. The owner approved
+a fixed 40-post pilot (20 Restaurant, 20 Voyages), then review/correction of the
+eligible library after the pilot succeeds. The live inventory contains 422
+eligible posts, including the already completed named-post pilot. Local private
+operator checkpoints are resumable and keep original and reviewed results apart.
+The pilot is not yet a passed Phase H gate and no all-library run is enabled.
+
+Real attempts exposed strict JSON failures and frame seeks beyond the actual
+video stream end when audio lasts longer. Bounded inference repair and video
+stream-aware frame sampling are covered by 90 passing worker tests; 570 app tests,
+lint, type checks and app build pass. Independent review is clear. See
+[scope and verification](changes/2026-10-04-places-pilot-hardening.md).
+Never publish private source/evidence payloads, signed URLs or operator secrets.
+
+## Previous task — owner categories and serial Places pipeline, 4 October 2026
 
 Implementation branch: `feat/places-analysis-pipeline`. The owner requires exactly
 Restaurant, Café & brunch, Pâtisserie, Voyage and Divers. Geoapify classification
