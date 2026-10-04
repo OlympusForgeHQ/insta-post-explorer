@@ -107,6 +107,17 @@ describe("GeoapifyPlaceResolver", () => {
     expect(url.toString()).not.toContain("Dinner+at+Nobu");
   });
 
+  it("retains a named venue identity only when its address is independently corroborated", async () => {
+    const building={place_id:'building-10',formatted:'10 Avenue de Wagram, 75008 Paris, France',city:'Paris',country:'France',lat:48.875702,lon:2.2967064,result_type:'building',rank:{confidence:1,match_type:'full_match'}};
+    const venue={...building,place_id:'venue-terre',name:"Terre d'Azur",formatted:"Terre d'Azur, Avenue de Wagram, 8th Arrondissement of Paris, 75008 Paris, France",lat:48.8756751,lon:2.29672,result_type:'amenity'};
+    const fetchMock=vi.fn().mockImplementation(async(url:string)=>jsonResponse({results:new URL(url).searchParams.has('name')?[venue]:[building]}));
+    const result=await resolver(fetchMock).resolve(resolutionInput({name:'Terre d’Azur',address:'10 Avenue de Wagram, 75008 Paris',city:'Paris',country:'France'}));
+    expect(result).toHaveLength(1);expect(result[0]).toMatchObject({providerPlaceId:'venue-terre',displayName:"Terre d'Azur",latitude:48.8756751});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const far=vi.fn().mockImplementation(async(url:string)=>jsonResponse({results:new URL(url).searchParams.has('name')?[{...venue,lat:49}]:[building]}));
+    expect((await resolver(far).resolve(resolutionInput({name:'Terre d’Azur',address:'10 Avenue de Wagram, 75008 Paris',city:'Paris',country:'France'})))[0].providerPlaceId).toBe('building-10');
+  });
+
   it("normalizes a valid response into resolved candidates", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(validGeoapifyBody()));
     const [first] = await resolver(fetchMock).resolve(resolutionInput());

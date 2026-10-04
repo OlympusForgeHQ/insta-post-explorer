@@ -3,9 +3,9 @@
 The owner approved this separate execution service on 4 October 2026. See the
 [architecture decision](../../../docs/decisions/2026-10-04-separate-places-service.md).
 
-This slice provides the configured inference runtime. It does **not** consume
-post jobs yet. Audio/video extraction and verified Places writes need their own
-handler and API integration. No production backfill has been started.
+The isolated service provides inference. A separate invocation of the serial
+client described below handles media and calls the application queue/Places API.
+Deployment does not launch a library-wide backfill.
 
 ## Deployment
 
@@ -50,3 +50,60 @@ private temporary directory; other homes are hidden except the read-only engine.
 
 Rollback: `sudo systemctl disable --now insta-explorer-places.service`. Retain
 state for diagnosis. This does not change Instagram sync, Argos or Cortana.
+
+## Serial multimodal client
+
+The next integration slice adds `services/worker/src/places/cli.ts`. It calls the
+application's scoped worker API and this Hermes endpoint; it has no database or
+bucket credentials. It is invoked explicitly, not installed as a third service.
+Its full-audio ASR uses a separate Python venv with
+`requirements-asr.txt` (faster-whisper 1.2.1 and PyAV 18.0.0, CPU int8, automatic language).
+FFmpeg and ffprobe must be available at `/usr/bin`.
+
+Configure a private 0600 environment file outside Git with:
+
+- `PLACES_APP_ORIGIN`: application HTTPS origin.
+- `PLACES_WORKER_API_KEY`: high-entropy dedicated raw key; only its SHA-256 hash
+  belongs in the application's `PLACES_WORKER_API_KEY_SHA256` variable.
+- `PLACES_HERMES_URL`: `http://127.0.0.1:8645/v1`.
+- `PLACES_HERMES_KEY`: the isolated service's local API credential.
+- `PLACES_TEMP_ROOT`: absolute private media workspace directory.
+- `PLACES_ASR_PYTHON`: absolute path to the separate ASR venv Python.
+- `PLACES_ASR_SCRIPT`: absolute path to `transcribe.py` in this release.
+- `PLACES_ASR_CACHE`: private model-weight cache, separate from media workspaces.
+
+With that environment loaded by the operator:
+
+```bash
+npm run worker:build
+npm run places --workspace services/worker -- --post POST_ID --preview
+npm run places --workspace services/worker -- --post POST_ID --commit
+npm run places --workspace services/worker -- --limit 10 --commit
+```
+
+Preview analyzes and resolves without job/domain writes. Commit enqueues current
+eligible inputs idempotently and processes at most the requested number, serially
+(maximum 50). A named post limits both enqueue and consumption to that post.
+A completed current input is not reprocessed. Failed jobs retry at most three
+times with backoff; a future explicit invocation consumes due retries. No timer
+or continuous backfill is enabled by deployment. Never interpret zero claimed
+jobs as proof that every post has succeeded; inspect pending/review/failed jobs.
+
+For each post the client analyzes the caption, validates and decodes all media,
+samples up to 12 frames including the end, transcribes all available audio, reads
+visible text, then fuses the evidence through DeepSeek. Limits are 250 MiB/media,
+5 minutes/video, 20 media/post and 20 minutes/post. Oversized/unreadable media fail
+visibly. Sampling is not exhaustive video OCR: a short text between sampled
+frames can be missed. The measured 30–50-post pilot remains the quality gate
+before unattended processing of the full library.
+
+All media artifacts are removed on success/error/interruption and stale job
+workspaces are removed at startup. Logs contain post IDs, stages, coverage counts,
+usage and stable error codes; no source excerpts, signed URLs or keys. Hermes may
+retain its own inference sessions according to its existing private runtime
+policy. Model weights remain cached. Disable `PLACES_WORKER_ENABLED` to close the
+application endpoint; retain Places data and audit history on rollback.
+
+ASR dependency compatibility: PyAV 19 removed the API used by faster-whisper 1.2.1.
+The explicit PyAV pin prevents that observed runtime failure; see
+[upstream issue 1589](https://github.com/SYSTRAN/faster-whisper/issues/1589).

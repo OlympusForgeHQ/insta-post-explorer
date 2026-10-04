@@ -33,6 +33,19 @@ describe("placeCandidateSchema", () => {
     expect(placeCandidateSchema.parse({ ...validCandidate, evidence: [] })).toBeDefined();
   });
 
+  it("accepts owner categories with timed audio/OCR evidence but rejects artifacts and invalid timing", () => {
+    const item = { ...validCandidate, category: "cafe", categoryReason: "The caption describes a brunch cafe", evidence: [
+      { type: "AUDIO_TRANSCRIPT", excerpt: "Terre d'Azur", videoTimestampMs: 4000, mediaId: "media-1" },
+      { type: "VIDEO_OCR", excerpt: "Terre d'Azur", videoTimestampMs: 5000, mediaId: "media-1" },
+    ] };
+    expect(placeCandidateSchema.parse(item)).toEqual(item);
+    for (const evidence of [
+      [{ type: "AUDIO_TRANSCRIPT", excerpt: "name", videoTimestampMs: -1 }],
+      [{ type: "VIDEO_OCR", excerpt: "name", videoTimestampMs: 300001 }],
+      [{ type: "VIDEO_OCR", excerpt: "name", frameUrl: "https://untrusted.test/frame" }],
+    ]) expect(placeCandidateSchema.safeParse({ ...item, evidence }).success).toBe(false);
+  });
+
   it("keeps the documented JSON Schema aligned with the required address contract", () => {
     const schema = JSON.parse(
       readFileSync(path.join(process.cwd(), "docs", "places-caption-candidate.schema.json"), "utf8"),

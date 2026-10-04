@@ -4,6 +4,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { foldForSearch } from "@/lib/import/normalize";
 import type { PlaceCandidate, PlaceCandidateRecord } from "@/lib/places/candidates";
+import { categoryFromProposal } from "@/lib/places/categories";
 import { canonicalPlacesTheme } from "@/lib/places/eligibility";
 import { continentCodeForCountry } from "@/lib/places/continents";
 import { scoreResolvedCandidate, type ScoredResolution } from "@/lib/places/scoring";
@@ -28,6 +29,9 @@ const EVIDENCE_TYPE_MAP = {
   HASHTAG: "HASHTAG",
   AUTHOR_TEXT: "AUTHOR_TEXT",
   INSTAGRAM_LOCATION: "INSTAGRAM_LOCATION",
+  AUDIO_TRANSCRIPT: "AUDIO_TRANSCRIPT",
+  VIDEO_OCR: "VIDEO_OCR",
+  VISUAL_LANDMARK: "VISUAL_LANDMARK",
 } as const;
 
 export type AnalyzeRecordInput = {
@@ -49,7 +53,7 @@ export type AnalyzeRecordResult = {
   unknownCandidates: number;
 };
 
-type CandidatePlan = {
+export type CandidatePlan = {
   candidate: PlaceCandidate;
   best: { resolved: ResolvedPlaceCandidate; scored: ScoredResolution } | null;
 };
@@ -143,7 +147,7 @@ export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Pr
   }
 }
 
-async function planAll(
+export async function planAll(
   candidates: PlaceCandidate[],
   sourceTheme: "Voyages" | "Restaurant",
   resolver: PlaceResolver,
@@ -196,7 +200,7 @@ export async function persistMetadataAnalysis(
     }
 
     const { resolved, scored } = plan.best;
-    const place = await upsertCanonicalPlace(tx, { ownerId, postId, resolved, scored });
+    const place = await upsertCanonicalPlace(tx, { ownerId, postId, resolved, scored, candidate: plan.candidate });
     persistedPlaceIds.add(place.id);
 
     const link = await upsertPostPlace(tx, { ownerId, postId, placeId: place.id, jobId, scored });
@@ -255,7 +259,7 @@ export async function persistMetadataAnalysis(
 
 async function upsertCanonicalPlace(
   tx: TxClient,
-  { ownerId, postId, resolved, scored }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution },
+  { ownerId, postId, resolved, scored, candidate }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution; candidate: PlaceCandidate },
 ) {
   const precision = scored.precision as "EXACT" | "PROBABLE" | "APPROXIMATE";
   // Exact/provider-verified places remain canonical. An approximate area is an
@@ -278,7 +282,7 @@ async function upsertCanonicalPlace(
   const descriptive = {
     displayName: resolved.displayName,
     normalizedName: foldForSearch(resolved.displayName),
-    category: resolved.category,
+    category: categoryFromProposal(candidate.category),
     address: resolved.address,
     city: resolved.city,
     region: resolved.region,
@@ -297,6 +301,8 @@ async function upsertCanonicalPlace(
       providerRank: resolved.providerRank,
       providerMatchType: resolved.providerMatchType,
       attribution: resolved.attribution,
+      classification: { source: "post_analysis", category: categoryFromProposal(candidate.category),
+        reason: candidate.categoryReason ?? null, evidenceTypes: [...new Set(candidate.evidence.map(item => item.type))] },
     } satisfies Prisma.InputJsonValue,
   };
 
@@ -314,7 +320,10 @@ async function upsertCanonicalPlace(
   }
   // Never overwrite a user-confirmed canonical place with automatic data.
   if (existing.isUserConfirmed) return existing;
-  return tx.place.update({ where: { id: existing.id }, data: descriptive });
+  // Recheck on the UPDATE itself: a concurrent human confirmation can commit
+  // after the read above. PostgreSQL re-evaluates this predicate after waiting.
+  await tx.place.updateMany({ where: { id: existing.id, ownerId, isUserConfirmed: false }, data: descriptive });
+  return tx.place.findUniqueOrThrow({ where: { id: existing.id } });
 }
 
 async function upsertPostPlace(
@@ -348,10 +357,11 @@ async function upsertPostPlace(
       },
     });
   }
-  return tx.postPlace.update({
-    where: { id: existing.id },
+  const updated = await tx.postPlace.updateMany({
+    where: { id: existing.id, ownerId, isUserConfirmed: false },
     data: { analysisJobId: jobId, precision, confidence: scored.confidence },
   });
+  return updated.count ? tx.postPlace.findUniqueOrThrow({ where: { id: existing.id } }) : null;
 }
 
 async function supersedeAutomaticApproximatePrimary(
@@ -434,6 +444,8 @@ async function insertCandidateEvidence(
       evidenceType: EVIDENCE_TYPE_MAP[item.type],
       normalizedValue,
       excerpt: item.excerpt.slice(0, EXCERPT_MAX_LENGTH),
+      videoTimestampMs: item.videoTimestampMs ?? null,
+      metadata: item.mediaId ? { mediaId: item.mediaId } : {},
       confidence: candidate.confidence,
     })),
   });

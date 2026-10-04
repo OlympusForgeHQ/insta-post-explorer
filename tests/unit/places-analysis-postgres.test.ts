@@ -116,6 +116,26 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     expect(job.status).toBe("SUCCEEDED");
   });
 
+  it("persists post-based cafe classification and timed evidence regardless of Geoapify category", async () => {
+    await seedPost("brunch-post", OWNER_A, "Restaurant");
+    const resolver = new FakeResolver({ "Nobu Dubai": [resolved({ category: "catering.fast_food" })] });
+    const proposed = { ...candidate(), category: "cafe", categoryReason: "Brunch and coffee in the caption", evidence: [
+      { type: "CAPTION", excerpt: "Brunch and coffee" },
+      { type: "AUDIO_TRANSCRIPT", excerpt: "Nobu Dubai", videoTimestampMs: 4000, mediaId: "media-1" },
+    ] } as PlaceCandidate;
+    const record = await freshRecord(OWNER_A,"brunch-post",[proposed]);
+    await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,record,resolver,commit:true});
+    const place = await prisma.place.findFirstOrThrow({where:{ownerId:OWNER_A}});
+    expect(place.category).toBe("cafe");
+    expect(place.metadata).toMatchObject({classification:{source:"post_analysis",category:"cafe",reason:"Brunch and coffee in the caption"}});
+    const audio = await prisma.placeEvidence.findFirstOrThrow({where:{ownerId:OWNER_A,evidenceType:"AUDIO_TRANSCRIPT"}});
+    expect(audio.videoTimestampMs).toBe(4000);
+    expect(audio.metadata).toMatchObject({mediaId:"media-1"});
+    await prisma.place.update({where:{id:place.id},data:{isUserConfirmed:true,category:"patisserie"}});
+    await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,record,resolver,commit:true});
+    expect((await prisma.place.findUniqueOrThrow({where:{id:place.id}})).category).toBe("patisserie");
+  });
+
   it("persists an APPROXIMATE city with a mandatory radius", async () => {
     await seedPost("kyoto-post", OWNER_A, "Voyages");
     const resolver = new FakeResolver({

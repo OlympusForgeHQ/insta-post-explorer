@@ -28,8 +28,11 @@ export class ExternalApiUnavailableError extends Error {
   }
 }
 
-export function requireExternalApiKey(request: Request): void {
-  const expectedHash = process.env.EXTERNAL_API_KEY_SHA256?.trim().toLowerCase();
+export function requireExternalApiKey(request: Request, scope: "read" | "places-worker" = "read"): void {
+  const expectedHash = (scope === "places-worker" ? process.env.PLACES_WORKER_API_KEY_SHA256 : process.env.EXTERNAL_API_KEY_SHA256)?.trim().toLowerCase();
+  if (scope === "places-worker" && (process.env.PLACES_WORKER_ENABLED !== "1" ||
+      [process.env.EXTERNAL_API_KEY_SHA256, process.env.INSTAGRAM_AUTO_SYNC_KEY_SHA256]
+        .some(value => value?.trim().toLowerCase() === expectedHash))) throw new ExternalApiUnavailableError();
   if (!expectedHash || !SHA256_HEX.test(expectedHash)) {
     // Fail closed when the key hash is absent or malformed.
     throw new ExternalApiUnavailableError();

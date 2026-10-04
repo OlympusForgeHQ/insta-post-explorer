@@ -1,6 +1,6 @@
 import "server-only";
 
-import { MediaIdentity } from "@prisma/client";
+import { MediaIdentity, type Prisma } from "@prisma/client";
 
 import { prisma } from "@/server/db";
 
@@ -24,8 +24,9 @@ export type AnalysisPostInputs = {
 export async function loadAnalysisPostInputs(
   ownerId: string,
   postId: string,
+  client: Prisma.TransactionClient = prisma,
 ): Promise<AnalysisPostInputs | null> {
-  const post = await prisma.post.findFirst({
+  const post = await client.post.findFirst({
     where: { id: postId, ownerId },
     select: {
       id: true,

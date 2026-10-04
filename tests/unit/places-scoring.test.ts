@@ -44,6 +44,14 @@ function input(c: Partial<PlaceCandidate>, r: Partial<ResolvedPlaceCandidate>): 
 }
 
 describe("scoreResolvedCandidate", () => {
+  it("matches typographic apostrophes without treating an arrondissement or postcode as a house number",()=>{
+    const result=scoreResolvedCandidate(input({name:'Terre d’Azur',address:'10 Avenue de Wagram, 75008 Paris',city:'Paris',country:'France'},
+      {displayName:"Terre d'Azur",address:"Terre d'Azur, Avenue de Wagram, 8th Arrondissement of Paris, 75008 Paris, France",city:'Paris',country:'France'}));
+    expect(result.precision).toBe('EXACT');expect(result.reasons).not.toContain('address_contradiction');
+    const mismatch=scoreResolvedCandidate(input({address:'Rue des Bains 28, Genève, Suisse'}, {address:'Rue des Bains 40, Genève, Suisse'}));
+    expect(mismatch.precision).toBe('UNKNOWN');expect(mismatch.reasons).toContain('address_contradiction');
+  });
+
   it("classifies a specific verified POI as EXACT with no radius", () => {
     const result = scoreResolvedCandidate(input({}, {}));
     expect(result.precision).toBe("EXACT");
