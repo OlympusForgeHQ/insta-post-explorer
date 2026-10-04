@@ -1,11 +1,11 @@
 # Implementation Status
 
-Last updated: 4 October 2026 — camera fix from `develop` at `19b7825`; prior production release at `e620920`
+Last updated: 4 October 2026 — Places pipeline release `main` at `810ad41`, PR #93
 
 ## Places multimodal integration and owner categories — 4 October 2026
 
-IMPLEMENTED AND CODE-REVIEWED; named-post inference verified, production pilot
-pending. Only the owner's five categories are accepted, with content provenance.
+DEPLOYED AND VERIFIED on the authorized named-post pilot. Only the owner's five
+categories are accepted, with content provenance.
 The scoped V1 worker API guards owner, lease, current post/media, idempotence and
 confirmed edits; a serial CLI joins caption/OCR/full audio through Hermes before
 calling geographic resolution and atomic Places persistence.
@@ -13,8 +13,13 @@ calling geographic resolution and atomic Places persistence.
 Application tests 570/570 and worker tests 85/85 pass against disposable PostgreSQL;
 lint, both type checks and builds pass. Isolated additive evidence migration
 rehearsal preserves divergent history. Real named-post analysis yields one cafe
-candidate; geographic preview/write has explicit owner authorization and awaits deployment verification. This is a Phase H integration slice, not approval of
-the measured 30–50-post gate or a library-wide backfill. See
+candidate. The authorized production run completed in 60.412 seconds and updated
+the existing place/link to cafe, EXACT, with nine evidence records and atomic
+audit events. Live post → Places navigation, the Café & brunch badge, map and
+Google Maps link pass. Production web/sync and the isolated Places service are
+healthy; temporary media and private candidate payloads are cleaned up. Release
+PR #93 records the deployed SHA and evidence. This is a Phase H integration slice;
+the measured 30–50-post gate and library-wide backfill remain pending. See
 [verification](changes/2026-10-04-places-pipeline/verification.md).
 
 ## Separate Places inference service — 4 October 2026
