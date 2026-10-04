@@ -1,6 +1,19 @@
 # Implementation Status
 
-Last updated: 4 October 2026 — Places pipeline release `main` at `810ad41`, PR #93
+Last updated: 4 October 2026 — production `main` at `afaf5ec`, PR #100; quality correction verified locally
+
+## Current correction — library review quality — 4 October 2026
+
+The40-post pilot is persisted and verified; its measured gate passed. The first
+example is also rechecked. Serial analysis and manual review of381remaining posts
+are running, with incremental synchronization checking for arrivals. This does not
+complete the entire library or enable unattended scheduling.
+
+Branch `fix/places-review-quality` fixes speech segment ends beyond real audio,
+GB-scoped London locality context, and zero-confidence specific matches. See
+[scope and evidence](changes/2026-10-04-places-review-quality.md). Prior geographic
+previews must be refreshed before persistence. Temporary sync auto-deployment
+protection must be restored after the active manual synchronization terminates.
 
 ## Places area identity correction — 4 October 2026
 
@@ -24,10 +37,9 @@ See [requirements and verification](changes/2026-10-04-places-geographic-matchin
 
 ## Places 40-post pilot and execution hardening — 4 October 2026
 
-IN PROGRESS on `fix/places-pilot-hardening`. A fixed sample of 20 Restaurant and
-20 Voyages posts is being analyzed and manually reviewed. The owner authorized
-library-wide review/correction conditional on a successful pilot; that gate is
-not yet passed. Malformed model JSON now receives one strict repair attempt
+COMPLETED PILOT on `fix/places-pilot-hardening`. The fixed sample of20Restaurant
+and20Voyages posts is analyzed, manually reviewed, persisted and verified. The
+owner-authorized pilot gate passed; the remaining library review is in progress. Malformed model JSON now receives one strict repair attempt
 within the same deadline, and sampled frames use video stream timing while audio
 remains complete. Application 570/570 and worker 90/90 tests pass; lint/types/app
 build and independent code review pass. No migration, dependency or scheduler
