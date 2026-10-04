@@ -1,10 +1,23 @@
 # Operational Handoff
 
-Last updated: 4 October 2026
+Last updated: 5 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `206dac9` (PR #101)
-Reference production base: `main` at `7daf169` (PR #102)
+Reference development base: `develop` at `9fefe22` (PR #103)
+Reference production base: `main` at `f99d258` (PR #104)
 Older phase references below are historical.
+
+## Current correction — long Places itineraries — 5 October 2026
+
+Branch `fix/places-long-post-capacity` expands the dedicated worker contract from
+50 to 200 candidates and removes its smaller duplicated inference bound. A model
+response reaching or exceeding its declared capacity, or its output-token limit fails without a
+compacting retry. Fusion output is bounded to 32,768 tokens. Caption imports remain
+limited to 50. No schema migration, schedule or automatic reanalysis is introduced.
+Application 603/603 and worker 94/94 tests pass with disposable PostgreSQL;
+three Python transcription tests, lint, type checks and worker build also pass.
+Independent review has no blocking findings; application production build passes.
+Deployment verification is pending. The serial library review continues; the affected long source
+has not been committed. See [scope and verification](changes/2026-10-05-places-long-post-capacity.md).
 
 ## Current correction — shared place certainty — 4 October 2026
 

@@ -56,4 +56,20 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
    expect(await db.placeEvidence.count({where:{ownerId:owner}})).toBe(0);
  });
+ it('persists every distinct destination beyond 50 and replays the complete receipt once',async()=>{
+   const candidates=Array.from({length:51},(_,i)=>({...result.candidates[0],name:`Example Cafe ${i+1}`,evidence:[{type:'CAPTION',excerpt:`Brunch at Example Cafe ${i+1}.`}]}));
+   await db.post.update({where:{id:'worker-post'},data:{caption:candidates.map(c=>c.evidence[0].excerpt).join('\n')}});
+   const many:PlaceResolver={resolve:async input=>[{...(await resolver.resolve(input))[0],providerPlaceId:`geo-${input.candidate.name}`,displayName:input.candidate.name!,providerName:input.candidate.name}]};
+   const deps={signMedia:signer,resolver:many};
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{postId:'worker-post'},deps))!;
+   const command={jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates}};
+   const completed=await service.completePlacesJob(owner,command,deps);
+   expect(completed.placesPersisted).toBe(51);
+   expect(completed.linksPersisted).toBe(51);
+   expect(await service.completePlacesJob(owner,command,deps)).toEqual(completed);
+   expect(await db.place.count({where:{ownerId:owner}})).toBe(51);
+   expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(51);
+   expect(await db.placeEvidence.count({where:{ownerId:owner,evidenceType:'CAPTION'}})).toBe(51);
+ });
 });
