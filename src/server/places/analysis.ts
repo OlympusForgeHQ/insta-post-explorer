@@ -278,6 +278,12 @@ async function upsertCanonicalPlace(
     precision === "APPROXIMATE"
       ? `${resolved.providerPlaceId}:post:${postId}`
       : resolved.providerPlaceId;
+  // Read the current certainty after any concurrent writer has committed.
+  // Otherwise a weaker post can overwrite a stronger shared resolution using
+  // an earlier snapshot. The existing transaction owns this row lock.
+  await tx.$queryRaw`SELECT id FROM places
+    WHERE owner_id = ${ownerId} AND provider = ${resolved.provider}
+      AND provider_place_id = ${providerPlaceId} FOR UPDATE`;
   const existing = await tx.place.findUnique({
     where: {
       ownerId_provider_providerPlaceId: {
@@ -330,8 +336,21 @@ async function upsertCanonicalPlace(
   }
   // Never overwrite a user-confirmed canonical place with automatic data.
   if (existing.isUserConfirmed) return existing;
-  // Recheck on the UPDATE itself: a concurrent human confirmation can commit
-  // after the read above. PostgreSQL re-evaluates this predicate after waiting.
+  const sameResolution = (
+    ["displayName", "category", "address", "city", "region", "country", "countryCode", "latitude", "longitude"] as const
+  ).every(field => existing[field] === descriptive[field]);
+  const precisionRank = { UNKNOWN: 0, APPROXIMATE: 1, PROBABLE: 2, EXACT: 3 };
+  if (sameResolution && (
+    precisionRank[existing.precision] > precisionRank[precision] ||
+    (existing.precision === precision && existing.confidence > scored.confidence)
+  )) {
+    // Only the canonical certainty is shared. Links and evidence below keep
+    // the new post's own score; changed locations still accept corrections.
+    descriptive.precision = existing.precision as typeof precision;
+    descriptive.confidence = existing.confidence;
+    descriptive.approximationRadiusMeters = existing.approximationRadiusMeters;
+  }
+  // Keep the confirmation guard on the write as well as the locked read.
   await tx.place.updateMany({ where: { id: existing.id, ownerId, isUserConfirmed: false }, data: descriptive });
   return tx.place.findUniqueOrThrow({ where: { id: existing.id } });
 }
