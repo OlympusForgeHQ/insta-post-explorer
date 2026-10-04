@@ -17,6 +17,12 @@ Codex ne doit pas développer plusieurs phases en parallèle lorsqu’elles part
 
 ## 2. Architecture finale verrouillée
 
+Amendement du 4 octobre 2026 : le propriétaire autorise deux services
+d'exécution (synchronisation Instagram et Places), selon
+[la décision dédiée](decisions/2026-10-04-separate-places-service.md).
+Cette tranche configure le runtime Hermes/OpenRouter ; elle ne déclare
+pas terminées les phases H/J ni le traitement automatique des posts.
+
 ```text
 Insta Post Explorer
 ├── Next.js sur Vercel
@@ -26,9 +32,9 @@ Insta Post Explorer
 │   └── API externe /api/v1
 ├── PostgreSQL unique
 ├── Cloudflare R2 unique
-├── worker VPS unique
-│   ├── infrastructure partagée
-│   └── handlers par domaine
+├── services VPS séparés
+│   ├── synchronisation Instagram existante
+│   └── Places : runtime Hermes isolé, contrats métier partagés
 └── serveur MCP unique
     ├── client API partagé
     └── outils par domaine
