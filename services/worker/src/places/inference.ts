@@ -6,9 +6,19 @@ export function parseCandidates(text:string,schema:Record<string,unknown>):{cand
  try{
   if(text.length>512*1024)throw Error();
   const cleaned=text.trim().replace(/^```(?:json)?\s*\n?/,'').replace(/\n?```$/,'');
-  const parsed=z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]).parse(JSON.parse(cleaned));
-  return z.object({candidates:z.array(z.record(z.string(),z.unknown())).max(50)}).parse(parsed);
- }catch{throw Error('INVALID_RESULT');}
+  const raw:unknown=JSON.parse(cleaned);
+  // Check capacity before schema validation: an over-limit array must not
+  // enter the JSON-repair path and become a shorter, incomplete itinerary.
+  // This inspects only its size; no unvalidated candidate is returned or reused.
+  const bound=z.object({properties:z.object({candidates:z.object({maxItems:z.number().int().positive()})})}).safeParse(schema);
+  const list=z.object({candidates:z.array(z.unknown())}).safeParse(raw);
+  if(bound.success&&list.success&&list.data.candidates.length>=bound.data.properties.candidates.maxItems)throw Error('CANDIDATE_LIMIT_REACHED');
+  const parsed=z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]).parse(raw);
+  return z.object({candidates:z.array(z.record(z.string(),z.unknown()))}).parse(parsed);
+ }catch(error){
+  if(error instanceof Error&&error.message==='CANDIDATE_LIMIT_REACHED')throw error;
+  throw Error('INVALID_RESULT');
+ }
 }
 export type InferenceOutput={candidates:Record<string,unknown>[];usage:{inputTokens:number;outputTokens:number}};
 export class HermesPlacesInference {
@@ -23,17 +33,18 @@ export class HermesPlacesInference {
   for(let attempt=0;attempt<2;attempt++){
    if(requestSignal.aborted)throw Error(signal.aborted?'WORKER_STOPPING':'INFERENCE_FAILED');
    let response:Response;
-   try{response=await this.request(this.url+'/chat/completions',{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify({model:'insta-places',messages,stream:false,temperature:0,max_tokens:12_000}),signal:requestSignal});}
+   try{response=await this.request(this.url+'/chat/completions',{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify({model:'insta-places',messages,stream:false,temperature:0,max_tokens:stage==='fusion'?32_768:12_000}),signal:requestSignal});}
    catch{throw Error(signal.aborted?'WORKER_STOPPING':'INFERENCE_FAILED');}
    if(!response.ok){await response.body?.cancel();throw Error('INFERENCE_FAILED');}
    const payload=z.object({model:z.literal('insta-places'),choices:z.array(z.object({message:z.object({content:z.string()}),finish_reason:z.string().nullable().optional()})).min(1),usage:z.object({prompt_tokens:z.number().int().nonnegative(),completion_tokens:z.number().int().nonnegative()})}).safeParse(await boundedJson(response));
    if(!payload.success)throw Error('INVALID_RESULT');
    usage.inputTokens+=payload.data.usage.prompt_tokens;usage.outputTokens+=payload.data.usage.completion_tokens;
    if(signal.aborted)throw Error('WORKER_STOPPING');
+   if(payload.data.choices[0].finish_reason==='length')throw Error('INVALID_RESULT');
    try{
-    if(payload.data.choices[0].finish_reason==='length')throw Error('INVALID_RESULT');
     return {...parseCandidates(payload.data.choices[0].message.content,prepared.outputSchema),usage};
-   }catch{
+   }catch(error){
+    if(error instanceof Error&&error.message==='CANDIDATE_LIMIT_REACHED')throw Error('INVALID_RESULT');
     if(attempt===1)throw Error('INVALID_RESULT');
     // Reuse the original source once within the same deadline. Never accept a
     // stripped/coerced response or promote invalid output to trusted context.

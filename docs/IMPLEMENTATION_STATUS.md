@@ -1,8 +1,21 @@
 # Implementation Status
 
-Last updated: 4 October 2026 — production `main` at `7daf169`, PR #102; shared-place correction verified locally
+Last updated: 5 October 2026 — production `main` at `f99d258`, PR #104; long-itinerary correction verified locally
 
-## Current correction — shared place certainty — 4 October 2026
+## Current correction — long Places itineraries — 5 October 2026
+
+Branch `fix/places-long-post-capacity` expands the dedicated worker contract from
+50 to 200 candidates and removes its smaller duplicated inference bound. A model
+response reaching or exceeding its declared capacity, or its output-token limit fails without a
+compacting retry. Fusion output is bounded to 32,768 tokens. Caption imports remain
+limited to 50. No schema migration, schedule or automatic reanalysis is introduced.
+Application 603/603 and worker 94/94 tests pass with disposable PostgreSQL;
+three Python transcription tests, lint, type checks and worker build also pass.
+Independent review has no blocking findings; application production build passes.
+Deployment verification is pending. The serial library review continues; the affected long source
+has not been committed. See [scope and verification](changes/2026-10-05-places-long-post-capacity.md).
+
+## Previous correction — shared place certainty — 4 October 2026
 
 Branch `fix/places-shared-resolution-confidence` preserves the stronger canonical
 precision/confidence when another post resolves to identical place data. Each

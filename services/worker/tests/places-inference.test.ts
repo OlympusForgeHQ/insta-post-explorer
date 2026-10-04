@@ -5,7 +5,7 @@ import type { PreparedPost } from '../src/places/api.js';
 const prepared:PreparedPost={input:{post_id:'post',input_hash:'hash',caption:'Untrusted cafe caption'},media:[],categoryRules:'Use owner categories only',outputSchema:{type:'object',additionalProperties:false,required:['candidates'],properties:{candidates:{type:'array',items:{type:'object',additionalProperties:false,required:['name','category'],properties:{name:{type:'string'},category:{enum:['cafe']}}}}}}};
 const valid='{"candidates":[{"name":"Cafe","category":"cafe"}]}';
 const invalid='{"candidates":[{"name":"Cafe","category":"cafe","evidenceNote":"unexpected"}]}';
-const reply=(content:string,model='insta-places')=>Response.json({model,choices:[{message:{content},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:5}});
+const reply=(content:string,model='insta-places',finishReason='stop')=>Response.json({model,choices:[{message:{content},finish_reason:finishReason}],usage:{prompt_tokens:10,completion_tokens:5}});
 
 it('repairs one invalid model response, preserves the source and counts both calls',async()=>{
  const request=vi.fn().mockResolvedValueOnce(reply(invalid)).mockResolvedValueOnce(reply(valid));
@@ -42,4 +42,26 @@ it('does not add a call when the initial response is valid',async()=>{
  const request=vi.fn(async()=>reply(valid));
  const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'caption',prepared.input,[],new AbortController().signal);
  expect(result.usage).toEqual({inputTokens:10,outputTokens:5});expect(request).toHaveBeenCalledTimes(1);
+});
+
+it('preserves an itinerary larger than the old client limit when the server schema allows it',async()=>{
+ const candidates=Array.from({length:51},(_,i)=>({name:`Cafe ${i+1}`,category:'cafe'}));
+ const schema=structuredClone(prepared.outputSchema) as {properties:{candidates:Record<string,unknown>}};
+ schema.properties.candidates.maxItems=200;
+ const request=vi.fn<typeof fetch>(async()=>reply(JSON.stringify({candidates})));
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze({...prepared,outputSchema:schema},'fusion',{candidates},[],new AbortController().signal);
+ expect(result.candidates).toEqual(candidates);
+ expect(request).toHaveBeenCalledTimes(1);
+ expect(JSON.parse(request.mock.calls[0][1]!.body as string).max_tokens).toBe(32768);
+});
+
+it.each(['capacity','over_capacity','length'] as const)('fails an itinerary limited by %s without retrying to compact away destinations',async limit=>{
+ const schema=structuredClone(prepared.outputSchema) as {properties:{candidates:Record<string,unknown>}};
+ schema.properties.candidates.maxItems=2;
+ const candidates=[{name:'Cafe One',category:'cafe'},{name:'Cafe Two',category:'cafe'}];
+ if(limit==='over_capacity')candidates.push({name:'Cafe Three',category:'cafe'});
+ const content=limit==='length'?valid:JSON.stringify({candidates});
+ const request=vi.fn().mockResolvedValueOnce(reply(content,'insta-places',limit==='length'?'length':'stop')).mockImplementation(async()=>reply(valid));
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request).analyze({...prepared,outputSchema:schema},'fusion',{},[],new AbortController().signal)).rejects.toThrow('INVALID_RESULT');
+ expect(request).toHaveBeenCalledTimes(1);
 });
