@@ -71,5 +71,5 @@ normalization and avoid treating an arrondissement/postcode as a house number.
 - [x] Reproduce Terre d'Azur name/address issue in a focused regression; observe RED.
 - [x] Implement bounded named/address resolution without merging fabricated provider data.
 - [x] Run all quality gates and final independent review; address blocking findings.
-- [ ] Exercise the real named-post pipeline, verify Places/category/audit/cleanup and record results.
+- [x] Exercise the real named-post pipeline, verify Places/category/audit/cleanup and record results.
 - [x] Update scope, evidence and remaining measured-batch gate before final delivery.

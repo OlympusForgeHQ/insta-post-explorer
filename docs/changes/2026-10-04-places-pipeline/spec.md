@@ -1,7 +1,7 @@
 # Places analysis integration and owner categories
 
 **Mode:** Critical
-**Status:** Implemented and code-reviewed; production pilot pending
+**Status:** Deployed and verified on the authorized single-post production pilot
 **Owner:** Karim, instructions of 4 October 2026
 
 ## Problem and outcome
