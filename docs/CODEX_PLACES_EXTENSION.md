@@ -1,5 +1,15 @@
 # CODEX_PLACES_EXTENSION.md
 
+Amendement du 4 octobre 2026 — catégories : le propriétaire impose Restaurant,
+Café & brunch, Pâtisserie, Voyage et Divers, selon les preuves du contenu.
+Geoapify ne décide jamais la catégorie ; il vérifie le lieu et ses coordonnées.
+Cette règle remplace les anciennes catégories fournisseur ci-dessous.
+
+Amendement du 4 octobre 2026 : la séparation des services Instagram/Places et le
+profil Hermes dédié sont autorisés par le propriétaire selon
+[la décision d'architecture](decisions/2026-10-04-separate-places-service.md).
+Les contrats métier et gates d'analyse multimodale ci-dessous restent applicables.
+
 > Extension officielle de `CODEX_API_READY_ARCHITECTURE.md`  
 > Projet : **Insta Post Explorer**  
 > Module : **Places**  

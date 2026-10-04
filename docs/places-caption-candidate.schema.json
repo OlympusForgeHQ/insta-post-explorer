@@ -2,10 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://insta-saved-post-explorer/docs/places-caption-candidate.schema.json",
   "title": "Places caption candidate record",
-  "description": "One JSONL line produced by external Claude Code / Codex analysis of an exported caption batch. Copy post_id, input_hash, and analysis_version verbatim from the exported line — they pin the result to the exact analysis input and version, and the importer rejects the line if the post changed since export. Candidates are strictly textual: never include coordinates, a provider, a providerPlaceId, or a precision. Coordinates are added later by the server-side geographic resolver only.",
+  "description": "One JSONL line produced by external Claude Code / Codex analysis of an exported caption batch. Copy post_id, input_hash, and analysis_version verbatim from the exported line \u2014 they pin the result to the exact analysis input and version, and the importer rejects the line if the post changed since export. Candidates are strictly textual: never include coordinates, a provider, a providerPlaceId, or a precision. Coordinates are added later by the server-side geographic resolver only.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["post_id", "input_hash", "analysis_version", "candidates"],
+  "required": [
+    "post_id",
+    "input_hash",
+    "analysis_version",
+    "candidates"
+  ],
   "properties": {
     "post_id": {
       "type": "string",
@@ -26,40 +31,133 @@
     },
     "candidates": {
       "type": "array",
-      "maxItems": 5,
-      "items": { "$ref": "#/$defs/candidate" }
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
     }
   },
   "$defs": {
     "candidate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "address", "city", "region", "country", "category", "confidence", "evidence"],
+      "required": [
+        "name",
+        "address",
+        "city",
+        "region",
+        "country",
+        "category",
+        "confidence",
+        "evidence"
+      ],
       "properties": {
-        "name": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
         "address": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1,
           "maxLength": 300,
           "description": "Exact postal or street address copied from the evidence when present; never coordinates."
         },
-        "city": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
-        "region": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
-        "country": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
-        "category": { "type": "string", "enum": ["restaurant", "lodging", "landmark", "city", "region", "other"] },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "city": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "region": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "country": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "restaurant",
+            "cafe",
+            "patisserie",
+            "voyage",
+            "divers",
+            "lodging",
+            "landmark",
+            "city",
+            "region",
+            "other"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "evidence": {
           "type": "array",
           "maxItems": 8,
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["type", "excerpt"],
+            "required": [
+              "type",
+              "excerpt"
+            ],
             "properties": {
-              "type": { "type": "string", "enum": ["CAPTION", "HASHTAG", "AUTHOR_TEXT", "INSTAGRAM_LOCATION"] },
-              "excerpt": { "type": "string", "minLength": 1, "maxLength": 500 }
+              "type": {
+                "type": "string",
+                "enum": [
+                  "CAPTION",
+                  "HASHTAG",
+                  "AUTHOR_TEXT",
+                  "INSTAGRAM_LOCATION",
+                  "AUDIO_TRANSCRIPT",
+                  "VIDEO_OCR",
+                  "VISUAL_LANDMARK"
+                ]
+              },
+              "excerpt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "videoTimestampMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 300000
+              },
+              "mediaId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
             }
           }
+        },
+        "categoryReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
         }
       }
     }

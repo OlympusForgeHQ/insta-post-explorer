@@ -6,7 +6,75 @@ Reference development base: `develop` at `19b7825` (PRs #86/#88)
 Reference production base: `main` at `e620920` (PR #87)
 Older phase references below are historical.
 
-## Current task — preserve Places camera on detail close, 4 October 2026
+## Current task — owner categories and serial Places pipeline, 4 October 2026
+
+Implementation branch: `feat/places-analysis-pipeline`. The owner requires exactly
+Restaurant, Café & brunch, Pâtisserie, Voyage and Divers. Geoapify classification
+has no authority: the model proposes one of these categories with evidence.
+Legacy provider category strings appear in Divers until reanalysis; confirmed
+manual records remain protected. The detail sheet displays the actual category.
+
+The application owns the new scoped `POST /api/v1/places/worker` queue, signed
+media reads, geocoding and atomic completion. The CLI in `services/worker/src/places`
+processes serially through the existing isolated Hermes service. Caption, up to
+12 video frames, full available audio (local Whisper), OCR and fusion are joined
+before persistence. No DB/bucket credentials enter the CLI or Hermes. All media
+artifacts are temporary. No unattended backfill or third service is installed.
+
+Code review is clear after fixing truncated-media detection, interrupted response
+replay, private-content logging and street-first house-number matching. Local
+PostgreSQL suites: application 570/570, worker 85/85; lint/types/build pass.
+An isolated additive evidence-enum migration was rehearsed against divergent
+legacy history. Never run the repository's full historical migrations on live DB.
+
+Real named-post analysis completed in 57.351 seconds: one 42.768-second video,
+12 sampled frames, 11 audio segments, three DeepSeek V4.1 Flash calls, 13,680 input
+and 2,058 output tokens, one candidate categorized cafe. PyAV 19 broke the pinned
+Whisper API; requirements now pin PyAV 18.0.0 and actual transcription passes.
+A zero-write geographic preview and production pilot remain pending deployment verification; explicit geographic-data egress was
+reconfirmed by the owner; do not claim production rollout
+or Phase H completion. Private operator receipts live under `.tmp/places-pipeline-release`.
+The measured 30–50 post pilot and unattended scheduling remain separate gates.
+
+Contracts: `docs/places-worker-api.md`; operations:
+`services/worker/places-hermes/README.md`; scope and verification:
+`docs/changes/2026-10-04-places-pipeline/`.
+
+## Previous task — separate Places service and OpenRouter, 4 October 2026
+
+The owner approved two execution services and requested the new service be
+configured with OpenRouter DeepSeek V4.1 Flash. Branch
+`feat/places-worker-openrouter` starts at develop `a9b18da`.
+
+`insta-explorer-places.service` is installed, enabled and running on the VPS.
+It reuses Hermes 0.21.5 with a dedicated `/var/lib/insta-explorer-places` state,
+loopback API `127.0.0.1:8645`, its own API credential, and the existing upstream
+OpenRouter credential. Model and vision model: `deepseek/deepseek-v4.1-flash`.
+One admitted API run, 1 CPU, 2 GiB RAM; no agent tools or inherited messaging
+profiles. This runtime does not yet consume the post queue or write Places.
+
+Live synthetic text and image OCR passed. Session metadata confirms all three
+inference calls used OpenRouter and the exact requested model, with zero tool
+calls. Simultaneous requests returned 200 and 429. Unauthenticated access returns
+401; only loopback listens. Namespace checks hide Argos/Cortana configs and the
+source secret. State is 0700, secrets 0600. Sync/web remain healthy and both
+existing Hermes gateways remain active.
+
+Independent review caught and resolved the UV interpreter bind and native HTTP
+concurrency limit. Startup additionally proved that the interpreter's `3.11`
+alias must be bound as well as the real `3.11.15` directory. Artifacts and rollback:
+`services/worker/places-hermes/README.md`; accepted architecture:
+`docs/decisions/2026-10-04-separate-places-service.md`. Sanitized live evidence:
+`.tmp/places-worker/verification.json` (never copy the runtime `.env`).
+
+Verification: installer 3/3, app lint/types/build, worker types/build, app tests
+412 passed with 159 DB-dependent skips, worker tests 70 passed with 7 DB skips.
+Sandbox port/subprocess restrictions required rerunning app/worker suites and
+the build outside the sandbox; those reruns passed. No DB migration or schema
+change. Next work is the multimodal handler/API integration and a measured pilot;
+the 421-post backfill has not been started.
+
+## Previous task — preserve Places camera on detail close, 4 October 2026
 
 `fix/preserve-places-viewport` starts at develop `19b7825`. Closing a place/post
 sheet used to fit all visible places again, losing the user's zoom and center.

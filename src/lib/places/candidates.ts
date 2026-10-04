@@ -7,6 +7,10 @@ import { z } from "zod";
 
 export const PLACE_CANDIDATE_CATEGORIES = [
   "restaurant",
+  "cafe",
+  "patisserie",
+  "voyage",
+  "divers",
   "lodging",
   "landmark",
   "city",
@@ -19,6 +23,9 @@ export const PLACE_CANDIDATE_EVIDENCE_TYPES = [
   "HASHTAG",
   "AUTHOR_TEXT",
   "INSTAGRAM_LOCATION",
+  "AUDIO_TRANSCRIPT",
+  "VIDEO_OCR",
+  "VISUAL_LANDMARK",
 ] as const;
 
 const MAX_EXCERPT_LENGTH = 500;
@@ -41,6 +48,8 @@ const candidateEvidenceSchema = z
   .object({
     type: z.enum(PLACE_CANDIDATE_EVIDENCE_TYPES),
     excerpt: z.string().trim().min(1).max(MAX_EXCERPT_LENGTH),
+    videoTimestampMs: z.number().int().min(0).max(300_000).optional(),
+    mediaId: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
 
@@ -52,6 +61,7 @@ export const placeCandidateSchema = z
     region: boundedNullableName,
     country: boundedNullableName,
     category: z.enum(PLACE_CANDIDATE_CATEGORIES),
+    categoryReason: z.string().trim().min(1).max(500).optional(),
     confidence: z.number().min(0).max(1),
     evidence: z.array(candidateEvidenceSchema).max(MAX_EVIDENCE_PER_CANDIDATE),
   })

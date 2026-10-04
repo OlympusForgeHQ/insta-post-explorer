@@ -24,7 +24,7 @@ test.describe("page Places avec le harnais local", () => {
     await page.getByRole("button", { name: "Filtres" }).click();
     const filters = page.getByRole("dialog", { name: "Filtres" });
     await filters.getByText("Voyages", { exact: true }).click();
-    await filters.getByText(/Café et brunch/).click();
+    await filters.getByText(/Café & brunch/).click();
 
     await expect(page).toHaveURL(/theme=Voyages/);
     await expect(page).toHaveURL(/categories=cafe/);
@@ -61,6 +61,7 @@ test.describe("page Places avec le harnais local", () => {
     const detail = page.getByRole("dialog", { name: "Détail de Café du Globe Paris" });
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Paris · France")).toBeVisible();
+    await expect(detail.locator(".places-sheet-badges")).toContainText("Café & brunch");
     await expect(page).toHaveURL(/placeId=places-visual-paris/);
 
     await detail.getByRole("button", { name: "Fermer le détail" }).click();

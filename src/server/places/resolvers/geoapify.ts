@@ -154,8 +154,25 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   }
 
   async resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]> {
-    const url = this.buildUrl(input.candidate);
-    const response = await this.fetchWithRetry(url);
+    const addressResults = await this.search(input.candidate);
+    // A caption can identify both a business and its street address. Keep the
+    // business identity only when a specific address independently locates it.
+    // Never substitute address coordinates into a named provider result.
+    if (!input.candidate.address || !input.candidate.name || input.candidate.name.startsWith("@")) return addressResults;
+    const anchors = addressResults.filter(result =>
+      ["building", "housenumber", "house", "amenity"].includes(result.providerResultType ?? "") &&
+      (result.providerRank ?? 0) >= 0.9);
+    if (!anchors.length) return addressResults;
+    const named = await this.search({ ...input.candidate, address: null });
+    const foldName = (name: string) => foldForSearch(name).replace(/[’‘`]/g, "'");
+    const corroborated = named.filter(result =>
+      foldName(result.displayName) === foldName(input.candidate.name!) &&
+      anchors.some(anchor => distanceMeters(anchor, result) <= 100));
+    return corroborated.length ? corroborated : addressResults;
+  }
+
+  private async search(candidate: PlaceCandidate): Promise<ResolvedPlaceCandidate[]> {
+    const response = await this.fetchWithRetry(this.buildUrl(candidate));
 
     let payload: unknown;
     try {
@@ -273,4 +290,11 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>): Resolved
     providerMatchType: result.rank?.match_type ?? null,
     attribution: GEOAPIFY_ATTRIBUTION,
   };
+}
+
+function distanceMeters(a: ResolvedPlaceCandidate, b: ResolvedPlaceCandidate): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad, dLon = (b.longitude - a.longitude) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLon / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
 }

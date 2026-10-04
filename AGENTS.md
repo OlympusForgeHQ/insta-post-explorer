@@ -46,25 +46,39 @@ Conséquences :
 
 ## 3. Architecture imposée
 
+Décision du propriétaire du 4 octobre 2026 : la synchronisation Instagram et
+l'analyse Places s'exécutent dans deux services séparés, partageant ce dépôt et
+les contrats métier existants. Voir
+`docs/decisions/2026-10-04-separate-places-service.md`. Cette décision remplace la
+restriction historique d'un déploiement worker unique ci-dessous pour cette
+séparation uniquement. Un profil Hermes isolé est autorisé pour Places ; aucun
+second MCP, stockage, schéma métier ou accès direct Hermes à PostgreSQL.
+
 ```text
 1 dépôt GitHub
 1 application Next.js
 1 API versionnée /api/v1
 1 base PostgreSQL
 1 stockage Cloudflare R2
-1 worker global sur VPS
+2 services sur VPS : synchronisation Instagram et analyse Places
 1 serveur MCP global
 plusieurs domaines et handlers internes
 ```
 
 ### 3.1 Worker
 
-Le worker global est conceptuellement nommé `insta-post-explorer-worker`.
-
-- Il est déployé une seule fois sur le VPS.
-- Il partage la configuration PostgreSQL, R2, IA, logging, retry, lease, heartbeat et monitoring.
-- Places ajoute un handler interne au worker global.
-- Ne pas créer `places-worker`, un second Docker Compose ou un second déploiement worker.
+- Le code de fondation commun reste dans `services/worker`.
+- La synchronisation Instagram conserve son déploiement Coolify et son calendrier.
+- `insta-explorer-places.service` exécute Hermes avec son état, ses secrets et ses
+  limites de ressources propres ; son API est privée et locale.
+- Le runtime Places est configuré. Le client multimodal de `services/worker/src/places`
+  consomme les jobs via `/api/v1/places/worker` sur invocation explicite ; aucune
+  planification ni analyse globale n'est activée par un déploiement.
+- Les catégories Places sont exclusivement restaurant, cafe, patisserie, voyage,
+  divers (critères du propriétaire). Geoapify vérifie les lieux et coordonnées,
+  jamais leur classification. Le pilote mesuré reste la gate de généralisation.
+- Réutiliser les contrats ownerId, retry, lease, heartbeat et les services métier
+  de l'application. Tout autre service asynchrone nécessite une décision distincte.
 - La table `place_analysis_jobs` peut rester spécifique à Places pour la première version. Ne pas généraliser la queue avant qu’un second domaine asynchrone réel le justifie.
 
 ### 3.2 MCP
@@ -74,7 +88,8 @@ Le serveur MCP global est conceptuellement nommé `insta-post-explorer-mcp`.
 - Il utilise un client typé commun vers `/api/v1`.
 - Il regroupe les outils Posts, Collections, Search, Analytics et Places.
 - Il ne se connecte jamais directement à Prisma ou PostgreSQL.
-- Ne pas créer `places-mcp`, un second serveur MCP ou une seconde configuration Hermes.
+- Ne pas créer `places-mcp` ou un second serveur MCP. Le profil Hermes isolé de
+  Places est l'exception explicitement autorisée le 4 octobre 2026.
 
 ### 3.3 Web et API
 

@@ -1,0 +1,46 @@
+[Unit]
+Description=Insta Explorer Places - Hermes OpenRouter inference
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=argos
+Group=argos
+StateDirectory=insta-explorer-places
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/insta-explorer-places/workspace
+Environment=HERMES_HOME=/var/lib/insta-explorer-places
+Environment=XDG_CACHE_HOME=/var/lib/insta-explorer-places/cache
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/var/lib/insta-explorer-places/.env
+ExecStart=/home/argos/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+UMask=0077
+CPUQuota=100%
+MemoryMax=2G
+TasksMax=128
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/argos/.hermes/hermes-agent
+BindReadOnlyPaths=/home/argos/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu
+BindReadOnlyPaths=/home/argos/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu:/home/argos/.local/share/uv/python/cpython-3.11-linux-x86_64-gnu
+InaccessiblePaths=-/home/argos/.hermes/hermes-agent/.env
+ReadWritePaths=/var/lib/insta-explorer-places
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

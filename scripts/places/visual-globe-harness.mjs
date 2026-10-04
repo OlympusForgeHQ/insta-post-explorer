@@ -210,7 +210,7 @@ function buildFixtures() {
       continentCode: "EU",
       latitude: 48.8566,
       longitude: 2.3522,
-      category: "catering.cafe",
+      category: "cafe",
       theme: "Restaurant",
     },
     {
@@ -222,7 +222,7 @@ function buildFixtures() {
       continentCode: "EU",
       latitude: 36.3932,
       longitude: 25.4615,
-      category: "catering.restaurant",
+      category: "restaurant",
       theme: "Voyages",
     },
     {
@@ -234,7 +234,7 @@ function buildFixtures() {
       continentCode: "EU",
       latitude: 41.9028,
       longitude: 12.4964,
-      category: "catering.restaurant.italian",
+      category: "restaurant",
       theme: "Restaurant",
     },
     {
@@ -246,7 +246,7 @@ function buildFixtures() {
       continentCode: "NA",
       latitude: 40.7128,
       longitude: -74.006,
-      category: "catering.cafe",
+      category: "cafe",
       theme: "Voyages",
     },
     {
@@ -258,7 +258,7 @@ function buildFixtures() {
       continentCode: "SA",
       latitude: -22.9068,
       longitude: -43.1729,
-      category: "entertainment.culture",
+      category: "voyage",
       theme: "Voyages",
     },
     {
@@ -270,7 +270,7 @@ function buildFixtures() {
       continentCode: "AF",
       latitude: -33.9249,
       longitude: 18.4241,
-      category: "catering.restaurant",
+      category: "restaurant",
       theme: "Restaurant",
     },
     {
@@ -282,7 +282,7 @@ function buildFixtures() {
       continentCode: "OC",
       latitude: -33.8688,
       longitude: 151.2093,
-      category: "catering.restaurant",
+      category: "restaurant",
       theme: "Voyages",
     },
   ];
@@ -297,7 +297,7 @@ function buildFixtures() {
       continentCode: "AS",
       latitude: 35.6762 + (Math.floor(index / 5) - 2) * 0.0025,
       longitude: 139.6503 + ((index % 5) - 2) * 0.0025,
-      category: index % 2 === 0 ? "catering.restaurant" : "catering.cafe",
+      category: index % 2 === 0 ? "restaurant" : "cafe",
       theme: index % 3 === 0 ? "Restaurant" : "Voyages",
     });
   }
@@ -324,7 +324,7 @@ function buildFixtures() {
       continentCode: region.continentCode,
       latitude: region.latitude + ((row % 5) - 2) * 0.22,
       longitude: region.longitude + ((row % 7) - 3) * 0.25,
-      category: index % 3 === 0 ? "catering.cafe" : "catering.restaurant",
+      category: index % 3 === 0 ? "cafe" : "restaurant",
       theme: index % 2 === 0 ? "Voyages" : "Restaurant",
     });
   }

@@ -3,7 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { foldForSearch } from "@/lib/import/normalize";
-import { rawCategoryPrefixesForGroups } from "@/lib/places/categories";
+import { PLACE_CATEGORY_KEYS } from "@/lib/places/categories";
 import { canonicalPlacesTheme, isPlacesEligibleTheme } from "@/lib/places/eligibility";
 import { decodePlacesCursor, encodePlacesCursor } from "@/lib/places/cursor";
 import type {
@@ -91,17 +91,14 @@ export async function queryPlaces(input: PlacesListInput, ownerId: string): Prom
     });
   }
 
-  // Multi-select place types: match any raw provider category belonging to the
-  // selected groups. Prefix matching keeps hierarchical provider values
-  // ("catering.restaurant.italian") in their group.
-  if (input.categoryGroups && input.categoryGroups.length > 0) {
-    const prefixes = rawCategoryPrefixesForGroups(input.categoryGroups);
-    and.push({
-      OR: prefixes.flatMap((prefix) => [
-        { category: { equals: prefix, mode: "insensitive" as const } },
-        { category: { startsWith: `${prefix}.`, mode: "insensitive" as const } },
-      ]),
+  // Match the owner taxonomy only. Unclassified legacy/provider strings are
+  // visible in Divers until evidence-based reanalysis supplies a category.
+  if (input.categoryGroups?.length) {
+    const selected: Prisma.PlaceWhereInput[] = input.categoryGroups.map(category => ({ category: { equals: category, mode: "insensitive" } }));
+    if (input.categoryGroups.includes("divers")) selected.push({ category: null }, {
+      NOT: PLACE_CATEGORY_KEYS.map(category => ({ category: { equals: category, mode: "insensitive" as const } })),
     });
+    and.push({ OR: selected });
   }
 
   // Restrict to places linked to at least one post of the requested canonical

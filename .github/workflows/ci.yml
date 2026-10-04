@@ -63,6 +63,9 @@ jobs:
       - name: Apply migrations to ephemeral database
         run: npm run db:deploy
 
+      - name: Install media decoder for worker regressions
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+
       - name: Run project validation
         shell: bash
         env:

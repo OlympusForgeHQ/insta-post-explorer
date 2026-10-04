@@ -1,0 +1,38 @@
+{
+  "model": {
+    "provider": "openrouter",
+    "default": "deepseek/deepseek-v4.1-flash",
+    "base_url": "https://openrouter.ai/api/v1",
+    "supports_vision": true
+  },
+  "auxiliary": {
+    "vision": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash"
+    }
+  },
+  "agent": {"max_turns": 4, "verbose": false, "reasoning_effort": "low"},
+  "gateway": {
+    "max_concurrent_sessions": 1,
+    "multiplex_profiles": false,
+    "api_server": {"max_concurrent_runs": 1}
+  },
+  "platform_toolsets": {"api_server": []},
+  "platforms": {
+    "api_server": {
+      "enabled": true,
+      "extra": {
+        "host": "127.0.0.1",
+        "port": 8645,
+        "model_name": "insta-places",
+        "direct_model_requests": false,
+        "model_routes": {
+          "insta-places": {
+            "provider": "openrouter",
+            "model": "deepseek/deepseek-v4.1-flash"
+          }
+        }
+      }
+    }
+  }
+}
