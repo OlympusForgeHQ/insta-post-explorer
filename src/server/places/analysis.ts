@@ -7,6 +7,7 @@ import type { PlaceCandidate, PlaceCandidateRecord } from "@/lib/places/candidat
 import { categoryFromProposal } from "@/lib/places/categories";
 import { canonicalPlacesTheme } from "@/lib/places/eligibility";
 import { continentCodeForCountry } from "@/lib/places/continents";
+import { distanceMeters } from "@/lib/places/distance";
 import { scoreResolvedCandidate, type ScoredResolution } from "@/lib/places/scoring";
 import { prisma } from "@/server/db";
 import { computePlacesInputHash } from "@/server/places/hash";
@@ -79,6 +80,15 @@ async function planCandidate(
         right.scored.confidence - left.scored.confidence ||
         left.resolved.providerPlaceId.localeCompare(right.resolved.providerPlaceId),
     );
+  // A candidate cannot choose between distinct plausible sites. A supplied
+  // address must actually narrow the resolver results to one site first.
+  // Nearby duplicate provider entries/entrances use the resolver's same 100 m
+  // corroboration distance; sorting remains deterministic within one site.
+  const specific = viable.filter(entry => entry.scored.precision !== 'APPROXIMATE');
+  if (specific.some((entry, index) =>
+    specific.slice(index + 1).some(other => distanceMeters(entry.resolved, other.resolved) > 100))) {
+    return { candidate, best: viable.find(entry => entry.scored.precision === 'APPROXIMATE') ?? null };
+  }
   return { candidate, best: viable[0] ?? null };
 }
 
