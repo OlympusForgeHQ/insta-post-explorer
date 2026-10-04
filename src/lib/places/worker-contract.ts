@@ -1,18 +1,19 @@
 import { z } from 'zod';
-import { placeCandidateSchema, MAX_CANDIDATES_PER_POST } from '@/lib/places/candidates';
+import { placeCandidateSchema } from '@/lib/places/candidates';
 import { PLACE_CATEGORY_KEYS } from '@/lib/places/categories';
 
 export const PLACES_WORKER_VERSION = 'places-multimodal-v1';
 export const PLACES_WORKER_MODEL = 'deepseek/deepseek-v4.1-flash';
 export const PLACES_WORKER_LEASE_MS = 900_000;
 export const PLACES_WORKER_MAX_BYTES = 250 * 1024 * 1024;
+export const PLACES_WORKER_MAX_CANDIDATES = 200;
 const id = z.string().trim().min(1).max(200);
 export const workerCandidatesSchema = z.object({
   candidates: z.array(placeCandidateSchema.extend({
     category: z.enum(PLACE_CATEGORY_KEYS),
     categoryReason: z.string().trim().min(1).max(500),
     evidence: placeCandidateSchema.shape.evidence.min(1),
-  })).max(MAX_CANDIDATES_PER_POST),
+  })).max(PLACES_WORKER_MAX_CANDIDATES),
 }).strict();
 export const workerResultSchema = workerCandidatesSchema.extend({
   media: z.array(z.object({
