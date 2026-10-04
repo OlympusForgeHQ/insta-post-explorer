@@ -2,11 +2,23 @@
 
 Last updated: 4 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `70efed4` (PR #99)
-Reference production base: `main` at `afaf5ec` (PR #100)
+Reference development base: `develop` at `206dac9` (PR #101)
+Reference production base: `main` at `7daf169` (PR #102)
 Older phase references below are historical.
 
-## Current correction — library review quality — 4 October 2026
+## Current correction — shared place certainty — 4 October 2026
+
+Branch `fix/places-shared-resolution-confidence` preserves the stronger canonical
+precision/confidence when another post resolves to identical place data. Each
+post link and its evidence retain their own score. Changed coordinates or
+classification can still be corrected, and manually confirmed places remain
+protected. A row lock prevents reading stale certainty during concurrent writes.
+Focused PostgreSQL18/18, full app601/601, lint, types, build and independent review
+pass. No schema or scheduling change. See [scope and verification](changes/2026-10-04-places-shared-confidence.md).
+The remaining-library review is still running; this correction does not mark it
+complete. Deployment health must be checked after merge.
+
+## Previous correction — library review quality — 4 October 2026
 
 The40-post pilot is persisted and verified; its measured gate passed. The first
 example is also rechecked. Serial analysis and manual review of381remaining posts

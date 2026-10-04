@@ -136,6 +136,87 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     expect((await prisma.place.findUniqueOrThrow({where:{id:place.id}})).category).toBe("patisserie");
   });
 
+  it.each(["strong-first", "weak-first"])("retains shared certainty and each post's score (%s)", async (order) => {
+    const resolver = new FakeResolver({ "Nobu Dubai": [resolved()] });
+    const strengths = order === "strong-first" ? [0.95, 0.85, 0.5] : [0.5, 0.85, 0.95];
+    for (const strength of strengths) {
+      const postId = `shared-${strength}`;
+      await seedPost(postId, OWNER_A, "Voyages");
+      await analysis.analyzeCandidateBatchRecord({
+        ownerId: OWNER_A, record: await freshRecord(OWNER_A, postId, [candidate({ confidence: strength })]),
+        resolver, commit: true,
+      });
+    }
+    const place = await prisma.place.findFirstOrThrow({ where: { ownerId: OWNER_A } });
+    const strong = await prisma.postPlace.findFirstOrThrow({ where: { postId: "shared-0.95" } });
+    const weak = await prisma.postPlace.findFirstOrThrow({ where: { postId: "shared-0.5" } });
+    const medium = await prisma.postPlace.findFirstOrThrow({ where: { postId: "shared-0.85" } });
+    expect(strong.precision).toBe("EXACT");
+    expect(medium.precision).toBe("EXACT");
+    expect(medium.confidence).toBeLessThan(strong.confidence);
+    expect(weak.precision).toBe("PROBABLE");
+    expect(weak.confidence).toBeLessThan(strong.confidence);
+    const weakEvidence = await prisma.placeEvidence.findFirstOrThrow({
+      where: { postId: weak.postId, evidenceType: "PROVIDER_MATCH" },
+    });
+    expect(weakEvidence.confidence).toBe(weak.confidence);
+    expect(place).toMatchObject({ precision: strong.precision, confidence: strong.confidence, approximationRadiusMeters: null });
+    expect(await prisma.place.count({ where: { ownerId: OWNER_A } })).toBe(1);
+  });
+
+  it("retains a stronger shared resolution committed while another post waits", async () => {
+    const resolver = new FakeResolver({ "Nobu Dubai": [resolved()] });
+    await seedPost("shared-original", OWNER_A, "Voyages");
+    await analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A,
+      record: await freshRecord(OWNER_A, "shared-original", [candidate()]), resolver, commit: true });
+    const strongest = await prisma.place.findFirstOrThrow({ where: { ownerId: OWNER_A } });
+    await prisma.place.update({ where: { id: strongest.id }, data: { precision: "PROBABLE", confidence: 0.8 } });
+    await seedPost("shared-waiting", OWNER_A, "Voyages");
+    const record = await freshRecord(OWNER_A, "shared-waiting", [candidate({ confidence: 0.5 })]);
+    const ready = Promise.withResolvers<number>();
+    const release = Promise.withResolvers<void>();
+    const writer = prisma.$transaction(async (tx) => {
+      const [{ pid }] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+      await tx.place.update({ where: { id: strongest.id },
+        data: { precision: strongest.precision, confidence: strongest.confidence } });
+      ready.resolve(pid);
+      await release.promise;
+    }, { timeout: 10_000 });
+    let waiting: ReturnType<typeof analysis.analyzeCandidateBatchRecord> | undefined;
+    try {
+      const pid = await ready.promise;
+      waiting = analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A, record, resolver, commit: true });
+      await expect.poll(async () => (await prisma.$queryRaw<Array<{ pid: number }>>`
+        SELECT pid FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`).length).toBe(1);
+      release.resolve();
+      await writer;
+      await waiting;
+      expect(await prisma.place.findUniqueOrThrow({ where: { id: strongest.id } }))
+        .toMatchObject({ precision: strongest.precision, confidence: strongest.confidence });
+      expect(await prisma.postPlace.findFirstOrThrow({ where: { postId: record.post_id } }))
+        .toMatchObject({ precision: "PROBABLE" });
+    } finally {
+      release.resolve();
+      await Promise.allSettled([writer, waiting]);
+    }
+  });
+
+  it("applies corrected geographic data even when the new post has weaker evidence", async () => {
+    await seedPost("original-location", OWNER_A, "Voyages");
+    await analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A,
+      record: await freshRecord(OWNER_A, "original-location", [candidate()]),
+      resolver: new FakeResolver({ "Nobu Dubai": [resolved()] }), commit: true });
+    await seedPost("corrected-location", OWNER_A, "Voyages");
+    const correction = resolved({ address: "Corrected address, Dubai", latitude: 25.14 });
+    await analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A,
+      record: await freshRecord(OWNER_A, "corrected-location", [candidate({ confidence: 0.5 })]),
+      resolver: new FakeResolver({ "Nobu Dubai": [correction] }), commit: true });
+    const place = await prisma.place.findFirstOrThrow({ where: { ownerId: OWNER_A } });
+    const correctedLink = await prisma.postPlace.findFirstOrThrow({ where: { postId: "corrected-location" } });
+    expect(place).toMatchObject({ address: correction.address, latitude: correction.latitude,
+      precision: "PROBABLE", confidence: correctedLink.confidence });
+  });
+
   it("persists an APPROXIMATE city with a mandatory radius", async () => {
     await seedPost("kyoto-post", OWNER_A, "Voyages");
     const resolver = new FakeResolver({
