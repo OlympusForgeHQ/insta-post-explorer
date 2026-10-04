@@ -97,6 +97,15 @@ visibly. Sampling is not exhaustive video OCR: a short text between sampled
 frames can be missed. The measured 30–50-post pilot remains the quality gate
 before unattended processing of the full library.
 
+The worker contract allows up to 200 textual place candidates per post, separately
+from the caption-import contract's 50-candidate bound. Fusion has a 32,768-token
+output allowance; caption and media extraction retain 12,000. A model response
+that reaches or exceeds the declared candidate capacity or ends because of its output length
+fails as `INVALID_RESULT` without a compacting retry. Review the original sources
+before retrying such a post: a shorter list is not proof of complete coverage.
+Strict field validation, the 512 KiB JSON bounds and geographic verification
+still apply. Fully reviewed results can contain exactly 200 candidates.
+
 All media artifacts are removed on success/error/interruption and stale job
 workspaces are removed at startup. Logs contain post IDs, stages, coverage counts,
 usage and stable error codes; no source excerpts, signed URLs or keys. Hermes may
