@@ -44,6 +44,67 @@ function input(c: Partial<PlaceCandidate>, r: Partial<ResolvedPlaceCandidate>): 
 }
 
 describe("scoreResolvedCandidate", () => {
+  it("does not replace a named destination with an unrelated district in the same city", () => {
+    const source = {name:'River Valley',city:'Example City',country:'France',category:'voyage' as const};
+    const provider = {displayName:'Garden Quarter',city:'Example City',country:'France',countryCode:'FR',providerResultType:'district'};
+    expect(scoreResolvedCandidate(input(source,provider)).precision).toBe('UNKNOWN');
+    expect(scoreResolvedCandidate(input(source,{...provider,displayName:'Example City',providerResultType:'city'})).precision).toBe('APPROXIMATE');
+    expect(scoreResolvedCandidate(input({...source,name:'Example City'},
+      {...provider,displayName:'Garden Quarter, Example City, France',providerName:null})).precision).toBe('UNKNOWN');
+    expect(scoreResolvedCandidate(input({...source,name:'Example Park'},
+      {...provider,displayName:'Example Park Service Area',providerName:'Example Park Service Area',providerResultType:'amenity'})).precision).toBe('UNKNOWN');
+    for(const [name,providerName,precision] of [
+      ['Hotel Belle Vue','Restaurant Belle Vue','UNKNOWN'],
+      ['Belle Vue','Restaurant Belle Vue','EXACT'],
+      ['Restaurant Belle Vue','Belle Vue','EXACT'],
+    ] as const){
+      expect(scoreResolvedCandidate(input({name},{displayName:providerName,providerName})).precision).toBe(precision);
+    }
+  });
+
+  it("keeps an explicitly named city or village as an area instead of selecting its namesake station", () => {
+    for (const name of ['Springfield', 'Springfield village']) {
+      const city = { name, city: 'Springfield', country: 'United States', category: 'voyage' as const };
+      const station = { displayName: name, city: 'Springfield', country: 'United States', countryCode: 'US', providerResultType: 'amenity' };
+      expect(scoreResolvedCandidate(input(city, station)).precision).toBe('UNKNOWN');
+      expect(scoreResolvedCandidate(input(city, {...station, providerResultType: 'city'})).precision).toBe('APPROXIMATE');
+    }
+    expect(scoreResolvedCandidate(input({name: 'Springfield Museum', city:'Springfield', category:'voyage'},
+      {displayName:'Springfield Museum', city:'Springfield'})).precision).toBe('EXACT');
+  });
+
+  it.each([
+    ['Japon', 'Japan', 'JP'],
+    ['Belgique', 'Belgium', 'BE'],
+    ['Royaume-Uni', 'United Kingdom', 'GB'],
+    ['Émirats arabes unis', 'United Arab Emirates', 'AE'],
+    ['Verenigd Koninkrijk', 'United Kingdom', 'GB'],
+  ])("recognizes the provider country code for %s / %s", (sourceCountry, providerCountry, countryCode) => {
+    const result = scoreResolvedCandidate(input({ country: sourceCountry }, { country: providerCountry, countryCode }));
+    expect(result.precision).toBe('EXACT');
+    expect(result.reasons).toContain('country_match');
+    expect(result.reasons).not.toContain('country_contradiction');
+  });
+
+  it("matches a complete provider bilingual locality while rejecting other and partial localities", () => {
+    const localities: [string, string, boolean][] = [['Ixelles', 'Ixelles - Elsene', true], ['Elsene', 'Ixelles - Elsene', true],
+      ['Ix', 'Ixelles - Elsene', false], ['Bruxelles', 'Ixelles - Elsene', false], ['Saint', 'Saint-Gilles', false]];
+    for (const [city, providerCity, agrees] of localities) {
+      const result = scoreResolvedCandidate(input({ city, country: 'Belgique' },
+        { city: providerCity, country: 'Belgium', countryCode: 'BE' }));
+      expect(result.precision).toBe(agrees ? 'EXACT' : 'UNKNOWN');
+      expect(result.reasons).toContain(agrees ? 'city_match' : 'city_contradiction');
+    }
+    const differentCountry = scoreResolvedCandidate(input({ country: 'Japon' }, { country: 'China', countryCode: 'CN' }));
+    expect(differentCountry.precision).toBe('UNKNOWN');
+    expect(differentCountry.reasons).toContain('country_contradiction');
+    for (const countryCode of [null, 'INVALID']) {
+      const unsupported = scoreResolvedCandidate(input({ country: 'Japon' }, { country: 'Japan', countryCode }));
+      expect(unsupported.precision).toBe('UNKNOWN');
+      expect(unsupported.reasons).toContain('country_contradiction');
+    }
+  });
+
   it("matches typographic apostrophes without treating an arrondissement or postcode as a house number",()=>{
     const result=scoreResolvedCandidate(input({name:'Terre d’Azur',address:'10 Avenue de Wagram, 75008 Paris',city:'Paris',country:'France'},
       {displayName:"Terre d'Azur",address:"Terre d'Azur, Avenue de Wagram, 8th Arrondissement of Paris, 75008 Paris, France",city:'Paris',country:'France'}));
@@ -244,7 +305,7 @@ describe("scoreResolvedCandidate", () => {
     const result = scoreResolvedCandidate(
       input(
         { name: null, city: "Somewhere", region: null, country: "Japan", confidence: 0.8 },
-        { city: "Somewhere", country: "Japan", countryCode: "JP", providerResultType: resultType },
+        { displayName: "Somewhere", city: "Somewhere", country: "Japan", countryCode: "JP", providerResultType: resultType },
       ),
     );
     expect(result.precision).toBe("APPROXIMATE");

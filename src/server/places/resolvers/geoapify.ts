@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { foldForSearch } from "@/lib/import/normalize";
+import { distanceMeters } from "@/lib/places/distance";
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 
@@ -277,6 +278,7 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>): Resolved
     provider: "geoapify",
     providerPlaceId: result.place_id,
     displayName: result.name ?? result.formatted ?? result.address_line1 ?? result.place_id,
+    providerName: result.name ?? null,
     category: result.category ?? null,
     address: result.formatted ?? null,
     city: result.city ?? null,
@@ -290,11 +292,4 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>): Resolved
     providerMatchType: result.rank?.match_type ?? null,
     attribution: GEOAPIFY_ATTRIBUTION,
   };
-}
-
-function distanceMeters(a: ResolvedPlaceCandidate, b: ResolvedPlaceCandidate): number {
-  const rad = Math.PI / 180;
-  const dLat = (b.latitude - a.latitude) * rad, dLon = (b.longitude - a.longitude) * rad;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLon / 2) ** 2;
-  return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
 }

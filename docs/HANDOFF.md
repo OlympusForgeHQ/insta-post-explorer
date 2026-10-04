@@ -6,6 +6,20 @@ Reference development base: `develop` at `9b58e84` (PRs #91/#92)
 Reference production base: `main` at `810ad41` (PR #93)
 Older phase references below are historical.
 
+## Current correction — geographic language matching, 4 October 2026
+
+The owner authorized geographic verification, full eligible-library review and
+correction, including newly arrived Restaurant/Voyages posts. The geographic
+pilot exposed false contradictions between translated country labels and
+bilingual provider localities. Branch `fix/places-geographic-matching` fixes
+these exact comparisons and rejects conflicting entity names, namesake amenities,
+unrelated areas and unresolved branches. Scoring thresholds and owner categories
+are preserved. Final checks: 580 app tests and 90 worker tests with disposable
+PostgreSQL, lint/types/build pass; independent review is clear.
+Source results and geographic previews remain private and resumable. The full
+library remains gated on measured pilot quality. See
+[scope and evidence](changes/2026-10-04-places-geographic-matching.md).
+
 ## Current task — 40-post pilot and execution hardening, 4 October 2026
 
 Branch `fix/places-pilot-hardening` starts at develop `e3cd1d5`. The owner approved
