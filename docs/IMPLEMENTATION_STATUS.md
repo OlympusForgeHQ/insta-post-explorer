@@ -2,6 +2,18 @@
 
 Last updated: 5 October 2026 — production `main` at `bf22721`, PR #106; video-duration follow-up verified locally
 
+## Local correction — active Places visibility — 5 October 2026
+
+The default list/map and place-scoped statistics now require an owner-owned
+post link or manual confirmation; default active reads exclude rejections.
+Historical details and explicit review queries remain accessible. The map
+filters before its unchanged 1,000-place limit.
+Branch `fix/places-active-visibility`: lint, typecheck, build and 437 application
+tests pass; 171 PostgreSQL tests skipped, including four new behavior scenarios.
+Independent review and 16 production read-only getter checks pass. CI will
+execute the skipped PostgreSQL regressions before merge. No DB mutation.
+See [scope and evidence](changes/2026-10-05-places-active-visibility.md).
+
 ## Current correction — long Places itineraries — 5 October 2026
 
 The deployed candidate-capacity correction expands the dedicated worker contract from

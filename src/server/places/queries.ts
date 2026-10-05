@@ -18,6 +18,7 @@ import type {
   UnresolvedJobDto,
 } from "@/contracts/api/places";
 import { prisma } from "@/server/db";
+import { activePlaceWhere } from "@/server/places/visibility";
 
 // Owner-scoped read services for the Places domain. Every query filters by
 // ownerId, uses the opaque F1 cursor for keyset pagination, and returns explicit
@@ -80,6 +81,8 @@ function updatedAtIdCursorWhere(token: string): Prisma.PlaceWhereInput {
 
 export async function queryPlaces(input: PlacesListInput, ownerId: string): Promise<PlacePage<PlaceListItemDto>> {
   const and: Prisma.PlaceWhereInput[] = [];
+  // Explicit review filters retain access to historical canonicals.
+  if (!input.reviewStatus) and.push(activePlaceWhere(ownerId));
   if (input.q) {
     const folded = foldForSearch(input.q);
     and.push({

@@ -115,8 +115,8 @@ describeWithDatabase("Places map view on PostgreSQL", () => {
   });
 
   it("reports truncation instead of silently dropping places", async () => {
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-t1" });
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-t2" });
+    await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-t1", isUserConfirmed: true });
+    await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-t2", isUserConfirmed: true });
     const view = await mapView.loadPlacesMapView(OWNER_A, 1);
     expect(view.items).toHaveLength(1);
     expect(view.truncated).toBe(true);

@@ -889,13 +889,23 @@ Posts avec un lieu
 
 Définitions :
 
-- lieux identifiés = lieux canoniques uniques ;
+- lieux identifiés = lieux canoniques uniques actifs : non rejetés et liés à au
+  moins un post du propriétaire, ou confirmés manuellement (y compris le statut
+  historique `CONFIRMED`) ;
 - pays = pays distincts avec au moins un lieu valide ;
 - continents = continents distincts dérivés du pays ;
 - posts avec lieu = posts distincts reliés à un lieu valide ;
 - à vérifier = résultats inconnus ou en conflit.
 
 Un même lieu associé à dix posts compte comme un lieu et dix posts associés.
+
+Sans filtre de thème explicite, un lien historique reste valide même si le thème
+du post a changé. Les canoniques sans lien ni confirmation restent consultables
+par leur détail et par un filtre API `review_status` explicite ; ils sont exclus
+de la liste active, de la carte et des statistiques. La carte exclut aussi les
+rejets avant son plafond de 1 000 lieux. Le détail statistique des statuts garde
+les rejets liés ou confirmés pour la revue ; les compteurs de jobs historiques
+ne changent pas.
 
 Les statistiques peuvent être filtrées par :
 
