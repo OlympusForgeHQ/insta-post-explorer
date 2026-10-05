@@ -132,6 +132,9 @@ async function findOwnedPost(
   ownerId: string,
   postId: string,
 ): Promise<PostIdentity> {
+  // Share the classification/import write gate so manual tag changes win in order.
+  await lockPostWrites(transaction, ownerId);
+  await transaction.$queryRaw`SELECT id FROM posts WHERE owner_id=${ownerId} AND id=${postId} FOR UPDATE`;
   const post = await transaction.post.findFirst({
     where: { id: postId, ownerId },
     select: {

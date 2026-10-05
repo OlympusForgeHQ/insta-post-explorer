@@ -116,3 +116,18 @@ describe("deployment preflight automatic sync capability", () => {
     expect(runPreflight({ INSTAGRAM_AUTO_SYNC_ENABLED: "0" }).status).toBe(0);
   });
 });
+
+it('requires a separate classification capability only when enabled, without printing credentials', () => {
+  const enabled = { CLASSIFICATION_WORKER_ENABLED: '1', CLASSIFICATION_WORKER_API_KEY_SHA256: 'c'.repeat(64) };
+  expect(runPreflight(enabled).status).toBe(0);
+  for (const override of [
+    { CLASSIFICATION_WORKER_API_KEY_SHA256: '' },
+    { CLASSIFICATION_WORKER_API_KEY_SHA256: 'private-invalid-secret' },
+    ...['EXTERNAL_API_KEY_SHA256','PLACES_WORKER_API_KEY_SHA256','INSTAGRAM_AUTO_SYNC_KEY_SHA256'].map(name => ({[name]:'c'.repeat(64)})),
+  ]) {
+    const result = runPreflight({...enabled,...override});
+    expect(result.status).toBe(1);
+    expect(result.output).not.toContain('private-invalid-secret');
+  }
+  expect(runPreflight({CLASSIFICATION_WORKER_ENABLED:'0'}).status).toBe(0);
+});

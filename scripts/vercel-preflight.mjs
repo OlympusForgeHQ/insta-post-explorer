@@ -67,6 +67,14 @@ if (externalApiKeyHash) {
 }
 
 const publicUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+if (process.env.CLASSIFICATION_WORKER_ENABLED === '1') {
+  const hash = process.env.CLASSIFICATION_WORKER_API_KEY_SHA256?.trim().toLowerCase();
+  if (!hash || !/^[a-f0-9]{64}$/.test(hash)) {
+    errors.push('CLASSIFICATION_WORKER_API_KEY_SHA256 must be a 64-character hex SHA-256 hash when classification is enabled.');
+  } else if (['EXTERNAL_API_KEY_SHA256', 'PLACES_WORKER_API_KEY_SHA256', 'INSTAGRAM_AUTO_SYNC_KEY_SHA256'].some(name => process.env[name]?.trim().toLowerCase() === hash)) {
+    errors.push('CLASSIFICATION_WORKER_API_KEY_SHA256 must differ from read, Places and sync capabilities.');
+  }
+}
 if (process.env.INSTAGRAM_AUTO_SYNC_ENABLED === "1") {
   try {
     new Intl.DateTimeFormat("en", { timeZone: process.env.INSTAGRAM_AUTO_SYNC_TIMEZONE?.trim() || "Europe/Brussels" }).format();
