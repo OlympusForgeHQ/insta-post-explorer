@@ -1,8 +1,9 @@
 # Independent classification of newly synchronized posts
 
-Implementation complete on local branch `feat/post-classification-worker`, based
-on `origin/develop` `77aff3d`. **Not published, migrated or activated in production.**
-The owner authorized implementation; publication requires explicit authorization.
+Implementation based on `origin/develop` `77aff3d`, published through PR #111
+after the owner's explicit authorization of publication, migration, deployment
+and a restricted pilot before unattended activation. Release PR #112 targets
+production. Activation remains pending administrator access and the real-post pilot.
 See the [accepted decision](../decisions/2026-10-05-independent-classification-worker.md),
 [specification](../superpowers/specs/2026-10-05-post-classification.md) and
 [operations](../../services/worker/classification/README.md).
@@ -39,7 +40,8 @@ composite owner/post FK which future generated migrations must preserve.
 ## Verification — 5 October 2026
 
 Node 24.18.1; a disposable loopback PostgreSQL 16.15 cluster, all 15 migrations
-applied. No production database or service was modified for this feature.
+applied. These implementation checks used the disposable database; the separate
+authorized production rollout is recorded below.
 
 | Boundary | Evidence |
 |---|---|
@@ -70,7 +72,7 @@ changing product code.
 
 ## Rollout gate
 
-Review and authorize publication first. Migrate/deploy the application disabled;
+Publication is authorized. Migrate/deploy the application disabled;
 stage the immutable Node 24/ASR release and private stopped unit; provision only
 the dedicated digest in the web app and raw key in the classifier; run deployment
 preflight; enable for a restricted newly imported real post and verify provider,
@@ -80,6 +82,27 @@ must be preserved; this branch changes no extension or sync image.
 
 Rollback stops/disables only the classification consumer and flag, preserving
 saved posts, manual edits/deletions, jobs and audit history.
+
+## Production rollout checkpoint — 5 October 2026
+
+PR #111 quality/browser CI passed and the source is merged into `develop` at
+`2371239`. The production additive migration was applied using Prisma's normal
+deploy engine and recorded with the committed SQL checksum; no manual history
+receipt was fabricated. Three earlier migrations are absent from production
+history although their structures already exist. The private migration staging
+contained only the new reviewed migration, so their historical DML/DDL was not
+replayed. This existing history discrepancy is not repaired by this feature and
+must be considered before a future full `migrate deploy`.
+
+The before/after fingerprints of all existing posts/media/tag links, permanent
+deletions, Places/links/jobs and sync admissions match. The new queue is empty.
+A dedicated digest and flag 0 are prepared in the application. Shared Hermes
+health and real synthetic image recognition succeeded (938 input tokens,
+41 output tokens). This probe did not analyze a saved post or mutate the library.
+The real newly imported post, deployed consumer/ASR, final theme/tags and cleanup
+are still unverified. The reviewed host installer remains stopped pending an
+administrator installation path; current Karim/Argos sudo requires a password.
+The hourly synchronization remained enabled and its 18:00 UTC execution succeeded.
 
 ## Why each new test file exists
 
