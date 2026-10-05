@@ -43,7 +43,7 @@ export async function extractLocalMedia(media:MediaDescriptor,source:string,inde
   const allowed=media.kind==='VIDEO'?['mov','mp4']:media.mimeType==='image/jpeg'?['jpeg_pipe','image2']:media.mimeType==='image/png'?['png_pipe','image2']:['webp_pipe','image2'];
   if(!probe.format.format_name.split(',').some(n=>allowed.includes(n)))throw Error('MEDIA_UNAVAILABLE');
   const durationMs=media.kind==='VIDEO'?Math.round(Number(probe.format.duration)*1000):null;
-  if(durationMs!==null&&(!Number.isFinite(durationMs)||durationMs<=0||durationMs>300_000))throw Error('MEDIA_LIMIT');
+  if(durationMs!==null&&(!Number.isFinite(durationMs)||durationMs<=0||durationMs>900_000))throw Error('MEDIA_LIMIT');
   if(media.kind==='VIDEO')await runProcess('/usr/bin/ffmpeg',['-nostdin','-v','error','-threads','2','-protocol_whitelist','file,pipe','-i',source,'-map','0:v:0','-f','null','-'],signal);
   // The container can continue after its video stream ends (audio tail). Keep
   // its full duration for ASR, but sample only the actual video timeline.

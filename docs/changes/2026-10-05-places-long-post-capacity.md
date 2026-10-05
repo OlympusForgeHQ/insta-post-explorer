@@ -1,7 +1,7 @@
 # Complete long Places itineraries
 
 **Mode:** Standard  
-**Status:** Implemented and independently reviewed; deployment verification pending  
+**Status:** Candidate capacity deployed at `bf22721` (PR #106); video-duration follow-up independently reviewed, deployment verification pending
 **Owner:** Places worker
 
 ## Problem and outcome
@@ -24,6 +24,10 @@ valid truncated itinerary must not be presented as a complete analysis.
 - `REQ-004`: Fusion receives a bounded 32,768-token output allowance; caption and
   individual-media extraction retain their existing allowance. Provider length
   termination remains an error, never a valid partial result.
+- `REQ-005`: Videos up to 900,000 ms (15 minutes) retain their full measured
+  duration and valid late evidence. The previous five-minute bound rejects a
+  real 454,766-ms source before analysis. Extraction, API coverage and evidence
+  timestamps share the new bound; longer videos still fail visibly.
 - `INV-001`: Owner isolation, leases, stale-input checks, categories, geographical
   verification, evidence validation and manual corrections remain enforced.
 - `INV-002`: JSON input/output remains bounded to 512 KiB. No migration,
@@ -43,6 +47,7 @@ schema, inference client and existing persistence seam.
 | Worker contract | Above-50 results accepted; over-200 rejected; caption import unchanged |
 | Hermes inference | All supplied candidates preserved; saturation fails without retry; fusion allowance |
 | PostgreSQL completion | 51 distinct places, links and source proofs persisted and replayed once |
+| Video extraction/contract | Real 450s/900s videos retain full coverage and final frame timestamps; 901s media and 900001ms contract values are rejected |
 | Original itinerary | Full independent source inventory validated, resolved and committed after deployment |
 
 Files: `src/lib/places/worker-contract.ts`,
@@ -84,3 +89,17 @@ the distinct worker and caption-import limits without network or database setup.
 The existing inference tests protect saturation and output termination; the
 existing PostgreSQL test proves more than 50 places survive persistence/replay.
 The full library review remains in progress and is not claimed complete.
+
+The follow-up video regression first reproduced `MEDIA_LIMIT` for a real
+450-second fixture and contract rejection for both duration and evidence at
+454,766 ms. The duration expansion adds no truncation, frame-count increase,
+dependency or migration. The 250 MiB/media, 12-frame/media and 20-minute job
+limits still apply, so a long post may still fail its existing resource budget.
+Follow-up verification: application 437 passed/167 DB-dependent skipped;
+worker 88 passed/7 DB-dependent skipped and three Python transcription tests
+passed. Lint, both type checks and both builds passed. PostgreSQL credentials
+were unavailable for this follow-up. The application suite emitted its existing
+jsdom canvas warning. Two unrelated LibraryExplorer search tests timed out while
+the app build ran concurrently; the full suite passed when rerun alone, with no
+UI changes. Independent review has no blocking findings and its 15 targeted
+tests pass. Deployment verification of the video-duration follow-up remains pending.

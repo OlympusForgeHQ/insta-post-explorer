@@ -27,6 +27,10 @@ The claim supplies the model JSON schema and owner category rules. The worker
 must not propose coordinates, provider IDs or provider categories. Completion
 requires the exact model ID and bounded token/time metrics, full media coverage,
 and timestamped audio/OCR evidence referencing a media ID from this post.
+Video duration and evidence timestamps are bounded to 900,000 ms (15 minutes).
+Evidence must also remain within that media's actual duration. The worker keeps
+the full measured timeline and samples at most 12 real frames; longer videos
+fail with `MEDIA_LIMIT` rather than being truncated to fit.
 
 Lease conflicts and changed/noneligible inputs are HTTP 409; missing resources
 are 404; invalid output is 400. Replaying a completed request with the same lease

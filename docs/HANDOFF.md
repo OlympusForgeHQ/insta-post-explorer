@@ -2,22 +2,30 @@
 
 Last updated: 5 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `9fefe22` (PR #103)
-Reference production base: `main` at `f99d258` (PR #104)
+Reference development base: `develop` at `9034298` (PR #105)
+Reference production base: `main` at `bf22721` (PR #106)
 Older phase references below are historical.
 
 ## Current correction — long Places itineraries — 5 October 2026
 
-Branch `fix/places-long-post-capacity` expands the dedicated worker contract from
+The deployed candidate-capacity correction expands the dedicated worker contract from
 50 to 200 candidates and removes its smaller duplicated inference bound. A model
 response reaching or exceeding its declared capacity, or its output-token limit fails without a
 compacting retry. Fusion output is bounded to 32,768 tokens. Caption imports remain
 limited to 50. No schema migration, schedule or automatic reanalysis is introduced.
+Branch `fix/places-video-duration` aligns extraction, coverage and evidence timestamps
+at 15 minutes, preserving the actual media timeline. Real 450s/900s extraction
+passes; 901s media and timestamps/durations above 900,000ms remain rejected.
+Follow-up checks: app437 passed/167 DB skips, worker88 passed/7 DB skips, three
+Python tests, lint, both type checks and both builds pass. Independent review
+has no blocking findings; its 15 targeted tests pass. Deployment verification
+of this video follow-up remains pending.
+The earlier candidate-capacity verification below used disposable PostgreSQL:
 Application 603/603 and worker 94/94 tests pass with disposable PostgreSQL;
 three Python transcription tests, lint, type checks and worker build also pass.
 Independent review has no blocking findings; application production build passes.
-Deployment verification is pending. The serial library review continues; the affected long source
-has not been committed. See [scope and verification](changes/2026-10-05-places-long-post-capacity.md).
+The candidate-capacity correction is deployed at production `bf22721` (PR #106).
+The serial library review continues. See [scope and verification](changes/2026-10-05-places-long-post-capacity.md).
 
 ## Current correction — shared place certainty — 4 October 2026
 

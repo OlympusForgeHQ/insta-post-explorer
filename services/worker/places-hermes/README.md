@@ -92,7 +92,7 @@ jobs as proof that every post has succeeded; inspect pending/review/failed jobs.
 For each post the client analyzes the caption, validates and decodes all media,
 samples up to 12 frames including the end, transcribes all available audio, reads
 visible text, then fuses the evidence through DeepSeek. Limits are 250 MiB/media,
-5 minutes/video, 20 media/post and 20 minutes/post. Oversized/unreadable media fail
+15 minutes/video, 20 media/post and 20 minutes/post. Oversized/unreadable media fail
 visibly. Sampling is not exhaustive video OCR: a short text between sampled
 frames can be missed. The measured 30–50-post pilot remains the quality gate
 before unattended processing of the full library.
