@@ -1,8 +1,8 @@
 # Implementation Status
 
-Last updated: 5 October 2026 — last observed production `main` at `1653fd2`; classifier implemented locally, activation pending
+Last updated: 5 October 2026 — classification source published, additive production migration applied; activation pending
 
-## Independent post classification — local implementation — 5 October 2026
+## Independent post classification — production rollout — 5 October 2026
 
 `feat/post-classification-worker` adds new-sync-only durable enqueue, scoped
 classification API and independent host consumer of the existing private Hermes
@@ -14,9 +14,17 @@ catalog changes fence stale writes; deletions retain job/audit history.
 Application637/637 and worker107/107 tests pass with real disposable PostgreSQL;
 eight Python tests, lint, type checks, both builds, cross-layer real-media
 integration, built-release smoke and unit syntax verification pass. Independent
-review is clear. The migration has only run on the disposable database. Nothing
-has been committed, pushed, deployed or activated for this feature. Production
-publication and a restricted live pilot remain pending.
+review is clear. Publication, migration, deployment and pilot are now authorized.
+PR #111 is merged in `develop` (`2371239`) after successful quality/browser CI;
+release PR #112 targets `main`. The additive production migration is applied and
+recorded by Prisma without replaying three unrelated historical migrations absent
+from production history. Before/after library, Places, tag, deletion and sync
+fingerprints match; no historical classification jobs exist. The application is
+configured with a dedicated digest and flag 0. A real synthetic image probe of
+the shared inference API succeeded. System service installation requires an
+administrator access still unavailable to Karim/Argos; the real newly imported
+post pilot and unattended service activation remain pending. Do not enable the
+flag or claim autonomous production classification before these checks.
 See [scope/evidence](changes/2026-10-05-post-classification.md) and
 [operations](../services/worker/classification/README.md).
 
