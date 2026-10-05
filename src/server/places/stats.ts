@@ -6,6 +6,7 @@ import { canonicalPlacesTheme, PLACES_ELIGIBLE_THEMES, type PlacesEligibleTheme 
 import type { PlacesStatsDto, PlacesStatsInput } from "@/contracts/api/places";
 import { prisma } from "@/server/db";
 import { eligibleThemeVariants } from "@/server/places/queries";
+import { activePlaceSql, presentPlaceWhere } from "@/server/places/visibility";
 
 // Owner-scoped Places statistics. Counts use distinct aggregations so a place
 // linked to many posts counts once, and a post linked to many places counts
@@ -26,15 +27,12 @@ type ThemeCountRow = { place_count: number; post_count: number };
 
 // Compose the owner + optional geo/precision filter shared by the place-scoped
 // aggregations. The source_theme restriction is applied through the link join,
-// not here. `alias` is the SQL table alias for the places table.
-function placeFilterSql(alias: string, ownerId: string, input: PlacesStatsInput): Prisma.Sql {
-  const parts: Prisma.Sql[] = [
-    Prisma.sql`${Prisma.raw(alias)}.owner_id = ${ownerId}`,
-    Prisma.sql`${Prisma.raw(alias)}.review_status <> 'REJECTED'`,
-  ];
-  if (input.countryCode) parts.push(Prisma.sql`${Prisma.raw(alias)}.country_code = ${input.countryCode}`);
-  if (input.continentCode) parts.push(Prisma.sql`${Prisma.raw(alias)}.continent_code = ${input.continentCode}`);
-  if (input.precision) parts.push(Prisma.sql`${Prisma.raw(alias)}.precision = ${input.precision}::"PlacePrecision"`);
+// not here. All aggregations use the fixed "p" alias for places.
+function placeFilterSql(ownerId: string, input: PlacesStatsInput): Prisma.Sql {
+  const parts: Prisma.Sql[] = [activePlaceSql(ownerId)];
+  if (input.countryCode) parts.push(Prisma.sql`p.country_code = ${input.countryCode}`);
+  if (input.continentCode) parts.push(Prisma.sql`p.continent_code = ${input.continentCode}`);
+  if (input.precision) parts.push(Prisma.sql`p.precision = ${input.precision}::"PlacePrecision"`);
   return Prisma.join(parts, " AND ");
 }
 
@@ -46,7 +44,7 @@ export async function getPlacesStats(input: PlacesStatsInput, ownerId: string): 
     : null;
 
   const placeWhere = {
-    ownerId,
+    ...presentPlaceWhere(ownerId),
     ...(input.countryCode ? { countryCode: input.countryCode } : {}),
     ...(input.continentCode ? { continentCode: input.continentCode } : {}),
     ...(input.precision ? { precision: input.precision } : {}),
@@ -57,10 +55,10 @@ export async function getPlacesStats(input: PlacesStatsInput, ownerId: string): 
     : {};
   const identifiedWhere = { ...placeWhere, reviewStatus: { not: "REJECTED" as const }, ...themeLinkFilter };
 
-  const placeFilter = placeFilterSql("p", ownerId, input);
+  const placeFilter = placeFilterSql(ownerId, input);
   // When a theme is requested, inner-join the theme posts so both place and post
   // counts are restricted to it; otherwise left-join all links so places without
-  // links still contribute to place counts.
+  // links still contribute to place counts only when manually confirmed.
   const linkJoin = themeVariants
     ? Prisma.sql`JOIN post_places pp ON pp.place_id = p.id AND pp.owner_id = p.owner_id
         JOIN posts po ON po.id = pp.post_id AND po.owner_id = pp.owner_id AND ${
@@ -154,7 +152,7 @@ async function computeByTheme(
   allVariants: string[],
   requestedTheme: PlacesEligibleTheme | null,
 ): Promise<PlacesStatsDto["byTheme"]> {
-  const placeFilter = placeFilterSql("p", ownerId, input);
+  const placeFilter = placeFilterSql(ownerId, input);
   const themes = requestedTheme ? [requestedTheme] : [...PLACES_ELIGIBLE_THEMES];
   const results: PlacesStatsDto["byTheme"] = [];
 

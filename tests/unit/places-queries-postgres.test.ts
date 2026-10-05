@@ -50,7 +50,7 @@ describeWithDatabase("Places read queries on PostgreSQL", () => {
 
   it("paginates deterministically with no duplicates or omissions", async () => {
     for (let i = 0; i < 5; i += 1) {
-      await seedPlace(OWNER_A, { providerPlaceId: `geo-${i}` });
+      await seedPlace(OWNER_A, { isUserConfirmed: true, providerPlaceId: `geo-${i}` });
     }
     const seen: string[] = [];
     let cursor: string | undefined;
@@ -65,8 +65,8 @@ describeWithDatabase("Places read queries on PostgreSQL", () => {
   });
 
   it("applies country, continent, precision, review status, and text filters", async () => {
-    await seedPlace(OWNER_A, { providerPlaceId: "fr", displayName: "Louvre", normalizedName: "louvre", countryCode: "FR", continentCode: "EU", precision: "EXACT", reviewStatus: "UNREVIEWED", city: "Paris" });
-    await seedPlace(OWNER_A, { providerPlaceId: "jp", displayName: "Kyoto", normalizedName: "kyoto", countryCode: "JP", continentCode: "AS", precision: "APPROXIMATE", approximationRadiusMeters: 25000, reviewStatus: "CONFIRMED", city: "Kyoto" });
+    await seedPlace(OWNER_A, { isUserConfirmed: true, providerPlaceId: "fr", displayName: "Louvre", normalizedName: "louvre", countryCode: "FR", continentCode: "EU", precision: "EXACT", reviewStatus: "UNREVIEWED", city: "Paris" });
+    await seedPlace(OWNER_A, { isUserConfirmed: true, providerPlaceId: "jp", displayName: "Kyoto", normalizedName: "kyoto", countryCode: "JP", continentCode: "AS", precision: "APPROXIMATE", approximationRadiusMeters: 25000, reviewStatus: "CONFIRMED", city: "Kyoto" });
 
     expect((await queries.queryPlaces({ limit: 50, countryCode: "FR" }, OWNER_A)).items).toHaveLength(1);
     expect((await queries.queryPlaces({ limit: 50, continentCode: "AS" }, OWNER_A)).items[0].displayName).toBe("Kyoto");
@@ -151,11 +151,11 @@ describeWithDatabase("Places read queries on PostgreSQL", () => {
   // --- Phase G additive read-only filters ---
 
   it("filters owner categories and sends unclassified provider strings to Divers", async () => {
-    await seedPlace(OWNER_A,{providerPlaceId:"classified-cafe",category:"cafe"});
-    await seedPlace(OWNER_A,{providerPlaceId:"classified-restaurant",category:"restaurant"});
-    await seedPlace(OWNER_A,{providerPlaceId:"legacy-cafe",category:"catering.cafe"});
-    await seedPlace(OWNER_A,{providerPlaceId:"empty",category:null});
-    await seedPlace(OWNER_A,{providerPlaceId:"other",category:"divers"});
+    await seedPlace(OWNER_A,{isUserConfirmed:true,providerPlaceId:"classified-cafe",category:"cafe"});
+    await seedPlace(OWNER_A,{isUserConfirmed:true,providerPlaceId:"classified-restaurant",category:"restaurant"});
+    await seedPlace(OWNER_A,{isUserConfirmed:true,providerPlaceId:"legacy-cafe",category:"catering.cafe"});
+    await seedPlace(OWNER_A,{isUserConfirmed:true,providerPlaceId:"empty",category:null});
+    await seedPlace(OWNER_A,{isUserConfirmed:true,providerPlaceId:"other",category:"divers"});
     const food=await queries.queryPlaces({limit:50,categoryGroups:["restaurant","cafe"]} as never,OWNER_A);
     expect(food.items.map(p=>p.category).sort()).toEqual(["cafe","restaurant"]);
     const other=await queries.queryPlaces({limit:50,categoryGroups:["divers"]} as never,OWNER_A);
@@ -164,8 +164,8 @@ describeWithDatabase("Places read queries on PostgreSQL", () => {
   });
 
   it("keeps the historical single-category filter working", async () => {
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-c1", category: "catering.cafe" });
-    await seedPlace(OWNER_A, { providerPlaceId: "geo-c2", category: "catering.restaurant" });
+    await seedPlace(OWNER_A, { isUserConfirmed: true, providerPlaceId: "geo-c1", category: "catering.cafe" });
+    await seedPlace(OWNER_A, { isUserConfirmed: true, providerPlaceId: "geo-c2", category: "catering.restaurant" });
     const page = await queries.queryPlaces({ limit: 50, category: "catering.cafe" } as never, OWNER_A);
     expect(page.items).toHaveLength(1);
     expect(page.items[0].category).toBe("catering.cafe");
