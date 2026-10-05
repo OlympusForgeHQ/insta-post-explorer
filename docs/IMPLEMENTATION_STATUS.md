@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 5 October 2026 — classification source published, additive production migration applied; activation pending
+Last updated: 5 October 2026 — classification deployed, real pilot passed, independent consumer active/enabled
 
 ## Independent post classification — production rollout — 5 October 2026
 
@@ -16,15 +16,21 @@ eight Python tests, lint, type checks, both builds, cross-layer real-media
 integration, built-release smoke and unit syntax verification pass. Independent
 review is clear. Publication, migration, deployment and pilot are now authorized.
 PR #111 is merged in `develop` (`2371239`) after successful quality/browser CI;
-release PR #112 targets `main`. The additive production migration is applied and
+release PR #112 is merged in `main` (`ec2bc14`). The additive production migration is applied and
 recorded by Prisma without replaying three unrelated historical migrations absent
 from production history. Before/after library, Places, tag, deletion and sync
 fingerprints match; no historical classification jobs exist. The application is
-configured with a dedicated digest and flag 0. A real synthetic image probe of
-the shared inference API succeeded. System service installation requires an
-administrator access still unavailable to Karim/Argos; the real newly imported
-post pilot and unattended service activation remain pending. Do not enable the
-flag or claim autonomous production classification before these checks.
+configured with a dedicated digest and flag 1. The owner explicitly authorized
+DeepSeek via OpenRouter. The installed consumer's real pilot classified seven
+new posts on attempt one, with four or five persisted tags each: six videos with
+full-audio ASR and a three-image carousel, 75 frames in total. Completion audit,
+search text, media coverage, cleanup and preserved historical data were verified.
+The owner subsequently enabled/started the independent Argos systemd unit at
+23:41 Brussels time; active/enabled, one scoped Node process, exclusive lock and
+zero restarts are verified. The pilot ran supervised before that activation;
+no new media job under systemd was needed for the startup/configuration check.
+New verified imports now trigger classification automatically. Web/sync/Hermes
+are healthy and the existing hourly recovery cron and automatic quotas are intact.
 See [scope/evidence](changes/2026-10-05-post-classification.md) and
 [operations](../services/worker/classification/README.md).
 
