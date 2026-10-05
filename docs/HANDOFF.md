@@ -18,29 +18,35 @@ Global manual catalog corrections also fence stale classification.
 
 Application637/637, worker107/107, eight Python tests, lint, types and both builds
 pass with disposable PostgreSQL; real media/cross-layer and built-release smoke
-pass. Independent review has no outstanding findings. Source and installation
-bundle are ready. The owner subsequently authorized publication, migration,
-deployment and a restricted pilot before unattended activation. PR #111 is merged
-in `develop` at `2371239`; its quality and browser CI passed. Release PR #112
-targets `main`. The reviewed additive classification migration is applied in
-production with its normal Prisma checksum receipt. Existing library, tags,
-Places, deletions and sync admissions have identical before/after fingerprints;
-no historical jobs were created. The dedicated web digest and disabled flag are
-prepared. The shared inference API passed a real synthetic image recognition
-probe; this does not replace the newly imported real-post pilot.
+pass. Independent review has no outstanding findings. PR #111 is merged in
+`develop` at `2371239`; release PR #112 is merged in `main` at `ec2bc14`. Their
+quality and browser CI passed. The reviewed additive production migration is
+recorded by Prisma. The web flag is now 1 with its dedicated digest; the owner
+explicitly authorized DeepSeek via OpenRouter for the pilot and future imports.
 
-Host installation, the real-post pilot and unattended activation remain pending
-administrator access to install the reviewed stopped systemd unit. Neither Karim
-nor Argos currently has passwordless root sudo. Do not collect unrelated Coolify
-keys to obtain that access. The private deployment journal records the temporary
-sync auto-deployment protection; restore it after release verification, preserving
-the enabled hourly cron and its durable profile recovery command.
+The real incremental pilot imported seven new posts and nine verified media,
+without updating existing posts or resetting automatic sync admissions. All
+seven classification jobs succeeded on their first attempt, saving an existing
+theme and four or five automatic tags. Six videos received full-audio local ASR
+and twelve frames each; the three-image carousel was inspected and fused.
+All 3,903 prior post/media/tag fingerprints, 36 deletion tombstones, Places
+links/jobs and prior sync admissions were preserved. Each completion has an audit
+receipt; temporary media were removed and the Whisper cache retained.
+
+The pilot used the installed consumer supervised under Argos with the canonical
+flock. The owner then enabled/started `insta-explorer-classification.service` at
+23:41 Brussels time. It is active/enabled, with one correctly scoped Node process,
+the exclusive lock held and no restarts. All pilot jobs were already complete;
+the activation check verifies the real unit's startup/configuration and idle
+state, rather than another media job under systemd. Future new imports are queued
+transactionally and consumed automatically. Web, sync and Hermes remain healthy;
+both auto-deployment settings and the enabled hourly recovery cron are preserved.
 See [evidence and rollout](changes/2026-10-05-post-classification.md).
 
 The previous Places recovery and sync-profile repair are separate completed
 operational work. Preserve their manual suppressions and persistent sync hotfix;
-this branch changes neither the extension nor the sync image. Do not confuse
-the classifier's implementation readiness with unattended production operation.
+this branch changes neither the extension nor the sync image. This automation
+classifies new imports only; it does not automate geographical Places analysis.
 
 ## Local correction — active Places visibility — 5 October 2026
 

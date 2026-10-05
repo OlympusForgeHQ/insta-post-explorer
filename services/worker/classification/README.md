@@ -1,10 +1,14 @@
 # Independent DeepSeek classification consumer
 
-Source published; production activation is pending. On 5 October the owner authorized
-implementation and then publication, migration, deployment and a real-post pilot
-before unattended activation. The additive production migration is applied and
-the web flag remains 0. Administrator access for system installation and the
-real-post pilot are still pending. See the [decision](../../../docs/decisions/2026-10-05-independent-classification-worker.md)
+Production is active as of 5 October, 23:41 Brussels time. The owner authorized
+implementation, publication/migration/deployment, DeepSeek via OpenRouter and the
+real-post pilot before unattended activation. The additive production migration
+is applied, the web flag is 1 and the independent systemd unit is active/enabled.
+Seven new imports passed the installed consumer's supervised real pilot: six
+videos/full-audio ASR and a three-image carousel, with four or five saved tags
+each. The permanent unit's startup/configuration and idle state were verified
+after those jobs completed; the pilot itself ran under Argos and the same flock.
+Historical library, deletions, Places and sync quotas were preserved. See the [decision](../../../docs/decisions/2026-10-05-independent-classification-worker.md)
 and [specification](../../../docs/superpowers/specs/2026-10-05-post-classification.md).
 
 `sync-post` enqueues every **new** successful sync import in its transaction,
