@@ -2,8 +2,9 @@
 
 Implementation based on `origin/develop` `77aff3d`, published through PR #111
 after the owner's explicit authorization of publication, migration, deployment
-and a restricted pilot before unattended activation. Release PR #112 targets
-production. Activation remains pending administrator access and the real-post pilot.
+and a restricted pilot before unattended activation. Release PR #112 is merged
+in production at `ec2bc14`. The real pilot passed and the independent consumer
+is active/enabled; the production completion evidence is recorded below.
 See the [accepted decision](../decisions/2026-10-05-independent-classification-worker.md),
 [specification](../superpowers/specs/2026-10-05-post-classification.md) and
 [operations](../../services/worker/classification/README.md).
@@ -60,7 +61,8 @@ authorized production rollout is recorded below.
 
 The inference transport and ASR transcription fixture are controlled test
 substitutes. These tests prove dataflow/extraction/persistence, not deployed
-provider quality or real credentials. The restricted live pilot remains pending.
+provider quality or real credentials. Those were checked separately in the live
+pilot recorded below.
 The existing jsdom canvas notice is unrelated and does not fail tests.
 
 Regression failures were observed before each relevant fix: missing contract/API
@@ -83,7 +85,7 @@ must be preserved; this branch changes no extension or sync image.
 Rollback stops/disables only the classification consumer and flag, preserving
 saved posts, manual edits/deletions, jobs and audit history.
 
-## Production rollout checkpoint — 5 October 2026
+## Initial production rollout checkpoint — 5 October 2026, 20:13 Brussels
 
 PR #111 quality/browser CI passed and the source is merged into `develop` at
 `2371239`. The production additive migration was applied using Prisma's normal
@@ -94,7 +96,7 @@ contained only the new reviewed migration, so their historical DML/DDL was not
 replayed. This existing history discrepancy is not repaired by this feature and
 must be considered before a future full `migrate deploy`.
 
-The before/after fingerprints of all existing posts/media/tag links, permanent
+At this initial checkpoint, the before/after fingerprints of all existing posts/media/tag links, permanent
 deletions, Places/links/jobs and sync admissions match. The new queue is empty.
 A dedicated digest and flag 0 are prepared in the application. Shared Hermes
 health and real synthetic image recognition succeeded (938 input tokens,
@@ -103,6 +105,43 @@ The real newly imported post, deployed consumer/ASR, final theme/tags and cleanu
 are still unverified. The reviewed host installer remains stopped pending an
 administrator installation path; current Karim/Argos sudo requires a password.
 The hourly synchronization remained enabled and its 18:00 UTC execution succeeded.
+
+## Production activation completed — 5 October 2026, 23:41 Brussels
+
+The owner installed the immutable Node 24 release and separate ASR environment,
+then explicitly authorized DeepSeek via OpenRouter for the pilot and future
+new imports. The dedicated digest and flag 1 were verified in the restarted web
+container; no raw classification key is present there. Installation initially
+failed because host Python lacks ensurepip. The private bootstrap was repaired
+using a verified official pip wheel and a resumable, integrity-checked venv;
+three targeted repair tests passed. Hermes's environment was not changed.
+
+The normal manual incremental sync admitted no automatic-quota slot and imported
+seven new posts/nine verified media, with zero existing-post updates or failed
+media. The installed consumer ran supervised under Argos and its canonical flock:
+all seven jobs SUCCEEDED on attempt one, with four or five automatic tags each.
+The seven subjects were sweet recipes, correctly classified as Sucré. Existing
+catalog spelling was reused, including historical English/concatenated names;
+no new tag was needed. Six videos received twelve frames each and local ASR over
+their full audio; the three-image carousel was inspected individually and fused.
+Coverage was 75 frames, usage 72,832 input and 4,062 output tokens. Persisted tags,
+search text, completion receipts and seven classification.complete audit outcomes
+were verified. No private captions, media or credentials are included here.
+
+All 3,903 preexisting post/media/tag fingerprints, 36 deletion tombstones,
+Places/links/jobs and prior sync admissions were preserved. The diagnostic
+consumer was stopped after completion; no temporary media remained and the
+Whisper cache was retained. The sync profile closed cleanly and its lock was free.
+
+The owner then enabled/started insta-explorer-classification.service at 23:41
+Brussels time. The real unit is active/enabled, with one Node process running the
+reviewed CLI under Argos, the dedicated capability, no SQL/R2/sync credentials,
+its exclusive consumer lock and no restarts. All pilot jobs were already complete;
+this final check proves service startup/configuration and idle state, not a new
+media job under systemd. The enqueue/consumer path now operates automatically for
+future new verified imports. Web, sync and shared Hermes remain healthy; hourly
+recovery, automatic admission quotas and auto-deployment settings are preserved.
+No Places automation or historical requeue is added.
 
 ## Why each new test file exists
 
