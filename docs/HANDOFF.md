@@ -2,9 +2,31 @@
 
 Last updated: 5 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `9034298` (PR #105)
-Reference production base: `main` at `bf22721` (PR #106)
+Reference development base for classification: `develop` at `77aff3d`
+Last observed production base: `main` at `1653fd2`
 Older phase references below are historical.
+
+## Local feature — independent DeepSeek classification — 5 October 2026
+
+The owner approved implementation of an independent worker called by sync for
+every new imported post. Branch `feat/post-classification-worker` implements the
+transactional application-owned queue, scoped API, multimodal serial consumer and
+private staged systemd unit. It chooses one of the eight existing themes and 3–5
+precise proposed tags, reusing/creating tags while preserving manual edits and
+deletions. It does not reanalyze the completed library or enqueue Places work.
+Global manual catalog corrections also fence stale classification.
+
+Application637/637, worker107/107, eight Python tests, lint, types and both builds
+pass with disposable PostgreSQL; real media/cross-layer and built-release smoke
+pass. Independent review has no outstanding findings. Source and installation
+bundle are ready; **no commit, push, production migration/deployment/activation**
+was performed. Publication and the restricted live provider pilot remain pending.
+See [evidence and rollout](changes/2026-10-05-post-classification.md).
+
+The previous Places recovery and sync-profile repair are separate completed
+operational work. Preserve their manual suppressions and persistent sync hotfix;
+this branch changes neither the extension nor the sync image. Do not confuse
+the classifier's implementation readiness with unattended production operation.
 
 ## Local correction — active Places visibility — 5 October 2026
 

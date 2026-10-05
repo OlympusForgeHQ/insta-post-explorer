@@ -7,6 +7,8 @@ import { foldForSearch, tagSlug } from "@/lib/import/normalize";
 import { detectTagVariants } from "@/lib/tag-variants";
 import { databaseConfigured, prisma } from "@/server/db";
 import { parseOwnerId } from "@/server/owner";
+import { lockPostWrites } from '@/server/post-deletions';
+import { setAuditAction } from '@/server/audit-log';
 
 const idSchema = z.string().trim().min(1).max(256);
 const nameSchema = z.string().trim().min(1).max(80).transform((value) => value.replace(/\s+/g, " "))
@@ -40,6 +42,8 @@ export async function renameAdminTag(ownerInput: string, tagInput: string, nameI
   const name = nameSchema.parse(nameInput);
   const slug = tagSlug(name);
   return prisma.$transaction(async (tx) => {
+    await lockPostWrites(tx, ownerId);
+    await setAuditAction(tx, 'admin.rename_tag');
     const tag = await tx.tag.findFirst({ where: { id: tagId, ownerId }, select: { id: true } });
     if (!tag) throw new AdminConflictError("TAG_NOT_FOUND");
     const duplicate = await tx.tag.findUnique({ where: { ownerId_slug: { ownerId, slug } }, select: { id: true } });
@@ -57,6 +61,8 @@ export async function mergeAdminTags(ownerInput: string, sourceInput: string, ta
   const targetId = idSchema.parse(targetInput);
   if (sourceId === targetId) throw new AdminConflictError("SAME_TAG");
   return prisma.$transaction(async (tx) => {
+    await lockPostWrites(tx, ownerId);
+    await setAuditAction(tx, 'admin.merge_tags');
     const [source, target] = await Promise.all([
       tx.tag.findFirst({ where: { id: sourceId, ownerId }, select: { id: true } }),
       tx.tag.findFirst({ where: { id: targetId, ownerId }, select: { id: true, name: true } }),
@@ -82,6 +88,8 @@ export async function deleteAdminTag(ownerInput: string, tagInput: string) {
   const ownerId = parseOwnerId(ownerInput);
   const tagId = idSchema.parse(tagInput);
   return prisma.$transaction(async (tx) => {
+    await lockPostWrites(tx, ownerId);
+    await setAuditAction(tx, 'admin.delete_tag');
     const tag = await tx.tag.findFirst({ where: { id: tagId, ownerId }, select: { id: true } });
     if (!tag) throw new AdminConflictError("TAG_NOT_FOUND");
     const links = await tx.postTag.findMany({ where: { tagId }, select: { postId: true } });

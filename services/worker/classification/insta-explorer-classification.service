@@ -1,0 +1,41 @@
+[Unit]
+Description=Insta Explorer - independent DeepSeek post classification
+After=network-online.target insta-explorer-places.service
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=argos
+Group=argos
+StateDirectory=insta-explorer-classification
+StateDirectoryMode=0700
+WorkingDirectory=@RELEASE@
+EnvironmentFile=/var/lib/insta-explorer-classification/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TOKENIZERS_PARALLELISM=false
+ExecStart=/usr/bin/flock -n -E 0 --close /var/lib/insta-explorer-classification/.consumer.lock @NODE@ @RELEASE@/dist/classification/cli.js
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=45
+UMask=0077
+CPUQuota=100%
+MemoryMax=2G
+TasksMax=128
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/insta-explorer-classification
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

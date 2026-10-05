@@ -1,6 +1,24 @@
 # Implementation Status
 
-Last updated: 5 October 2026 — production `main` at `bf22721`, PR #106; video-duration follow-up verified locally
+Last updated: 5 October 2026 — last observed production `main` at `1653fd2`; classifier implemented locally, activation pending
+
+## Independent post classification — local implementation — 5 October 2026
+
+`feat/post-classification-worker` adds new-sync-only durable enqueue, scoped
+classification API and independent host consumer of the existing private Hermes
+DeepSeek runtime. It analyzes description/images/video frames/full available
+audio ASR and applies an existing theme with 3–5 relevant proposed tags. Existing
+tags are reused; precise new tags may be created. Manual post/tag and global
+catalog changes fence stale writes; deletions retain job/audit history.
+
+Application637/637 and worker107/107 tests pass with real disposable PostgreSQL;
+eight Python tests, lint, type checks, both builds, cross-layer real-media
+integration, built-release smoke and unit syntax verification pass. Independent
+review is clear. The migration has only run on the disposable database. Nothing
+has been committed, pushed, deployed or activated for this feature. Production
+publication and a restricted live pilot remain pending.
+See [scope/evidence](changes/2026-10-05-post-classification.md) and
+[operations](../services/worker/classification/README.md).
 
 ## Local correction — active Places visibility — 5 October 2026
 

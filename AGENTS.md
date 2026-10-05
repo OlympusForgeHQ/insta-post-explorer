@@ -46,6 +46,12 @@ Conséquences :
 
 ## 3. Architecture imposée
 
+Décision du propriétaire du 5 octobre 2026 : un consumer de classification
+indépendant est appelé par la synchronisation pour les nouveaux posts. Voir
+`docs/decisions/2026-10-05-independent-classification-worker.md`. Cette exception
+autorise ce troisième service uniquement ; il partage le runtime Hermes existant,
+les contrats et l'API de l'application. Son activation en production reste distincte.
+
 Décision du propriétaire du 4 octobre 2026 : la synchronisation Instagram et
 l'analyse Places s'exécutent dans deux services séparés, partageant ce dépôt et
 les contrats métier existants. Voir
