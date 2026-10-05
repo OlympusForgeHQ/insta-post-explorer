@@ -1,7 +1,10 @@
 # Independent DeepSeek classification consumer
 
-Source implementation; production activation is pending. The owner authorized
-implementation on 5 October. See the [decision](../../../docs/decisions/2026-10-05-independent-classification-worker.md)
+Source published; production activation is pending. On 5 October the owner authorized
+implementation and then publication, migration, deployment and a real-post pilot
+before unattended activation. The additive production migration is applied and
+the web flag remains 0. Administrator access for system installation and the
+real-post pilot are still pending. See the [decision](../../../docs/decisions/2026-10-05-independent-classification-worker.md)
 and [specification](../../../docs/superpowers/specs/2026-10-05-post-classification.md).
 
 `sync-post` enqueues every **new** successful sync import in its transaction,

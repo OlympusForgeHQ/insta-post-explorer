@@ -3,10 +3,10 @@
 Last updated: 5 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
 Reference development base for classification: `develop` at `77aff3d`
-Last observed production base: `main` at `1653fd2`
+Production base before the classification release: `main` at `1653fd2`
 Older phase references below are historical.
 
-## Local feature — independent DeepSeek classification — 5 October 2026
+## Classification rollout — independent DeepSeek worker — 5 October 2026
 
 The owner approved implementation of an independent worker called by sync for
 every new imported post. Branch `feat/post-classification-worker` implements the
@@ -19,8 +19,22 @@ Global manual catalog corrections also fence stale classification.
 Application637/637, worker107/107, eight Python tests, lint, types and both builds
 pass with disposable PostgreSQL; real media/cross-layer and built-release smoke
 pass. Independent review has no outstanding findings. Source and installation
-bundle are ready; **no commit, push, production migration/deployment/activation**
-was performed. Publication and the restricted live provider pilot remain pending.
+bundle are ready. The owner subsequently authorized publication, migration,
+deployment and a restricted pilot before unattended activation. PR #111 is merged
+in `develop` at `2371239`; its quality and browser CI passed. Release PR #112
+targets `main`. The reviewed additive classification migration is applied in
+production with its normal Prisma checksum receipt. Existing library, tags,
+Places, deletions and sync admissions have identical before/after fingerprints;
+no historical jobs were created. The dedicated web digest and disabled flag are
+prepared. The shared inference API passed a real synthetic image recognition
+probe; this does not replace the newly imported real-post pilot.
+
+Host installation, the real-post pilot and unattended activation remain pending
+administrator access to install the reviewed stopped systemd unit. Neither Karim
+nor Argos currently has passwordless root sudo. Do not collect unrelated Coolify
+keys to obtain that access. The private deployment journal records the temporary
+sync auto-deployment protection; restore it after release verification, preserving
+the enabled hourly cron and its durable profile recovery command.
 See [evidence and rollout](changes/2026-10-05-post-classification.md).
 
 The previous Places recovery and sync-profile repair are separate completed
