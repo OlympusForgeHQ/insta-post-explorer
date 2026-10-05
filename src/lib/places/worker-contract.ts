@@ -17,7 +17,7 @@ export const workerCandidatesSchema = z.object({
 }).strict();
 export const workerResultSchema = workerCandidatesSchema.extend({
   media: z.array(z.object({
-    mediaId: id, kind: z.enum(['IMAGE','VIDEO']), durationMs: z.number().int().positive().max(300_000).nullable(),
+    mediaId: id, kind: z.enum(['IMAGE','VIDEO']), durationMs: z.number().int().positive().max(900_000).nullable(),
     frameCount: z.number().int().min(1).max(12), audio: z.enum(['transcribed','absent','not_applicable']),
   }).strict()).max(20),
   model: z.literal(PLACES_WORKER_MODEL),

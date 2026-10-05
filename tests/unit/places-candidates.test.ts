@@ -41,7 +41,7 @@ describe("placeCandidateSchema", () => {
     expect(placeCandidateSchema.parse(item)).toEqual(item);
     for (const evidence of [
       [{ type: "AUDIO_TRANSCRIPT", excerpt: "name", videoTimestampMs: -1 }],
-      [{ type: "VIDEO_OCR", excerpt: "name", videoTimestampMs: 300001 }],
+      [{ type: "VIDEO_OCR", excerpt: "name", videoTimestampMs: 900001 }],
       [{ type: "VIDEO_OCR", excerpt: "name", frameUrl: "https://untrusted.test/frame" }],
     ]) expect(placeCandidateSchema.safeParse({ ...item, evidence }).success).toBe(false);
   });

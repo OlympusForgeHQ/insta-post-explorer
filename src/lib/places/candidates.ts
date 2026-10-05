@@ -48,7 +48,7 @@ const candidateEvidenceSchema = z
   .object({
     type: z.enum(PLACE_CANDIDATE_EVIDENCE_TYPES),
     excerpt: z.string().trim().min(1).max(MAX_EXCERPT_LENGTH),
-    videoTimestampMs: z.number().int().min(0).max(300_000).optional(),
+    videoTimestampMs: z.number().int().min(0).max(900_000).optional(),
     mediaId: z.string().trim().min(1).max(200).optional(),
   })
   .strict();

@@ -52,3 +52,20 @@ it('samples existing video frames when audio outlasts video or frame rate is low
     }finally{await rm(dir,{recursive:true,force:true});}
   }
 });
+
+it('extracts the complete timeline for seven-and-a-half and fifteen minute videos, but refuses longer media',async()=>{
+  for(const durationSeconds of [450,900,901]){
+    const dir=await mkdtemp(path.join(os.tmpdir(),'places-long-video-')),signal=new AbortController().signal;
+    try{
+      const source=path.join(dir,'source.mp4');
+      await runProcess('/usr/bin/ffmpeg',['-nostdin','-v','error','-f','lavfi','-i',`color=c=blue:s=64x64:r=1:d=${durationSeconds}`,'-c:v','libx264','-threads','1',source],signal);
+      const pending=extractLocalMedia({id:'long-video',kind:'VIDEO',mimeType:'video/mp4',byteSize:1,versionTag:null,url:'https://account.r2.cloudflarestorage.com/b/o'},source,0,dir,{python:'/not-called',transcribeScript:'/not-called',modelCache:'/not-called'},signal);
+      if(durationSeconds>900){await expect(pending).rejects.toThrow('MEDIA_LIMIT');continue;}
+      const result=await pending;
+      expect(result.coverage).toEqual({mediaId:'long-video',kind:'VIDEO',durationMs:durationSeconds*1000,frameCount:12,audio:'absent'});
+      expect(result.frames[0].timestampMs).toBe(0);
+      expect(result.frames.at(-1)?.timestampMs).toBe(durationSeconds===450?449000:899000);
+      expect(result.frames.every(frame=>frame.timestampMs>=0&&frame.timestampMs<result.coverage.durationMs!)).toBe(true);
+    }finally{await rm(dir,{recursive:true,force:true});}
+  }
+},30000);
