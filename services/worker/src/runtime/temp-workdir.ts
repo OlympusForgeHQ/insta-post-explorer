@@ -5,7 +5,7 @@ import path from "node:path";
 export interface TempWorkdirManager {
   create(jobId: string): Promise<string>;
   remove(workdir: string): Promise<void>;
-  cleanupStale(now?: Date): Promise<number>;
+  cleanupStale(now?: Date, removeAll?: boolean): Promise<number>;
 }
 
 export function createTempWorkdirManager(options: { root: string; maxAgeMs: number }): TempWorkdirManager {
@@ -31,7 +31,7 @@ export function createTempWorkdirManager(options: { root: string; maxAgeMs: numb
       await rm(target, { recursive: true, force: true });
     },
 
-    async cleanupStale(now = new Date()) {
+    async cleanupStale(now = new Date(), removeAll = false) {
       await mkdir(root, { recursive: true, mode: 0o700 });
       const entries = await readdir(root, { withFileTypes: true });
       let removed = 0;
@@ -40,7 +40,7 @@ export function createTempWorkdirManager(options: { root: string; maxAgeMs: numb
         const stats = await lstat(target);
         const unsafeLink = stats.isSymbolicLink();
         const stale = now.getTime() - stats.mtimeMs > options.maxAgeMs;
-        if (!unsafeLink && !stale) continue;
+        if (!removeAll && !unsafeLink && !stale) continue;
         await rm(target, { recursive: true, force: true });
         removed += 1;
       }

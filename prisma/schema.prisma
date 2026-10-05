@@ -118,6 +118,7 @@ model Post {
   placeLinks      PostPlace[]
   placeEvidence   PlaceEvidence[]
   placeJobs       PlaceAnalysisJob[]
+  classificationJobs PostClassificationJob[]
 
   @@unique([ownerId, postUrl], map: "posts_owner_id_post_url_key")
   // Composite identity key referenced by owner-consistent composite foreign
@@ -406,4 +407,30 @@ model AuditEvent {
 
   @@index([ownerId, id(sort: Desc)], map: "audit_events_owner_id_idx")
   @@map("audit_events")
+}
+
+
+model PostClassificationJob {
+  id String @id @default(cuid())
+  ownerId String @map("owner_id")
+  postId String? @map("post_id")
+  sourcePostId String @map("source_post_id")
+  analysisVersion String @map("analysis_version")
+  inputHash String @map("input_hash")
+  status PlaceAnalysisStatus @default(PENDING)
+  attemptCount Int @default(0) @map("attempt_count")
+  leaseOwner String? @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+  heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(3)
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(3)
+  errorCode String? @map("error_code")
+  result Json?
+  startedAt DateTime? @map("started_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  post Post? @relation(fields:[postId], references:[id], onDelete:SetNull, map:"classification_jobs_post_id_fkey")
+  @@unique([ownerId, sourcePostId, analysisVersion], map:"classification_jobs_idempotency_key")
+  @@index([ownerId,status,nextAttemptAt,leaseExpiresAt,createdAt],map:"classification_jobs_claim_idx")
+  @@map("post_classification_jobs")
 }

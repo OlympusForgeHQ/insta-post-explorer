@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { importPosts } from "@/server/import-posts";
+import { enqueueClassification } from '@/server/classification/jobs';
 import { enrichSyncedPost } from "@/lib/sync/enrich-post";
 import { persistVerifiedMediaIdentity, type VerifiedMediaIdentity } from "@/server/media-identity";
 import { publicMediaUrl, validateR2ObjectReference, verifyR2Object } from "@/server/r2";
@@ -114,6 +115,9 @@ export async function importSyncedPost(claims: { sub: string; ownerId: string },
         postId: persisted.id,
         media: verifiedMedia,
       }, tx);
+      if (process.env.CLASSIFICATION_WORKER_ENABLED === '1' && !existing && report.imported === 1) {
+        await enqueueClassification(claims.ownerId, persisted.id, tx);
+      }
     }
     await tx.syncJob.updateMany({
       where: { id: claims.sub, ownerId: claims.ownerId },

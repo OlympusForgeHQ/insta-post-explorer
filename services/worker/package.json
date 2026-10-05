@@ -15,7 +15,8 @@
     "smoke": "tsx scripts/smoke.ts",
     "sync": "node dist/sync/cli.js",
     "places": "node dist/places/cli.js",
-    "pretest": "python3 -B places-hermes/test_transcribe.py"
+    "pretest": "python3 -B places-hermes/test_transcribe.py",
+    "classify": "node dist/classification/cli.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",
