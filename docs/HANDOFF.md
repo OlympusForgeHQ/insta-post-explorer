@@ -6,6 +6,18 @@ Reference development base: `develop` at `9034298` (PR #105)
 Reference production base: `main` at `bf22721` (PR #106)
 Older phase references below are historical.
 
+## Local correction — active Places visibility — 5 October 2026
+
+Branch `fix/places-active-visibility` filters inactive canonicals and rejections
+before list/map limits, preserving manual confirmations and owner-owned links
+regardless of current post theme. Statistics share the same presence rule;
+explicit review filters and details preserve historical access. No data changes.
+Lint, typecheck, build and 437 application tests pass; 171 PostgreSQL tests,
+including four new regressions, are skipped without a local database.
+Independent review is clear; 16 read-only production getter checks pass.
+Disposable PostgreSQL regression execution is delegated to CI before merge.
+See [scope and evidence](changes/2026-10-05-places-active-visibility.md).
+
 ## Current correction — long Places itineraries — 5 October 2026
 
 The deployed candidate-capacity correction expands the dedicated worker contract from

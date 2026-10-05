@@ -40,6 +40,13 @@ GET /api/v1/places/analysis-jobs/{id}
 
 Owner-scoped, cursor-paginated list ordered `updatedAt DESC, id DESC`.
 
+By default, only active Places are returned: non-rejected and linked to at least
+one owner-owned post, or manually confirmed (`isUserConfirmed` or legacy
+`reviewStatus=CONFIRMED`). A linked post's current theme does not affect this
+default visibility. An explicit `review_status` filter includes historical
+unlinked Places of that status. Detail and evidence access remains owner-scoped
+and is not restricted to active Places.
+
 Query parameters:
 
 | Param | Meaning |
@@ -66,9 +73,10 @@ Response:
 ```
 
 `bbox`/`nearby` remain intentionally deferred: the owner capped Places at under
-~1000 canonical places, so the Phase G map loads the full owner-scoped set and
+~1000 active places, so the Phase G map loads the owner-scoped active set and
 filters it in the browser instead of querying by viewport. The `source_theme`
 list filter, deferred in F3, shipped in Phase G (see above).
+Inactive and rejected Places are excluded before the map's 1,000-place cap.
 
 ### GET /api/v1/places/{id}
 
@@ -113,7 +121,10 @@ attempt count, bounded `errorCode`, structured `result`, timestamps). The raw
 }
 ```
 
-- `identifiedPlaces`: distinct canonical places excluding `REJECTED`.
+- `identifiedPlaces`: distinct active canonical places excluding `REJECTED`.
+  Place-scoped aggregations require an owner-owned post link or manual/legacy
+  confirmation, as for the default list. The review-status breakdown preserves
+  rejected linked/confirmed Places; historical analysis-job counters are unchanged.
 - `countries` / `continents`: distinct codes among identified places.
 - `postsWithPlaces`: distinct posts linked to an identified place (a post linked
   to several places counts once).

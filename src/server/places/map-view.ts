@@ -4,13 +4,14 @@ import { canonicalPlacesTheme, type PlacesEligibleTheme } from "@/lib/places/eli
 import { groupForRawCategory, type PlaceCategoryGroupKey } from "@/lib/places/categories";
 import type { PlacePrecisionDto, PlaceReviewStatusDto } from "@/contracts/api/places";
 import { prisma } from "@/server/db";
+import { activePlaceWhere } from "@/server/places/visibility";
 
 // Owner-scoped view model for the Phase G Places UI. The public /api/v1 list DTO
 // stays unchanged; this loader exists because the map needs a little more than
 // the API list exposes — the canonical source themes of the linked posts and one
 // preview thumbnail for the hover callout — in a single query.
 //
-// The owner decided Places stays under ~1000 canonical places, so the whole set
+// The owner decided Places stays under ~1000 active places, so the whole set
 // is loaded once and filtered in the browser: no viewport/bbox querying, no map
 // pagination. MAX_PLACES is a safety cap, not a pagination scheme; when it trips
 // the UI says so instead of silently showing a partial map.
@@ -69,7 +70,7 @@ export async function loadPlacesMapView(ownerId: string, max: number = PLACES_MA
   // preview thumbnail comes from a second bounded query below, so neither the
   // payload nor the query count grows with the number of posts per place.
   const rows = await prisma.place.findMany({
-    where: { ownerId },
+    where: activePlaceWhere(ownerId),
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: max + 1,
     select: {
