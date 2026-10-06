@@ -47,12 +47,25 @@ initial auto-deployment settings were restored.
 
 The verified 20261006 compatible consumer runs temporarily under the canonical
 lock. All three original long videos are admitted with their original bytes.
-The first 50.91-minute, 344,787,655-byte video succeeded on attempt one with
-complete audio transcription, twelve timeline frames and five proposed tags.
-The other two long videos and full library batch remain in progress.
-Ordinary pending jobs without prior backoff are held temporarily for the pilot,
-with exact IDs and previous schedules journaled; a conditional release restores
-only those unchanged holds. They also expire at 06:00 UTC on 6 October.
+All three originals passed complete audio transcription, twelve timeline frames
+and five proposed tags: 50.91 minutes/344,787,655 bytes, 51.63 minutes/532,165,635
+bytes and 36 minutes/278,084,030 bytes. The first two succeeded on attempt one.
+The third succeeded after one audited retry following the incident below.
+All 3,786 unchanged holds on ordinary pending jobs were conditionally released
+at 02:33 UTC on 6 October, preserving other schedules and statuses. The next
+ordinary post was claimed by the compatible consumer. The full library batch
+remains in progress.
+
+An old supervised-pilot Node process remained orphaned without the canonical
+lock and claimed the third large video. Its old schema rejected that claim
+before analysis, so three leases expired. The exact UID, argv, executable and
+start time were verified before SIGTERM; its exit and the sole compatible
+consumer were checked. A guarded one-time retry kept the same source/input and
+preserved all prior attempts in audit. It succeeded with full coverage. The
+private root-handover operator now refuses unaccounted consumers before any
+downtime, verifies zero consumers after stop and exclusive startup for twelve
+seconds. Three new incident guards and four existing operator guards pass;
+independent review is clear and actual read-only process preflight passes.
 
 All 3,910 historical posts have durable jobs. Eleven missing originals were
 recovered without recreating posts; the last uses identity-verified official
@@ -60,7 +73,8 @@ DASH video/audio, fully decoded and remuxed without reencoding or trimming.
 Its R2 upload is conditional on absence and existing objects must match exact
 MD5, size and MIME. Media identity and job input were rebased through existing
 business guards with named audits. Temporary recovery bytes were deleted.
-The 01:31 UTC snapshot has 121 successes and 18 changed categories; protected
+The restored DASH post succeeded on its first analysis attempt.
+The 02:32 UTC snapshot has 124 successes and 18 changed categories; protected
 manual/imported tag links, deletion tombstones and Places fingerprints match
 the baseline. Queue and audit remain authoritative after that snapshot.
 
