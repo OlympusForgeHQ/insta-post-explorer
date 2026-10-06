@@ -37,14 +37,50 @@ Focused app31/31 and worker23/23 pass, including cross-layer media and complete
 sixty-minute extraction. Application642/642 and worker113/113 pass on disposable PostgreSQL, with
 three transcription tests, lint, app/worker type checks and both builds. The
 initial app build was blocked by sandbox-local port binding; the reviewed-access
-build passed. Python installer checks, independent review and deployed smoke
-are recorded after execution; this does not claim those pending gates completed.
+build passed. The three transcription and two Python installer tests pass.
+Independent review has no remaining findings. PRs #117/#119 and release #118
+passed quality/browser CI and are merged. The reviewed source tree is
+`907407a49f2fedebc79d346185cd3b62ce086701`; the web deployment of
+`26f78b5cb5e679e4bd4332ed9422c3537c582915` finished and is healthy. Sync keeps
+its existing image/cron, web classification capabilities are unchanged and the
+initial auto-deployment settings were restored.
+
+During the pilot, the verified 20261006 compatible consumer ran temporarily under the canonical lock. The owner completed permanent root handover at 09:35 Brussels on 6 October. At 09:55 the service was active/enabled with its exact parent/child argv, systemd cgroup, canonical kernel lock and zero restarts; jobs succeeded after handover. The temporary consumer had exited. All three original long videos are admitted with their original bytes.
+All three originals passed complete audio transcription, twelve timeline frames
+and five proposed tags: 50.91 minutes/344,787,655 bytes, 51.63 minutes/532,165,635
+bytes and 36 minutes/278,084,030 bytes. The first two succeeded on attempt one.
+The third succeeded after one audited retry following the incident below.
+All 3,786 unchanged holds on ordinary pending jobs were conditionally released
+at 02:33 UTC on 6 October, preserving other schedules and statuses. The next
+ordinary post was claimed by the compatible consumer. The full library batch
+remains in progress.
+
+An old supervised-pilot Node process remained orphaned without the canonical
+lock and claimed the third large video. Its old schema rejected that claim
+before analysis, so three leases expired. The exact UID, argv, executable and
+start time were verified before SIGTERM; its exit and the sole compatible
+consumer were checked. A guarded one-time retry kept the same source/input and
+preserved all prior attempts in audit. It succeeded with full coverage. The
+private root-handover operator now refuses unaccounted consumers before any
+downtime, verifies zero consumers after stop and exclusive startup for twelve
+seconds. A separate real-host reproduction showed a flock fork-before-exec startup race (15/16 isolated attempts), explaining the installer’s false FOREIGN_CONSUMER_PROCESS report despite a functioning permanent unit. The reviewed correction waits at most ten seconds for exact identity before twelve strict samples; three new readiness guards, three incident guards and four original guards pass. No service restart was applied for this check correction;
+independent review is clear and actual read-only process preflight passes.
+
+All 3,910 historical posts have durable jobs. Eleven missing originals were
+recovered without recreating posts; the last uses identity-verified official
+DASH video/audio, fully decoded and remuxed without reencoding or trimming.
+Its R2 upload is conditional on absence and existing objects must match exact
+MD5, size and MIME. Media identity and job input were rebased through existing
+business guards with named audits. Temporary recovery bytes were deleted.
+The restored DASH post succeeded on its first analysis attempt.
+The 02:32 UTC snapshot has 124 successes and 18 changed categories; protected
+manual/imported tag links, deletion tombstones and Places fingerprints match
+the baseline. Queue and audit remain authoritative after that snapshot.
 
 Deploy web validation first, then the reviewed consumer, then admit large media.
 Preserve the previous immutable release. On rollback keep queue/audit and larger
 originals; stop consumption/admissions rather than hand them to an old client.
-Temporary supervised processing is not permanent systemd activation. The latter
-requires actual root handover and a fresh active/enabled/lock/startup check.
+Permanent systemd activation is now verified separately from the completed pilot. The entire library remains in progress. Further model taxonomy guidance is tracked in [the focused follow-up](2026-10-06-classification-theme-guidance.md).
 
 ## Why the new test file exists
 
