@@ -37,8 +37,32 @@ Focused app31/31 and worker23/23 pass, including cross-layer media and complete
 sixty-minute extraction. Application642/642 and worker113/113 pass on disposable PostgreSQL, with
 three transcription tests, lint, app/worker type checks and both builds. The
 initial app build was blocked by sandbox-local port binding; the reviewed-access
-build passed. Python installer checks, independent review and deployed smoke
-are recorded after execution; this does not claim those pending gates completed.
+build passed. The three transcription and two Python installer tests pass.
+Independent review has no remaining findings. PRs #117/#119 and release #118
+passed quality/browser CI and are merged. The reviewed source tree is
+`907407a49f2fedebc79d346185cd3b62ce086701`; the web deployment of
+`26f78b5cb5e679e4bd4332ed9422c3537c582915` finished and is healthy. Sync keeps
+its existing image/cron, web classification capabilities are unchanged and the
+initial auto-deployment settings were restored.
+
+The verified 20261006 compatible consumer runs temporarily under the canonical
+lock. All three original long videos are admitted with their original bytes.
+The first 50.91-minute, 344,787,655-byte video succeeded on attempt one with
+complete audio transcription, twelve timeline frames and five proposed tags.
+The other two long videos and full library batch remain in progress.
+Ordinary pending jobs without prior backoff are held temporarily for the pilot,
+with exact IDs and previous schedules journaled; a conditional release restores
+only those unchanged holds. They also expire at 06:00 UTC on 6 October.
+
+All 3,910 historical posts have durable jobs. Eleven missing originals were
+recovered without recreating posts; the last uses identity-verified official
+DASH video/audio, fully decoded and remuxed without reencoding or trimming.
+Its R2 upload is conditional on absence and existing objects must match exact
+MD5, size and MIME. Media identity and job input were rebased through existing
+business guards with named audits. Temporary recovery bytes were deleted.
+The 01:31 UTC snapshot has 121 successes and 18 changed categories; protected
+manual/imported tag links, deletion tombstones and Places fingerprints match
+the baseline. Queue and audit remain authoritative after that snapshot.
 
 Deploy web validation first, then the reviewed consumer, then admit large media.
 Preserve the previous immutable release. On rollback keep queue/audit and larger

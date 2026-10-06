@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 6 October 2026 — historical classification running; long-video source verified, rollout pending
+Last updated: 6 October 2026 — long-video web release deployed; historical classification and real long-video pilot running
 
 ## Long classification videos and historical library — 6 October 2026
 
@@ -13,7 +13,15 @@ The classification-only long-media slice accepts 600 MiB/sixty-minute videos,
 with full ASR, up to twelve timeline frames, ninety-minute job/process bounds,
 ten-minute complete-download bounds and two-hour signed reads. Images and Places
 retain their existing numeric limits. Focused contract, real-media and PostgreSQL
-checks pass. Final release gates and rollout are tracked in
+checks pass. PRs #117/#119 and release #118 passed quality/browser CI and are
+merged. Web release `26f78b5` is healthy; sync retains its existing image,
+cron and quota. The compatible 20261006 temporary consumer processes the same
+durable queue under its canonical lock. All 3,910 historical posts are admitted;
+all eleven missing originals are restored with immutable source identity and
+audits. The first 50.91-minute original succeeded with full ASR and twelve
+frames. At 01:31 UTC, 121 jobs succeeded and 18 categories differed from the
+baseline; all protected fingerprints matched. The remaining two long pilots
+and bulk jobs are ongoing. Evidence and remaining operational gates are tracked in
 [verification](changes/2026-10-06-classification-long-videos.md).
 The permanent unit is enabled but temporarily inactive after pilot diagnostics;
 a temporary supervised consumer continues under the same lock. Root handover
