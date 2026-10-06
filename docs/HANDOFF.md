@@ -1,10 +1,36 @@
 # Operational Handoff
 
-Last updated: 5 October 2026
+Last updated: 6 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
 Reference development base for classification: `develop` at `77aff3d`
 Production base before the classification release: `main` at `1653fd2`
 Older phase references below are historical.
+
+## Current classification extension — 6 October 2026
+
+The owner now explicitly authorizes classifying the existing library as well as
+future imports, correcting existing themes and automatic tags while retaining
+all protected imported/manual tags, deletion tombstones and confirmed Places.
+Private operational helpers reused successful jobs, verified historical media
+and recovered missing originals; the completed geographic analysis was not rerun.
+The bulk queue is running serially. This is an ongoing batch, not a completion
+claim for the whole library.
+
+Branch `fix/classification-long-videos`, based on `develop` `fa5b7e3`, scopes
+classification to 600 MiB MP4 originals and sixty-minute full coverage, with a
+ninety-minute job/process deadline, ten-minute full-body download deadline and
+two-hour owner/version-bound signatures. Images and Places keep their old limits.
+Real sixty-minute audio/frame extraction, boundary and transactional tests pass;
+publication/deployment and long-media admission are pending final verification.
+See [scope/evidence](changes/2026-10-06-classification-long-videos.md).
+
+The permanent classification unit was stopped prematurely during a private pilot
+diagnosis. Successful video jobs disprove an established general ASR failure;
+the initial extraction failure cause remains unconfirmed. A supervised temporary
+consumer holds the canonical lock and continues the library queue. The original
+unit remains enabled but inactive; reviewed restoration requires real root
+execution. Do not claim permanent service activation from temporary processing.
+The private journal retains the exact reviewed restoration path and receipts.
 
 ## Classification rollout — independent DeepSeek worker — 5 October 2026
 

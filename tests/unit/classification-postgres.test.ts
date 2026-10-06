@@ -12,6 +12,25 @@ async function clear(){await db.post.deleteMany({where:{ownerId:owner}});await d
 suite('Classification transactional queue',()=>{
  beforeAll(async()=>{process.env.DATABASE_URL=url;({prisma:db}=await import('@/server/db'));service=await import('@/server/classification/jobs');});
  beforeEach(async()=>{await clear();await seed();});afterAll(async()=>{await clear();await db.$disconnect();});
+ it('classifies a verified 600 MiB video with full coverage, preserving protected tags and Places limits',async()=>{
+  await db.postMedia.update({where:{id:'classification-media'},data:{type:'VIDEO',mimeType:'video/mp4',sourcePath:'test.mp4',objectKey:'originals/test.mp4',byteSize:600*1024*1024}});
+  const protectedTag=await db.tag.create({data:{ownerId:owner,name:'Personnel',slug:'personnel'}});await db.postTag.create({data:{postId:'classification-post',tagId:protectedTag.id,isManual:true}});
+  const {loadWorkerMedia}=await import('@/server/places/worker-media');
+  await expect(loadWorkerMedia(owner,'classification-post',signer)).rejects.toThrow('PLACES_MEDIA_UNAVAILABLE');
+  await queue();const claim=(await service.claimClassification(owner,{signMedia:signer}))!;expect(claim.media[0].byteSize).toBe(600*1024*1024);
+  await service.completeClassification(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,elapsedMs:5_400_000,media:[{mediaId:'classification-media',kind:'VIDEO',durationMs:3_600_000,frameCount:12,audio:'transcribed'}]}});
+  expect((await db.postClassificationJob.findUniqueOrThrow({where:{id:claim.jobId}})).status).toBe('SUCCEEDED');expect(await db.postTag.count({where:{postId:'classification-post',isManual:true}})).toBe(1);
+ });
+ it('signs classification media for the complete job deadline without widening Places signatures',async()=>{
+  for(const [key,value] of Object.entries({R2_ENDPOINT:'https://test.r2.cloudflarestorage.com',R2_BUCKET_NAME:'test',R2_ACCESS_KEY_ID:'test-access',R2_SECRET_ACCESS_KEY:'test-secret'}))vi.stubEnv(key,value);
+  try{const {prepareClassification}=await import('@/server/classification/inputs');const {loadWorkerMedia}=await import('@/server/places/worker-media');
+   const classification=await prepareClassification(owner,'classification-post',undefined);expect(new URL(classification.media[0].url).searchParams.get('X-Amz-Expires')).toBe('7200');
+   const places=await loadWorkerMedia(owner,'classification-post');expect(new URL(places[0].url).searchParams.get('X-Amz-Expires')).toBe('1800');
+  }finally{vi.unstubAllEnvs();}
+ });
+ it.each([{type:'VIDEO' as const,mimeType:'video/mp4',byteSize:600*1024*1024+1},{type:'IMAGE' as const,mimeType:'image/jpeg',byteSize:250*1024*1024+1}])('rejects media beyond its kind-specific bound before inference: $type',async media=>{
+  await db.postMedia.update({where:{id:'classification-media'},data:media});await queue();expect(await service.claimClassification(owner,{signMedia:signer})).toBeNull();expect((await db.postClassificationJob.findFirstOrThrow({where:{ownerId:owner}})).errorCode).toBe('MEDIA_UNAVAILABLE');
+ });
  it('queues once, claims once under contention and completes/replays atomically with canonical existing tags',async()=>{
   await db.tag.create({data:{ownerId:owner,name:'CHOCOLAT',slug:'chocolat'}});await queue();await queue();
   expect(await db.postClassificationJob.count({where:{ownerId:owner}})).toBe(1);

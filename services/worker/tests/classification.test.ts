@@ -1,11 +1,16 @@
 import {describe,it,expect} from 'vitest';
 import {ClassificationInference} from '../src/classification/inference.js';
 import {parseClassificationConfig} from '../src/classification/config.js';
-import {ClassificationHttpApi} from '../src/classification/api.js';
+import {ClassificationHttpApi,classificationClaimSchema} from '../src/classification/api.js';
 const output={status:'SUCCEEDED',mainTheme:'Sucré',tags:['Chocolat','Brownie','Pistache'],reason:'Brownie recipe'};
 const prepared={jobId:'job',leaseToken:'c31dc4f4-2e82-4926-88f2-1b0875d28a5b',heartbeatIntervalMs:30000,input:{post_id:'post',input_hash:'hash',caption:'Brownie',author_username:'baker'},media:[],themes:['Sucré','Divers'],existingTags:['Chocolat'],outputSchema:{type:'object',properties:{status:{const:'SUCCEEDED'},mainTheme:{enum:['Sucré','Divers']},tags:{type:'array',items:{type:'string'},minItems:3,maxItems:5},reason:{type:'string'}},required:['status','mainTheme','tags','reason'],additionalProperties:false}};
 const response=(content=JSON.stringify(output))=>Response.json({model:'insta-places',choices:[{message:{content},finish_reason:'stop'}],usage:{prompt_tokens:50,completion_tokens:20}});
 describe('Classification inference',()=>{
+ it('accepts signed videos up to 600 MiB while keeping the 250 MiB image boundary',()=>{
+  const media={id:'long',kind:'VIDEO',mimeType:'video/mp4',byteSize:600*1024*1024,versionTag:'v1',url:'https://test.r2.cloudflarestorage.com/long.mp4'};
+  expect(classificationClaimSchema.safeParse({...prepared,media:[media]}).success).toBe(true);
+  for(const invalid of [{...media,byteSize:media.byteSize+1},{...media,kind:'IMAGE',mimeType:'image/jpeg',byteSize:250*1024*1024+1}])expect(classificationClaimSchema.safeParse({...prepared,media:[invalid]}).success).toBe(false);
+ });
  it('uses the canonical scoped endpoint for both accepted origin spellings without following redirects',async()=>{
   for(const origin of ['https://app.test','https://app.test/']){
    const request:typeof fetch=async(input,init)=>{expect(String(input)).toBe('https://app.test/api/v1/classification/worker');expect(init?.redirect).toBe('error');return Response.json(null);};

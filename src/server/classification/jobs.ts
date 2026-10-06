@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {Prisma} from '@prisma/client';
 import {prisma} from '@/server/db';
 import {classificationInputs,prepareClassification,digest} from './inputs';
-import {CLASSIFICATION_VERSION,CLASSIFICATION_LEASE_MS,classificationResultSchema,type ClassificationResult} from '@/lib/classification/contract';
+import {CLASSIFICATION_VERSION,CLASSIFICATION_LEASE_MS,CLASSIFICATION_MAX_VIDEO_BYTES,classificationResultSchema,type ClassificationResult} from '@/lib/classification/contract';
 import {loadWorkerMedia,type MediaSigner,type WorkerMedia} from '@/server/places/worker-media';
 import {foldForSearch,tagSlug} from '@/lib/import/normalize';
 import {lockPostWrites} from '@/server/post-deletions';
@@ -63,7 +63,7 @@ export async function completeClassification(ownerId:string,command:Lease&{resul
   if(!job.postId){await cancel(tx,job.id,ownerId,'POST_DELETED');return {error:'CLASSIFICATION_INPUT_STALE'};}
   const state=await classificationInputs(ownerId,job.postId,tx);
   if(state.inputHash!==job.inputHash){await cancel(tx,job.id,ownerId,'CLASSIFICATION_INPUT_STALE');return {error:'CLASSIFICATION_INPUT_STALE'};}
-  coverage(result,await loadWorkerMedia(ownerId,job.postId,async()=>'',tx));
+  coverage(result,await loadWorkerMedia(ownerId,job.postId,async()=>'',tx,CLASSIFICATION_MAX_VIDEO_BYTES));
   await setAuditAction(tx,'classification.complete');
   if(result.status==='SUCCEEDED'){
    const resolved=[] as {id:string;name:string}[];

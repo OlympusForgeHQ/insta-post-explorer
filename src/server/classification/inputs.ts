@@ -2,8 +2,8 @@ import 'server-only';
 import {createHash} from 'node:crypto';
 import type {Prisma} from '@prisma/client';
 import {prisma} from '@/server/db';
-import {loadWorkerMedia,type MediaSigner} from '@/server/places/worker-media';
-import {CLASSIFICATION_VERSION,classificationOutputSchema} from '@/lib/classification/contract';
+import {loadWorkerMedia,signPlacesMedia,type MediaSigner} from '@/server/places/worker-media';
+import {CLASSIFICATION_VERSION,CLASSIFICATION_MAX_VIDEO_BYTES,CLASSIFICATION_SIGNED_URL_SECONDS,classificationOutputSchema} from '@/lib/classification/contract';
 import {SYNC_MAIN_THEMES} from '@/lib/sync/enrich-post';
 import {z} from 'zod';
 export const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -18,7 +18,7 @@ export async function classificationInputs(ownerId:string,postId:string,tx:Prism
 }
 export async function prepareClassification(ownerId:string,postId:string,signMedia:MediaSigner|undefined,tx:Prisma.TransactionClient=prisma){
  const {post,inputHash}=await classificationInputs(ownerId,postId,tx);
- const media=await loadWorkerMedia(ownerId,postId,signMedia,tx);
+ const media=await loadWorkerMedia(ownerId,postId,signMedia??((key,version)=>signPlacesMedia(key,version,CLASSIFICATION_SIGNED_URL_SECONDS)),tx,CLASSIFICATION_MAX_VIDEO_BYTES);
  const tags=await tx.tag.findMany({where:{ownerId},orderBy:[{postTags:{_count:'desc'}},{name:'asc'}],take:250,select:{name:true}});
  return {input:{post_id:post.id,input_hash:inputHash,caption:post.caption,author_username:post.authorUsername},media,existingTags:[...new Set([...post.postTags.map(t=>t.tag.name),...tags.map(t=>t.name)])].slice(0,300),themes:[...SYNC_MAIN_THEMES],outputSchema:z.toJSONSchema(classificationOutputSchema)};
 }
