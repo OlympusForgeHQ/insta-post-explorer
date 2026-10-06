@@ -1,9 +1,14 @@
 # Independent DeepSeek classification consumer
 
-Production is active as of 5 October, 23:41 Brussels time. The owner authorized
+Initial production activation was verified on 5 October at 23:41 Brussels.
+During the historical pilot on 6 October the permanent unit was stopped; a
+supervised temporary consumer now continues under the canonical lock. Root
+handover and the new long-media release activation remain pending. See
+[the current change](../../../docs/changes/2026-10-06-classification-long-videos.md).
+The owner authorized
 implementation, publication/migration/deployment, DeepSeek via OpenRouter and the
 real-post pilot before unattended activation. The additive production migration
-is applied, the web flag is 1 and the independent systemd unit is active/enabled.
+is applied and the web flag is 1. The permanent unit remains enabled.
 Seven new imports passed the installed consumer's supervised real pilot: six
 videos/full-audio ASR and a three-image carousel, with four or five saved tags
 each. The permanent unit's startup/configuration and idle state were verified
@@ -25,15 +30,15 @@ Hermes must already be running at `http://127.0.0.1:8645/v1`; alias `insta-place
 routes to the configured DeepSeek model. The classifier does not change that
 runtime or the sync extension.
 
-All verified media are processed (maximum 20, 250 MiB each). Images and actual
-video frames are submitted; video sampling covers the timeline with up to 12
-frames per video, maximum duration 15 minutes. Audio is extracted completely
+All verified media are processed (maximum 20; videos up to 600 MiB, images up to
+250 MiB). Images and actual video frames are submitted; video sampling covers the timeline with up to 12
+frames per video, maximum duration 60 minutes. Audio is extracted completely
 and transcribed locally with the existing Whisper implementation. Multiple media
 are summarized individually and fused with the description and tag catalog.
 These limits bound cost; the entire video is not sent as a continuous stream.
 
 Each inference has a six-minute deadline and 2,048 output-token limit. A post
-has a 20-minute deadline, 90-second lease, 30-second heartbeat and at most three
+has a 90-minute deadline, 90-second lease, 30-second heartbeat and at most three
 claims. Transient failures retry after 60/300 seconds. Busy shared inference
 (429) releases the claim for retry. NEEDS_REVIEW, FAILED and CANCELLED are
 explicit terminal database/audit outcomes; no generic tags are added to fill a
@@ -45,6 +50,17 @@ work root are removed immediately. A between-job janitor also removes stale
 owned workspaces after six hours. The separate private model cache is retained.
 Use the systemd unit to run against this state; any explicit diagnostic Node
 invocation against the same state must acquire the same `flock` first.
+
+Classification downloads have a ten-minute deadline covering the full response
+body; subprocesses share the ninety-minute post bound. Classification media
+signatures last two hours, retaining canonical owner/version restrictions. These
+explicit classification policies preserve Places' fifteen-minute, 250 MiB,
+three-minute download, ten-minute process and thirty-minute signing defaults.
+The long-media release must be installed before admitting larger originals;
+old consumers cannot parse those claims. Missing originals remain explicit
+failures rather than thumbnail substitutions. Historical-library requeue is now
+authorized by the owner, with protected imported/manual tags retained; completed
+classification jobs are reused and the finished geographic review is preserved.
 
 ## Build and stage
 

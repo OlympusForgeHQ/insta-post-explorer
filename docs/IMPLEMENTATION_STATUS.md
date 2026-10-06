@@ -1,6 +1,23 @@
 # Implementation Status
 
-Last updated: 5 October 2026 — classification deployed, real pilot passed, independent consumer active/enabled
+Last updated: 6 October 2026 — historical classification running; long-video source verified, rollout pending
+
+## Long classification videos and historical library — 6 October 2026
+
+The owner extended classification to the existing library and confirmed that
+protected tags stay unchanged. The private queue admission and representative
+pilot passed; the bulk analysis is in progress. The finished geographic review,
+manual tags and deletions are preserved.
+
+The classification-only long-media slice accepts 600 MiB/sixty-minute videos,
+with full ASR, up to twelve timeline frames, ninety-minute job/process bounds,
+ten-minute complete-download bounds and two-hour signed reads. Images and Places
+retain their existing numeric limits. Focused contract, real-media and PostgreSQL
+checks pass. Final release gates and rollout are tracked in
+[verification](changes/2026-10-06-classification-long-videos.md).
+The permanent unit is enabled but temporarily inactive after pilot diagnostics;
+a temporary supervised consumer continues under the same lock. Root handover
+remains explicitly unverified until real systemd evidence is available.
 
 ## Independent post classification — production rollout — 5 October 2026
 

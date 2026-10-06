@@ -14,6 +14,14 @@ const claim={jobId:'job',leaseToken:'c31dc4f4-2e82-4926-88f2-1b0875d28a5b',heart
 const result={status:'SUCCEEDED' as const,mainTheme:'Sucré',tags:['Chocolat','Brownie','Pistache'],reason:'Recipe',media:[{mediaId:'m',kind:'IMAGE',durationMs:null,frameCount:1,audio:'not_applicable'}],model:'deepseek/deepseek-v4.1-flash',usage:{inputTokens:20,outputTokens:10},elapsedMs:100};
 describe('Independent classification job lifecycle',()=>{
  beforeEach(()=>{timers.pending=[];});
+ it('uses a ninety-minute abort deadline while preserving the owned heartbeat and completion',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'classification-deadline-')),timeout=vi.spyOn(AbortSignal,'timeout');
+  try{
+   const api={call:async(c:Record<string,unknown>)=>c.action==='claim'?claim:{ok:true}};
+   expect((await runClassificationOnce({api,workdirs:createTempWorkdirManager({root,maxAgeMs:21_600_000}),analyze:async()=>result},new AbortController().signal)).status).toBe('SUCCEEDED');
+   expect(timeout).toHaveBeenCalledWith(5_400_000);expect(await readdir(root)).toEqual([]);
+  }finally{timeout.mockRestore();await rm(root,{recursive:true,force:true});}
+ });
  it('removes fresh abandoned media on startup while preserving the separate model cache',async()=>{
   const state=await mkdtemp(path.join(tmpdir(),'classification-startup-')),root=path.join(state,'work'),cache=path.join(state,'cache');
   try{await mkdir(path.join(root,'abandoned'),{recursive:true});await writeFile(path.join(root,'abandoned','full-audio.wav'),'private');await mkdir(cache);await writeFile(path.join(cache,'weights'),'retained');await prepareClassificationWorkdirs(root);expect(await readdir(root)).toEqual([]);expect(await readdir(cache)).toEqual(['weights']);}
