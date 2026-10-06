@@ -3,7 +3,8 @@
 Last updated: 6 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
 Reference development base for classification: `develop` at `77aff3d`
-Production base before the classification release: `main` at `1653fd2`
+Current classification web release: `main` at `26f78b5`
+Sync retains its previous image and hourly recovery command.
 Older phase references below are historical.
 
 ## Current classification extension — 6 October 2026
@@ -20,8 +21,21 @@ Branch `fix/classification-long-videos`, based on `develop` `fa5b7e3`, scopes
 classification to 600 MiB MP4 originals and sixty-minute full coverage, with a
 ninety-minute job/process deadline, ten-minute full-body download deadline and
 two-hour owner/version-bound signatures. Images and Places keep their old limits.
-Real sixty-minute audio/frame extraction, boundary and transactional tests pass;
-publication/deployment and long-media admission are pending final verification.
+Real sixty-minute audio/frame extraction, boundary and transactional tests pass.
+PRs #117/#119 and release #118 are merged after green quality/browser CI.
+The reviewed feature tree matched `develop` and the web release at publication;
+web and sync are healthy, their initial auto-deployment settings are restored,
+and the classification flag/digest and sync schedule are preserved.
+The compatible 20261006 temporary consumer is running under the canonical lock.
+All 3,910 historical posts have durable classification jobs. Eleven missing
+originals were recovered, including one complete official DASH video/audio
+remux without reencoding or trimming; no deleted post was recreated.
+At the 01:31 UTC snapshot, 121 jobs succeeded, one was processing and 3,788
+were pending; 18 categories had changed. Protected tags, tombstones and Places
+fingerprints still matched the baseline. The first 50.91-minute original passed
+full transcription and twelve-frame inference on attempt one; the two other
+long originals remain part of the live pilot. This snapshot does not claim
+the library batch or the remaining pilot jobs are complete.
 See [scope/evidence](changes/2026-10-06-classification-long-videos.md).
 
 The permanent classification unit was stopped prematurely during a private pilot

@@ -3,7 +3,9 @@
 Initial production activation was verified on 5 October at 23:41 Brussels.
 During the historical pilot on 6 October the permanent unit was stopped; a
 supervised temporary consumer now continues under the canonical lock. Root
-handover and the new long-media release activation remain pending. See
+handover remains pending. The compatible 20261006 temporary consumer and web
+release are deployed; the first real 50.91-minute original passed full ASR and
+twelve-frame inference. The other long pilots and historical batch are ongoing. See
 [the current change](../../../docs/changes/2026-10-06-classification-long-videos.md).
 The owner authorized
 implementation, publication/migration/deployment, DeepSeek via OpenRouter and the
