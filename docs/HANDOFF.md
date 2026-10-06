@@ -26,15 +26,13 @@ PRs #117/#119 and release #118 are merged after green quality/browser CI.
 The reviewed feature tree matched `develop` and the web release at publication;
 web and sync are healthy, their initial auto-deployment settings are restored,
 and the classification flag/digest and sync schedule are preserved.
-The compatible 20261006 temporary consumer is running under the canonical lock.
+The permanent 20261006 consumer is active and enabled under the canonical lock. The root handover ran on 6 October at 09:35 Brussels; read-only systemd, cgroup, parent/child and kernel-lock checks passed at 09:55, with no restart loop and successful classifications after handover.
 All 3,910 historical posts have durable classification jobs. Eleven missing
 originals were recovered, including one complete official DASH video/audio
 remux without reencoding or trimming; no deleted post was recreated.
 All three long originals (50.91, 51.63 and 36 minutes) passed complete audio
 transcription and twelve-frame inference. The last restored DASH post also
-succeeded. At the 02:32 UTC snapshot, 124 jobs succeeded and 3,786 were pending;
-18 categories had changed, and protected tags, tombstones and Places fingerprints
-still matched the baseline. All 3,786 unchanged pilot holds were released at
+succeeded. At the 07:45 UTC snapshot, 427 jobs succeeded, two needed review and 3,481 were pending; 109 categories had changed. All 2,763 protected links were compared per post, and protected tags, tombstones and Places fingerprints still matched the baseline. All 3,786 unchanged pilot holds were released at
 02:33 UTC, and the compatible consumer started the next ordinary post.
 The library batch remains in progress; the long-video pilot is complete.
 See [scope/evidence](changes/2026-10-06-classification-long-videos.md).
@@ -45,15 +43,9 @@ three leases expired. Exact process identity was checked before its graceful
 stop. A conditional one-time retry succeeded and retained the earlier attempts
 in the audit. Only the compatible consumer remains. The reviewed permanent
 handover now refuses unaccounted consumers before downtime and verifies no
-survivors after stop and exclusive startup; seven private guard tests pass.
+survivors after stop and exclusive startup; ten private guard tests pass. The initial installer falsely reported FOREIGN_CONSUMER_PROCESS during flock’s fork-before-exec transition, despite a working permanent unit. The corrected check waits at most ten seconds for exact identity, then requires twelve strict stable samples. The installed service was not restarted for this correction.
 
-The permanent classification unit was stopped prematurely during a private pilot
-diagnosis. Successful video jobs disprove an established general ASR failure;
-the initial extraction failure cause remains unconfirmed. A supervised temporary
-consumer holds the canonical lock and continues the library queue. The original
-unit remains enabled but inactive; reviewed restoration requires real root
-execution. Do not claim permanent service activation from temporary processing.
-The private journal retains the exact reviewed restoration path and receipts.
+Two understood image posts were incorrectly left for review because the model interpreted Divers and ingredient-only Cuisine too narrowly. Branch `fix/classification-theme-guidance` describes category meanings and unrestricted evidence-based tag topics in the application-owned output schema; the installed consumer receives this metadata without a new worker release. See [scope, compatibility and rollout evidence](changes/2026-10-06-classification-theme-guidance.md). Only unchanged review jobs may receive a guarded, audited retry; successful jobs and Places are not reanalyzed.
 
 ## Classification rollout — independent DeepSeek worker — 5 October 2026
 

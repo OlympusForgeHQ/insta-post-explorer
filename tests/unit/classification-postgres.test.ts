@@ -21,6 +21,32 @@ suite('Classification transactional queue',()=>{
   await service.completeClassification(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,elapsedMs:5_400_000,media:[{mediaId:'classification-media',kind:'VIDEO',durationMs:3_600_000,frameCount:12,audio:'transcribed'}]}});
   expect((await db.postClassificationJob.findUniqueOrThrow({where:{id:claim.jobId}})).status).toBe('SUCCEEDED');expect(await db.postTag.count({where:{postId:'classification-post',isManual:true}})).toBe(1);
  });
+ it.each([
+  {theme:'Divers',caption:'Anderson, notre chat adopté au refuge',tags:['Adoption animale','Chat','Refuge animalier'],guidance:/Divers[\s\S]*understood[\s\S]*outside/},
+  {theme:'Cuisine',caption:'Vanille Bourbon de Madagascar, présentation de cet ingrédient',tags:['Vanille','Vanille Bourbon','Madagascar'],guidance:/Cuisine[\s\S]*ingredient[\s\S]*without[\s\S]*recipe/},
+ ])('transmits authoritative theme/tag guidance through the installed inference contract and persists $theme with protected tags',async sample=>{
+  await db.post.update({where:{id:'classification-post'},data:{caption:sample.caption}});
+  const manual=await db.tag.create({data:{ownerId:owner,name:'Personnel',slug:'personnel'}});
+  await db.postTag.create({data:{postId:'classification-post',tagId:manual.id,isManual:true}});
+  await queue();const claim=(await service.claimClassification(owner,{signMedia:signer}))!;
+  expect(JSON.stringify(claim.outputSchema)).toMatch(sample.guidance);
+  expect(JSON.stringify(claim.outputSchema)).toMatch(/tags[\s\S]*any[\s\S]*subject/);
+  const {ClassificationInference}=await import('../../services/worker/src/classification/inference');
+  const output={status:'SUCCEEDED',mainTheme:sample.theme,tags:sample.tags,reason:'The caption and image identify this subject'};
+  let requests=0;
+  const inference:typeof fetch=async(_input,init)=>{
+   requests++;const body=JSON.parse(String(init?.body));const context=JSON.parse(body.messages[1].content[0].text);
+   expect(context.output_schema).toEqual(claim.outputSchema);
+   return Response.json({model:'insta-places',choices:[{message:{content:JSON.stringify(output)},finish_reason:'stop'}],usage:{prompt_tokens:30,completion_tokens:20}});
+  };
+  const classified=await new ClassificationInference('http://example.test/v1','private-test',inference).classify(claim,claim.input,[],new AbortController().signal);
+  expect(classified.output).toEqual(output);expect(requests).toBe(1);
+  await service.completeClassification(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,...classified.output,usage:classified.usage}});
+  const saved=await db.post.findUniqueOrThrow({where:{id:'classification-post'},include:{postTags:{include:{tag:true}}}});
+  expect(saved.mainTheme).toBe(sample.theme);expect(saved.postTags.map(t=>t.tag.name)).toEqual(expect.arrayContaining([...sample.tags,'Personnel']));
+  expect(saved.postTags.filter(t=>t.isManual).map(t=>t.tagId)).toEqual([manual.id]);
+  expect(await db.placeAnalysisJob.count({where:{ownerId:owner}})).toBe(0);
+ });
  it('signs classification media for the complete job deadline without widening Places signatures',async()=>{
   for(const [key,value] of Object.entries({R2_ENDPOINT:'https://test.r2.cloudflarestorage.com',R2_BUCKET_NAME:'test',R2_ACCESS_KEY_ID:'test-access',R2_SECRET_ACCESS_KEY:'test-secret'}))vi.stubEnv(key,value);
   try{const {prepareClassification}=await import('@/server/classification/inputs');const {loadWorkerMedia}=await import('@/server/places/worker-media');

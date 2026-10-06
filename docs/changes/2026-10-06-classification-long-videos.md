@@ -45,8 +45,7 @@ passed quality/browser CI and are merged. The reviewed source tree is
 its existing image/cron, web classification capabilities are unchanged and the
 initial auto-deployment settings were restored.
 
-The verified 20261006 compatible consumer runs temporarily under the canonical
-lock. All three original long videos are admitted with their original bytes.
+During the pilot, the verified 20261006 compatible consumer ran temporarily under the canonical lock. The owner completed permanent root handover at 09:35 Brussels on 6 October. At 09:55 the service was active/enabled with its exact parent/child argv, systemd cgroup, canonical kernel lock and zero restarts; jobs succeeded after handover. The temporary consumer had exited. All three original long videos are admitted with their original bytes.
 All three originals passed complete audio transcription, twelve timeline frames
 and five proposed tags: 50.91 minutes/344,787,655 bytes, 51.63 minutes/532,165,635
 bytes and 36 minutes/278,084,030 bytes. The first two succeeded on attempt one.
@@ -64,7 +63,7 @@ consumer were checked. A guarded one-time retry kept the same source/input and
 preserved all prior attempts in audit. It succeeded with full coverage. The
 private root-handover operator now refuses unaccounted consumers before any
 downtime, verifies zero consumers after stop and exclusive startup for twelve
-seconds. Three new incident guards and four existing operator guards pass;
+seconds. A separate real-host reproduction showed a flock fork-before-exec startup race (15/16 isolated attempts), explaining the installer’s false FOREIGN_CONSUMER_PROCESS report despite a functioning permanent unit. The reviewed correction waits at most ten seconds for exact identity before twelve strict samples; three new readiness guards, three incident guards and four original guards pass. No service restart was applied for this check correction;
 independent review is clear and actual read-only process preflight passes.
 
 All 3,910 historical posts have durable jobs. Eleven missing originals were
@@ -81,8 +80,7 @@ the baseline. Queue and audit remain authoritative after that snapshot.
 Deploy web validation first, then the reviewed consumer, then admit large media.
 Preserve the previous immutable release. On rollback keep queue/audit and larger
 originals; stop consumption/admissions rather than hand them to an old client.
-Temporary supervised processing is not permanent systemd activation. The latter
-requires actual root handover and a fresh active/enabled/lock/startup check.
+Permanent systemd activation is now verified separately from the completed pilot. The entire library remains in progress. Further model taxonomy guidance is tracked in [the focused follow-up](2026-10-06-classification-theme-guidance.md).
 
 ## Why the new test file exists
 
