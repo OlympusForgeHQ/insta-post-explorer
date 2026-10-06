@@ -1,12 +1,13 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import type {TempWorkdirManager} from '../runtime/temp-workdir.js';
 import {classificationClaimSchema,type ClassificationApi,type ClassificationClaim} from './api.js';
+import {CLASSIFICATION_JOB_TIMEOUT_MS} from './limits.js';
 export type ClassificationAnalysis={status:'SUCCEEDED'|'NEEDS_REVIEW';mainTheme:string|null;tags:string[];reason:string;media:unknown[];model:string;usage:{inputTokens:number;outputTokens:number};elapsedMs:number};
 export type ClassificationDependencies={api:ClassificationApi;workdirs:TempWorkdirManager;analyze:(claim:ClassificationClaim,dir:string,signal:AbortSignal)=>Promise<ClassificationAnalysis>;log?:(event:Record<string,unknown>)=>void};
 export async function runClassificationOnce(deps:ClassificationDependencies,stop:AbortSignal){
  const raw=await deps.api.call({action:'claim'},stop);if(raw===null)return {status:'idle'};
  const claim=classificationClaimSchema.parse(raw),lease={jobId:claim.jobId,leaseToken:claim.leaseToken};let dir:string|undefined;let finishing=false;
- const heartbeatStop=new AbortController(),lost=new AbortController();const signal=AbortSignal.any([stop,lost.signal,AbortSignal.timeout(1_200_000)]);
+ const heartbeatStop=new AbortController(),lost=new AbortController();const signal=AbortSignal.any([stop,lost.signal,AbortSignal.timeout(CLASSIFICATION_JOB_TIMEOUT_MS)]);
  const heartbeat=(async()=>{try{while(true){await delay(30_000,undefined,{signal:heartbeatStop.signal});await deps.api.call({action:'heartbeat',...lease},AbortSignal.any([heartbeatStop.signal,signal]));}}catch{if(!heartbeatStop.signal.aborted&&!finishing)lost.abort();}})();
  try{
   dir=await deps.workdirs.create(claim.jobId);deps.log?.({stage:'classification_started',postId:claim.input.post_id,jobId:claim.jobId});
