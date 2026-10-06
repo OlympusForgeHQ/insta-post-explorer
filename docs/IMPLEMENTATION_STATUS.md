@@ -15,23 +15,18 @@ ten-minute complete-download bounds and two-hour signed reads. Images and Places
 retain their existing numeric limits. Focused contract, real-media and PostgreSQL
 checks pass. PRs #117/#119 and release #118 passed quality/browser CI and are
 merged. Web release `26f78b5` is healthy; sync retains its existing image,
-cron and quota. The compatible 20261006 temporary consumer processes the same
-durable queue under its canonical lock. All 3,910 historical posts are admitted;
+cron and quota. The permanent 20261006 consumer is active and enabled after the owner’s 09:35 Brussels root handover; parent/child cgroup and canonical kernel lock were verified at 09:55, with successful jobs after handover and zero restarts. It processes the same durable queue. All 3,910 historical posts are admitted;
 all eleven missing originals are restored with immutable source identity and
 audits. All three 50.91/51.63/36-minute originals succeeded with full ASR and
-twelve frames each; the final restored DASH post also succeeded. At 02:32 UTC,
-124 jobs succeeded and 18 categories differed from the baseline; all protected
-fingerprints matched. The 3,786 unchanged pilot holds were released at 02:33 UTC
+twelve frames each; the final restored DASH post also succeeded. At 07:45 UTC, 427 jobs succeeded, two required review, 3,481 were pending and 109 categories differed from baseline. All protected fingerprints and 2,763 manual/imported links compared per post matched. The 3,786 unchanged pilot holds were released at 02:33 UTC
 and ordinary processing resumed. The bulk library remains in progress.
 An orphaned old pilot consumer was identified and stopped; its three expired
 large-video claims were retained in audit during the successful one-time retry.
 The reviewed root handover now checks all classification consumers before
-downtime and exclusivity at startup, with seven passing private guard tests.
+downtime and exclusivity at startup, with ten passing private guard tests. A reproduced flock fork-before-exec race explained the installer’s false FOREIGN_CONSUMER_PROCESS message. Its corrected readiness check waits for exact identity before twelve strict stable samples, without restarting the functioning service.
 Evidence and remaining operational gates are tracked in
 [verification](changes/2026-10-06-classification-long-videos.md).
-The permanent unit is enabled but temporarily inactive after pilot diagnostics;
-a temporary supervised consumer continues under the same lock. Root handover
-remains explicitly unverified until real systemd evidence is available.
+Permanent service handover is now verified; whole-library processing remains ongoing. Two understood subjects exposed overly narrow model taxonomy interpretation. The existing output schema now carries category/tag guidance compatible with the installed consumer; web-only rollout and guarded retries are tracked in [the focused change](changes/2026-10-06-classification-theme-guidance.md).
 
 ## Independent post classification — production rollout — 5 October 2026
 

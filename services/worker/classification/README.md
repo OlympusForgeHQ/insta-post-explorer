@@ -1,15 +1,7 @@
 # Independent DeepSeek classification consumer
 
 Initial production activation was verified on 5 October at 23:41 Brussels.
-During the historical pilot on 6 October the permanent unit was stopped; a
-supervised temporary consumer now continues under the canonical lock. Root
-handover remains pending. The compatible 20261006 temporary consumer and web
-release are deployed; all three real 50.91/51.63/36-minute originals passed full
-ASR and twelve-frame inference. The historical batch continues after its 3,786
-pilot holds were released. An orphaned old pilot consumer was stopped and its
-large-video job succeeded on an audited retry. The reviewed root handover checks
-all classification consumers before downtime and verifies exclusive startup. See
-[the current change](../../../docs/changes/2026-10-06-classification-long-videos.md).
+The owner performed the reviewed permanent 20261006 root handover on 6 October at 09:35 Brussels. The unit is active/enabled, has one flock parent and one Node consumer in its systemd cgroup, owns the canonical kernel lock and has no restart loop. New jobs succeeded after handover. The earlier temporary consumer is gone. All three 50.91/51.63/36-minute originals passed full ASR and twelve-frame inference; the library batch continues after its pilot holds were released. The initial installer’s FOREIGN_CONSUMER_PROCESS report was a reproduced fork-before-exec readiness race. The corrected private operator waits up to ten seconds for exact identity, then verifies twelve strict stable samples; all ten guards pass. No restart of the working unit was needed. See [the long-media change](../../../docs/changes/2026-10-06-classification-long-videos.md).
 The owner authorized
 implementation, publication/migration/deployment, DeepSeek via OpenRouter and the
 real-post pilot before unattended activation. The additive production migration
@@ -35,6 +27,8 @@ There is no arbitrary enqueue API, database DSN, R2 access key or public port.
 Hermes must already be running at `http://127.0.0.1:8645/v1`; alias `insta-places`
 routes to the configured DeepSeek model. The classifier does not change that
 runtime or the sync extension.
+
+The application-owned claim output schema supplies theme/tag guidance to the installed consumer. Divers covers understood subjects outside the other seven themes; Cuisine includes ingredient/product information without a recipe. Tags may describe any evidenced topic, reusing relevant names and creating precise French entries when needed. Unknown context remains NEEDS_REVIEW; the three-to-five-tag and existing-theme validators still apply. This metadata-only web change requires no consumer replacement. See [guidance evidence](../../../docs/changes/2026-10-06-classification-theme-guidance.md).
 
 All verified media are processed (maximum 20; videos up to 600 MiB, images up to
 250 MiB). Images and actual video frames are submitted; video sampling covers the timeline with up to 12
