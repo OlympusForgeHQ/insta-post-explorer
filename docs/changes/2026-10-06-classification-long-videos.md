@@ -60,7 +60,7 @@ DASH video/audio, fully decoded and remuxed without reencoding or trimming.
 Its R2 upload is conditional on absence and existing objects must match exact
 MD5, size and MIME. Media identity and job input were rebased through existing
 business guards with named audits. Temporary recovery bytes were deleted.
-The 01:31 UTC snapshot has 121 successes and 18 corrected categories; protected
+The 01:31 UTC snapshot has 121 successes and 18 changed categories; protected
 manual/imported tag links, deletion tombstones and Places fingerprints match
 the baseline. Queue and audit remain authoritative after that snapshot.
 
