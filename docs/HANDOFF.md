@@ -30,13 +30,22 @@ The compatible 20261006 temporary consumer is running under the canonical lock.
 All 3,910 historical posts have durable classification jobs. Eleven missing
 originals were recovered, including one complete official DASH video/audio
 remux without reencoding or trimming; no deleted post was recreated.
-At the 01:31 UTC snapshot, 121 jobs succeeded, one was processing and 3,788
-were pending; 18 categories had changed. Protected tags, tombstones and Places
-fingerprints still matched the baseline. The first 50.91-minute original passed
-full transcription and twelve-frame inference on attempt one; the two other
-long originals remain part of the live pilot. This snapshot does not claim
-the library batch or the remaining pilot jobs are complete.
+All three long originals (50.91, 51.63 and 36 minutes) passed complete audio
+transcription and twelve-frame inference. The last restored DASH post also
+succeeded. At the 02:32 UTC snapshot, 124 jobs succeeded and 3,786 were pending;
+18 categories had changed, and protected tags, tombstones and Places fingerprints
+still matched the baseline. All 3,786 unchanged pilot holds were released at
+02:33 UTC, and the compatible consumer started the next ordinary post.
+The library batch remains in progress; the long-video pilot is complete.
 See [scope/evidence](changes/2026-10-06-classification-long-videos.md).
+
+An earlier supervised-pilot consumer had remained orphaned without the canonical
+lock. Its old claim schema rejected the third large video before analysis;
+three leases expired. Exact process identity was checked before its graceful
+stop. A conditional one-time retry succeeded and retained the earlier attempts
+in the audit. Only the compatible consumer remains. The reviewed permanent
+handover now refuses unaccounted consumers before downtime and verifies no
+survivors after stop and exclusive startup; seven private guard tests pass.
 
 The permanent classification unit was stopped prematurely during a private pilot
 diagnosis. Successful video jobs disprove an established general ASR failure;

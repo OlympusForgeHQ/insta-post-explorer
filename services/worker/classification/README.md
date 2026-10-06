@@ -4,8 +4,11 @@ Initial production activation was verified on 5 October at 23:41 Brussels.
 During the historical pilot on 6 October the permanent unit was stopped; a
 supervised temporary consumer now continues under the canonical lock. Root
 handover remains pending. The compatible 20261006 temporary consumer and web
-release are deployed; the first real 50.91-minute original passed full ASR and
-twelve-frame inference. The other long pilots and historical batch are ongoing. See
+release are deployed; all three real 50.91/51.63/36-minute originals passed full
+ASR and twelve-frame inference. The historical batch continues after its 3,786
+pilot holds were released. An orphaned old pilot consumer was stopped and its
+large-video job succeeded on an audited retry. The reviewed root handover checks
+all classification consumers before downtime and verifies exclusive startup. See
 [the current change](../../../docs/changes/2026-10-06-classification-long-videos.md).
 The owner authorized
 implementation, publication/migration/deployment, DeepSeek via OpenRouter and the
@@ -22,7 +25,8 @@ and [specification](../../../docs/superpowers/specs/2026-10-05-post-classificati
 after verified media persistence, when `CLASSIFICATION_WORKER_ENABLED=1`.
 The independent host consumer polls that durable queue every 15 seconds and
 processes one post at a time. No synchronous inference call blocks Instagram.
-No historical backfill or Places job is introduced.
+Sync does not scan historical posts or enqueue Places jobs. The separately
+authorized historical batch uses the same durable classification queue.
 
 The worker uses only its scoped application key and the existing private Hermes
 inference key. `/api/v1/classification/worker` accepts `claim`, `heartbeat`,
