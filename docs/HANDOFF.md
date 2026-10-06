@@ -2,8 +2,8 @@
 
 Last updated: 6 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base for classification: `develop` at `77aff3d`
-Current classification web release: `main` at `26f78b5`
+Reference development base for classification: `develop` at `586a97a`
+Current classification web release: `main` at `5620a9d`
 Sync retains its previous image and hourly recovery command.
 Older phase references below are historical.
 
@@ -32,7 +32,7 @@ originals were recovered, including one complete official DASH video/audio
 remux without reencoding or trimming; no deleted post was recreated.
 All three long originals (50.91, 51.63 and 36 minutes) passed complete audio
 transcription and twelve-frame inference. The last restored DASH post also
-succeeded. At the 07:45 UTC snapshot, 427 jobs succeeded, two needed review and 3,481 were pending; 109 categories had changed. All 2,763 protected links were compared per post, and protected tags, tombstones and Places fingerprints still matched the baseline. All 3,786 unchanged pilot holds were released at
+succeeded. At the 08:31 UTC snapshot, 486 jobs succeeded and 3,424 were pending, with no reviews or failures; 126 categories had changed. All 2,763 protected links were compared per post, and protected tags, tombstones and Places fingerprints still matched the baseline. All 3,786 unchanged pilot holds were released at
 02:33 UTC, and the compatible consumer started the next ordinary post.
 The library batch remains in progress; the long-video pilot is complete.
 See [scope/evidence](changes/2026-10-06-classification-long-videos.md).
@@ -45,7 +45,7 @@ in the audit. Only the compatible consumer remains. The reviewed permanent
 handover now refuses unaccounted consumers before downtime and verifies no
 survivors after stop and exclusive startup; ten private guard tests pass. The initial installer falsely reported FOREIGN_CONSUMER_PROCESS during flock’s fork-before-exec transition, despite a working permanent unit. The corrected check waits at most ten seconds for exact identity, then requires twelve strict stable samples. The installed service was not restarted for this correction.
 
-Two understood image posts were incorrectly left for review because the model interpreted Divers and ingredient-only Cuisine too narrowly. Branch `fix/classification-theme-guidance` describes category meanings and unrestricted evidence-based tag topics in the application-owned output schema; the installed consumer receives this metadata without a new worker release. See [scope, compatibility and rollout evidence](changes/2026-10-06-classification-theme-guidance.md). Only unchanged review jobs may receive a guarded, audited retry; successful jobs and Places are not reanalyzed.
+Two understood image posts were incorrectly left for review because the model interpreted Divers and ingredient-only Cuisine too narrowly. PR #122 and release #123 passed quality/browser CI and deployed application-owned schema descriptions on web only. The installed consumer received the metadata without a new release or restart. A guarded audited retry preserved prior results/attempts and both posts’ ten protected links; DeepSeek then classified them as Divers and Cuisine on attempt two. Compiled production guidance, dedicated capabilities, unchanged sync deployment history and restored controls were verified. See [scope, compatibility and rollout evidence](changes/2026-10-06-classification-theme-guidance.md). Successful jobs and Places were not reanalyzed.
 
 ## Classification rollout — independent DeepSeek worker — 5 October 2026
 

@@ -1,6 +1,6 @@
 # Classification theme guidance — 6 October 2026
 
-**Mode:** Critical. **Status:** design approved by the owner’s instruction to finish autonomously within the existing classification scope.
+**Mode:** Critical. **Status:** verified and deployed; historical-library processing remains in progress.
 
 ## Problem and requirements
 
@@ -25,4 +25,8 @@ Hazard: the model may still refuse or use an overly broad theme. Mitigation: exp
 
 The two missing-guidance regressions failed before the change. Focused contract/real PostgreSQL/cross-layer tests pass 29/29, including serialization through the unchanged inference consumer, Divers and Cuisine persistence, tag creation and protected-link preservation. Full app tests pass 644/644 and worker tests 113/113 on disposable PostgreSQL; three Python transcription tests pass. Lint, app types and production build pass. Initial local verification exposed a test regex flag incompatible with the project TypeScript target; it was replaced with a compatible pattern and checks repeated. The first build rejected a dependency symlink outside the worktree; a local dependency copy allowed the normal build to pass. No product configuration was changed for either issue.
 
-Independent fixed-diff review, CI and production proof are the remaining release gates. Whole-library processing remains in progress; successful deployment is not completion of all posts. The 07:45 UTC snapshot has 427 successes, two reviews and 3,481 pending jobs, with 109 changed categories and all protected/manual/deletion/Places state unchanged.
+Independent source, private operator and main integration reviews are CLEAR. PR #122 (CI 37434293846) and release #123 (CI 37435066018) passed quality and browser jobs and are merged. The reviewed source tree 991f144a7d3dc25dbb7778feda69dc9a3e576dbc matches develop and main at publication. Web-only deployment gomwjxkxgzglx4ydssgydgit of 5620a9deee1b2dce667cae6b49ac3282117ff50f finished healthy. A read-only check at 08:29 UTC confirmed all three guidance descriptions in the compiled production build, the enabled dedicated capability, distinct role digests and absence of a raw worker key. These descriptions were absent before rollout. The permanent consumer kept its original PID with zero restarts, sync retained exactly the same deployment history and hourly command, and initial autoDeploy/HEAD controls were restored.
+
+The reviewed two-job operator passed a transactionally rolled-back dryrun, preserving each post’s five protected tags, unchanged source hash, prior result and attempt count. At 08:30:28 UTC it conditionally requeued only those two jobs with action classification.operator.retry_theme_guidance. Attempts were not reset and the old result remained recorded in audit. DeepSeek then independently succeeded on total attempt two: the animal-adoption post became Divers at 08:30:56 UTC with five specific animal tags; the vanilla ingredient post became Cuisine at 08:31:24 UTC with five evidenced tags. Neither category nor tag list was forced by the operator. Original protected links were compared exactly and preserved.
+
+The 08:31 UTC whole-library snapshot has 486 successes and 3,424 pending jobs, with no NEEDS_REVIEW or FAILED jobs; 126 categories differ from baseline. All 2,763 protected links compared per post, 36 tombstones, 1,230 Places and 1,165 associations retain their initial fingerprints. The durable queue/audit continue to record further classification. This proves this focused correction and permanent handover, not completion of all 3,910 posts.
