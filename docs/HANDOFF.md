@@ -2,8 +2,8 @@
 
 Last updated: 8 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base for classification: `develop` at `bb3d5e3` (throughput release)
-Current classification web release: `main` at `5620a9d`
+Reference development base: `develop` at `edf507f` (caption translation)
+Current web release: `main` at `365f545`
 Sync retains its previous image and hourly recovery command.
 Older phase references below are historical.
 
@@ -16,12 +16,26 @@ admission, current-hash DTOs and French/default + original toggle. It preserves
 original captions, Post.updatedAt, categories, protected tags, deletions and Places.
 Classification retains priority. No schema migration or additional service is needed.
 
-Local app tests: 664 passing; worker tests: 139 passing. The real isolated systemd
-stop test proves Node and its child drain normally with the canonical lock held until
-exit (`flock --no-fork`, `KillMode=mixed`). Source publication/production activation
-and historical admission are pending; this paragraph is not an activation claim.
-The 20:30 UTC classification observation has 3,420 successes, one active and 498
-pending; four historical failures remain. All protected fingerprints still match.
+PR #127 merged into develop at `edf507f`; release PR #129 deployed web/main
+`365f545` after green quality/browser CI. At 21:24 UTC the protocol fence let the
+active post finish before replacing the consumer with release
+`20261008-translation`; Node owns the canonical lock, quota remains four CPUs,
+`KillMode=mixed`, and zero restarts were observed. New classification jobs completed
+successfully after activation. At 21:25 UTC all 3,923 existing captions were admitted
+to `caption-translation-v1`; these jobs are queued, not claimed to be translated.
+Future imports admit new/changed descriptions automatically. Classification retains
+priority: the 21:25 UTC snapshot has 3,501 successes, one active and 417 pending;
+four historical failures remain. Original-caption and protected-tag/deletion/Places
+fingerprints match. Web/sync auto-deployment controls were restored; sync image and
+hourly recovery command remain unchanged.
+
+Validation: 664 app tests, 139 worker tests, builds/types/lint and Chromium toggle
+passed. Five synthetic cases passed against the real provider, including mixed
+languages and long text; no production captions were exported for testing. The
+isolated systemd test proves child drainage and lock retention until completion.
+Private receipts live in `.tmp/caption-translation-20261008/` (activation, admission,
+API proof, deployment controls and aggregate integrity snapshots). Future status
+queries must filter analysisVersion to avoid counting translations as classification.
 See [translation specification and rollout](changes/2026-10-08-caption-translation.md).
 
 ## Classification throughput — 8 October 2026
