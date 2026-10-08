@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+import os
 import sys
 from faster_whisper import WhisperModel
 
@@ -11,7 +12,10 @@ def main():
     parser.add_argument('--audio', required=True)
     parser.add_argument('--cache', required=True)
     args = parser.parse_args()
-    model = WhisperModel('small', device='cpu', compute_type='int8', cpu_threads=2,
+    threads = int(os.environ.get('CLASSIFICATION_ASR_CPU_THREADS', '2'))
+    if not 1 <= threads <= 4:
+        raise ValueError('TRANSCRIPT_CPU_THREADS_INVALID')
+    model = WhisperModel('small', device='cpu', compute_type='int8', cpu_threads=threads,
                          num_workers=1, download_root=args.cache)
     segments, info = model.transcribe(args.audio, beam_size=5, vad_filter=True,
                                       condition_on_previous_text=False)
