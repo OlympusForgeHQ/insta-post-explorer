@@ -15,8 +15,9 @@ and [specification](../../../docs/superpowers/specs/2026-10-05-post-classificati
 
 `sync-post` enqueues every **new** successful sync import in its transaction,
 after verified media persistence, when `CLASSIFICATION_WORKER_ENABLED=1`.
-The independent host consumer polls that durable queue every 15 seconds and
-processes one post at a time. No synchronous inference call blocks Instagram.
+The independent host consumer processes one post at a time. The throughput
+release immediately advances after successful completion and cleanup, retaining
+15-second idle/unsuccessful waits and 60-second unexpected-error waits. No synchronous inference call blocks Instagram.
 Sync does not scan historical posts or enqueue Places jobs. The separately
 authorized historical batch uses the same durable classification queue.
 
@@ -61,6 +62,22 @@ old consumers cannot parse those claims. Missing originals remain explicit
 failures rather than thumbnail substitutions. Historical-library requeue is now
 authorized by the owner, with protected imported/manual tags retained; completed
 classification jobs are reused and the finished geographic review is preserved.
+
+## Throughput release — 8 October 2026
+
+The reviewed template permits four CPUs and sets `CLASSIFICATION_ASR_CPU_THREADS=4`.
+The shared Python transcriber accepts 1–4 and defaults to two when unset, keeping
+Places unchanged. Five local full-audio trials produced identical text/timestamps;
+four threads took about 27 seconds versus 43 at two on that sample. This improves
+local ASR, not remote DeepSeek latency. Full audio, frames, model, memory cap and
+serial queue semantics remain unchanged.
+
+Activation is separate from source publication. Replace the old 20261006 consumer
+only in its verified 15-second post-completion pause, with exact process/boot and
+fresh journal checks. Update the private `CLASSIFICATION_ASR_SCRIPT` to the new
+immutable release too; changing only the unit leaves the old script selected.
+After activation, that success pause no longer exists: never use the same timed
+stop procedure for a subsequent rollback. See [scope and evidence](../../../docs/changes/2026-10-08-classification-throughput.md).
 
 ## Build and stage
 

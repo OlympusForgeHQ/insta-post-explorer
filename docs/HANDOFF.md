@@ -7,6 +7,18 @@ Current classification web release: `main` at `5620a9d`
 Sync retains its previous image and hourly recovery command.
 Older phase references below are historical.
 
+## Classification throughput — 8 October 2026
+
+The owner authorized optimization without interrupting the active analysis.
+The two-CPU live trial preserved the PID/start time and zero restarts. The reviewed
+replacement removes the fixed 15-second success delay and configures four CPU
+threads, supported by five identical-transcript ASR trials (about 43 → 27 seconds).
+Manual tags, deletions, Places, full audio and serial inference remain protected.
+Local app/worker gates passed; release activation and post-rollout observation
+are pending. Web/main and the sync image/schedule are outside this worker-only
+rollout. The library batch is still running; this is not a batch completion claim.
+See [requirements, measurements and rollout](changes/2026-10-08-classification-throughput.md).
+
 ## Current classification extension — 6 October 2026
 
 The owner now explicitly authorizes classifying the existing library as well as
