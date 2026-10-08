@@ -1,6 +1,39 @@
 # Implementation Status
 
-Last updated: 6 October 2026 — long-video pilot complete; historical classification running
+Last updated: 8 October 2026 — throughput release active; historical classification running
+
+## Caption translation — 8 October 2026
+
+The owner requested French translations for descriptions in languages other than
+French/English, for both existing and future posts. Implementation adds a separate
+versioned text-only queue in the existing classification table, transactional import
+admission, current-hash DTOs and French/default + original toggle. It preserves
+original captions, Post.updatedAt, categories, protected tags, deletions and Places.
+Classification retains priority. No schema migration or additional service is needed.
+
+Local app tests: 664 passing; worker tests: 139 passing. The real isolated systemd
+stop test proves Node and its child drain normally with the canonical lock held until
+exit (`flock --no-fork`, `KillMode=mixed`). Source publication/production activation
+and historical admission are pending; this paragraph is not an activation claim.
+The 20:30 UTC classification observation has 3,420 successes, one active and 498
+pending; four historical failures remain. All protected fingerprints still match.
+See [translation specification and rollout](changes/2026-10-08-caption-translation.md).
+
+## Classification throughput — 8 October 2026
+
+The owner authorized optimization without interrupting the active analysis.
+The two-CPU live trial preserved the PID/start time and zero restarts. The reviewed
+replacement removes the fixed 15-second success delay and configures four CPU
+threads, supported by five identical-transcript ASR trials (about 43 → 27 seconds).
+Manual tags, deletions, Places, full audio and serial inference remain protected.
+PR #125 merged at `bb3d5e3` after green quality/browser CI. Release 20261008
+was activated at 09:58:40 UTC, after the old post completed. Three new successful
+posts verify ASR/image coverage and 0.15–0.17-second success-to-next-job gaps.
+Effective quota/threads are four, with zero restarts and the same 2 GiB cap.
+The 10:00 UTC snapshot has 2,392 successes; all protected fingerprints match.
+Web/main and sync image/schedule are unchanged. The library batch is still
+running; this is not a batch completion claim.
+See [requirements, measurements and rollout](changes/2026-10-08-classification-throughput.md).
 
 ## Long classification videos and historical library — 6 October 2026
 
@@ -14,11 +47,11 @@ with full ASR, up to twelve timeline frames, ninety-minute job/process bounds,
 ten-minute complete-download bounds and two-hour signed reads. Images and Places
 retain their existing numeric limits. Focused contract, real-media and PostgreSQL
 checks pass. PRs #117/#119 and release #118 passed quality/browser CI and are
-merged. Web release `26f78b5` is healthy; sync retains its existing image,
+merged. Web release `5620a9d` is healthy; sync retains its existing image,
 cron and quota. The permanent 20261006 consumer is active and enabled after the owner’s 09:35 Brussels root handover; parent/child cgroup and canonical kernel lock were verified at 09:55, with successful jobs after handover and zero restarts. It processes the same durable queue. All 3,910 historical posts are admitted;
 all eleven missing originals are restored with immutable source identity and
 audits. All three 50.91/51.63/36-minute originals succeeded with full ASR and
-twelve frames each; the final restored DASH post also succeeded. At 07:45 UTC, 427 jobs succeeded, two required review, 3,481 were pending and 109 categories differed from baseline. All protected fingerprints and 2,763 manual/imported links compared per post matched. The 3,786 unchanged pilot holds were released at 02:33 UTC
+twelve frames each; the final restored DASH post also succeeded. At 08:31 UTC, 486 jobs succeeded, 3,424 were pending, no jobs required review or failed, and 126 categories differed from baseline. All protected fingerprints and 2,763 manual/imported links compared per post matched. The 3,786 unchanged pilot holds were released at 02:33 UTC
 and ordinary processing resumed. The bulk library remains in progress.
 An orphaned old pilot consumer was identified and stopped; its three expired
 large-video claims were retained in audit during the successful one-time retry.
@@ -26,7 +59,7 @@ The reviewed root handover now checks all classification consumers before
 downtime and exclusivity at startup, with ten passing private guard tests. A reproduced flock fork-before-exec race explained the installer’s false FOREIGN_CONSUMER_PROCESS message. Its corrected readiness check waits for exact identity before twelve strict stable samples, without restarting the functioning service.
 Evidence and remaining operational gates are tracked in
 [verification](changes/2026-10-06-classification-long-videos.md).
-Permanent service handover is now verified; whole-library processing remains ongoing. Two understood subjects exposed overly narrow model taxonomy interpretation. The existing output schema now carries category/tag guidance compatible with the installed consumer; web-only rollout and guarded retries are tracked in [the focused change](changes/2026-10-06-classification-theme-guidance.md).
+Permanent service handover is now verified; whole-library processing remains ongoing. Two understood subjects exposed overly narrow model taxonomy interpretation. The existing output schema now carries category/tag guidance compatible with the installed consumer. PR #122 and release #123 passed both CI jobs; the web-only rollout was confirmed by compiled production guidance, unchanged capabilities and sync deployment history, and restored controls. Both guarded retries succeeded on total attempt two as Divers and Cuisine, preserving their ten protected links and audited prior results. The consumer kept its PID and zero restarts. See [the verified focused change](changes/2026-10-06-classification-theme-guidance.md).
 
 ## Independent post classification — production rollout — 5 October 2026
 

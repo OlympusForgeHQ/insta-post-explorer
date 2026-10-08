@@ -25,6 +25,29 @@ def segment(start, end, text='Closing recommendation.', **overrides):
 
 
 class TranscriptionTimingTests(unittest.TestCase):
+    def test_classification_thread_budget_preserves_places_default_and_rejects_bad_limits(self):
+        for value, expected in [(None, 2), ('1', 1), ('2', 2), ('3', 3), ('4', 4)]:
+            with self.subTest(value=value), patch.dict(os.environ, {}, clear=True):
+                if value is not None:
+                    os.environ['CLASSIFICATION_ASR_CPU_THREADS'] = value
+                model = Mock()
+                model.transcribe.return_value = (iter([segment(0, 1, 'Original words.')]),
+                                                 SimpleNamespace(duration=1))
+                output = io.StringIO()
+                with patch.object(transcriber, 'WhisperModel', return_value=model) as factory, \
+                     patch.object(sys, 'argv', ['transcribe.py', '--audio', '/local/audio.wav',
+                                                '--cache', '/local/model-cache']), \
+                     contextlib.redirect_stdout(output):
+                    transcriber.main()
+                self.assertEqual(factory.call_args.kwargs['cpu_threads'], expected)
+                self.assertEqual(json.loads(output.getvalue())['segments'][0]['text'],
+                                 'Original words.')
+        for invalid in ['0', '-1', '5', '1.5', 'invalid', '']:
+            with self.subTest(invalid=invalid), \
+                 patch.dict(os.environ, {'CLASSIFICATION_ASR_CPU_THREADS': invalid}):
+                with self.assertRaises(ValueError):
+                    self.transcribe([segment(0, 1)], 1)
+
     def transcribe(self, segments, duration):
         model = Mock()
         # The pre-VAD timeline remains authoritative when silence is removed.

@@ -15,8 +15,9 @@ and [specification](../../../docs/superpowers/specs/2026-10-05-post-classificati
 
 `sync-post` enqueues every **new** successful sync import in its transaction,
 after verified media persistence, when `CLASSIFICATION_WORKER_ENABLED=1`.
-The independent host consumer polls that durable queue every 15 seconds and
-processes one post at a time. No synchronous inference call blocks Instagram.
+The independent host consumer processes one post at a time. The throughput
+release immediately advances after successful completion and cleanup, retaining
+15-second idle/unsuccessful waits and 60-second unexpected-error waits. No synchronous inference call blocks Instagram.
 Sync does not scan historical posts or enqueue Places jobs. The separately
 authorized historical batch uses the same durable classification queue.
 
@@ -28,7 +29,7 @@ Hermes must already be running at `http://127.0.0.1:8645/v1`; alias `insta-place
 routes to the configured DeepSeek model. The classifier does not change that
 runtime or the sync extension.
 
-The application-owned claim output schema supplies theme/tag guidance to the installed consumer. Divers covers understood subjects outside the other seven themes; Cuisine includes ingredient/product information without a recipe. Tags may describe any evidenced topic, reusing relevant names and creating precise French entries when needed. Unknown context remains NEEDS_REVIEW; the three-to-five-tag and existing-theme validators still apply. This metadata-only web change requires no consumer replacement. See [guidance evidence](../../../docs/changes/2026-10-06-classification-theme-guidance.md).
+The application-owned claim output schema supplies theme/tag guidance to the installed consumer. Divers covers understood subjects outside the other seven themes; Cuisine includes ingredient/product information without a recipe. Tags may describe any evidenced topic, reusing relevant names and creating precise French entries when needed. Unknown context remains NEEDS_REVIEW; the three-to-five-tag and existing-theme validators still apply. This metadata-only web change was deployed through PRs #122/#123 with green quality/browser CI, without consumer replacement or restart. Compiled production guidance and scoped capabilities were confirmed at 08:29 UTC. Two previously refused understood posts then succeeded as Divers/Cuisine on guarded audited retries; their ten protected links and prior results were preserved. The 08:31 UTC snapshot has 486 successes, 3,424 pending and zero reviews/failures. Sync deployment history and schedule remain unchanged. See [guidance evidence](../../../docs/changes/2026-10-06-classification-theme-guidance.md).
 
 All verified media are processed (maximum 20; videos up to 600 MiB, images up to
 250 MiB). Images and actual video frames are submitted; video sampling covers the timeline with up to 12
@@ -61,6 +62,29 @@ old consumers cannot parse those claims. Missing originals remain explicit
 failures rather than thumbnail substitutions. Historical-library requeue is now
 authorized by the owner, with protected imported/manual tags retained; completed
 classification jobs are reused and the finished geographic review is preserved.
+
+## Throughput release — 8 October 2026
+
+Release 20261008 is active/enabled since 09:58:40 UTC after PR #125 and green
+quality/browser CI. The old post completed before the replacement. Three new
+successful posts (six-image carousel and two fully transcribed videos) showed
+0.15–0.17-second success-to-next-job gaps, zero restarts and unchanged protections.
+The actual process uses four threads and the new ASR script; systemd confirms
+400% CPU and the same 2 GiB cap. Web and sync were not redeployed.
+
+The reviewed template permits four CPUs and sets `CLASSIFICATION_ASR_CPU_THREADS=4`.
+The shared Python transcriber accepts 1–4 and defaults to two when unset, keeping
+Places unchanged. Five local full-audio trials produced identical text/timestamps;
+four threads took about 27 seconds versus 43 at two on that sample. This improves
+local ASR, not remote DeepSeek latency. Full audio, frames, model, memory cap and
+serial queue semantics remain unchanged.
+
+Activation is separate from source publication. Replace the old 20261006 consumer
+only in its verified 15-second post-completion pause, with exact process/boot and
+fresh journal checks. Update the private `CLASSIFICATION_ASR_SCRIPT` to the new
+immutable release too; changing only the unit leaves the old script selected.
+After activation, that success pause no longer exists: never use the same timed
+stop procedure for a subsequent rollback. See [scope and evidence](../../../docs/changes/2026-10-08-classification-throughput.md).
 
 ## Build and stage
 
@@ -133,3 +157,33 @@ Logs contain IDs, stages, coverage and numeric usage/duration only. Inspect
 status via the application audit and owner-scoped database administration, not
 by giving the worker SQL credentials. Monitor terminal failure/review counts and
 old PENDING/PROCESSING jobs; this change adds no external alerting channel.
+
+## Caption translation (8 October extension)
+
+`CAPTION_TRANSLATION_ENABLED=1` on the web app admits new/changed descriptions
+transactionally and enables the scoped `/api/v1/classification/translation` route.
+The same serial consumer first claims classification (`protocol:2`), then translation
+only when no classification is available. No image, video or audio is reprocessed.
+Existing descriptions are admitted by a reviewed, idempotent private operator.
+
+Translation jobs use `analysisVersion=caption-translation-v1` in the existing table.
+Always filter classification reports to `post-classification-v1`. Translation reports
+count `TRANSLATED`, `UNCHANGED`, `NEEDS_REVIEW` and failures separately. Original
+captions, classification hashes, themes, protected tags, deletions and Places remain
+unchanged; the library exposes only a current French translation with an original toggle.
+A changed description resets its translation job; an identical import reuses it.
+
+The translation provider receives text only, in chunks of at most 4,000 characters
+for the existing 100,000-character caption bound. It preserves English/French passages
+and protected URLs, handles, hashtags and numbers. Invalid results get one inference
+retry, then smaller chunks for copying failures (minimum 500 characters; at most
+100 calls under the overall deadline); transient job errors get at most three attempts. No partial result is published.
+The overall job deadline is 15 minutes. Unsupported/uncertain text remains explicit.
+
+Upgrade API first: legacy classification claims return null but their owned job can
+heartbeat/finish. Withdraw old web instances, wait for the active job to finish, then
+replace the consumer under its canonical lock. Keep a protocol-2-compatible old release
+for rollback. Translation can be disabled independently by its flag. New systemd units
+use `flock --no-fork` and `KillMode=mixed`: SIGTERM stops future claims while Node and
+its media children finish owned work; after 96 minutes systemd may kill the cgroup.
+Do not stop a legacy consumer in the middle of a job: its old shutdown aborts it.
