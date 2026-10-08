@@ -157,3 +157,33 @@ Logs contain IDs, stages, coverage and numeric usage/duration only. Inspect
 status via the application audit and owner-scoped database administration, not
 by giving the worker SQL credentials. Monitor terminal failure/review counts and
 old PENDING/PROCESSING jobs; this change adds no external alerting channel.
+
+## Caption translation (8 October extension)
+
+`CAPTION_TRANSLATION_ENABLED=1` on the web app admits new/changed descriptions
+transactionally and enables the scoped `/api/v1/classification/translation` route.
+The same serial consumer first claims classification (`protocol:2`), then translation
+only when no classification is available. No image, video or audio is reprocessed.
+Existing descriptions are admitted by a reviewed, idempotent private operator.
+
+Translation jobs use `analysisVersion=caption-translation-v1` in the existing table.
+Always filter classification reports to `post-classification-v1`. Translation reports
+count `TRANSLATED`, `UNCHANGED`, `NEEDS_REVIEW` and failures separately. Original
+captions, classification hashes, themes, protected tags, deletions and Places remain
+unchanged; the library exposes only a current French translation with an original toggle.
+A changed description resets its translation job; an identical import reuses it.
+
+The translation provider receives text only, in chunks of at most 4,000 characters
+for the existing 100,000-character caption bound. It preserves English/French passages
+and protected URLs, handles, hashtags and numbers. Invalid results get one inference
+retry, then smaller chunks for copying failures (minimum 500 characters; at most
+100 calls under the overall deadline); transient job errors get at most three attempts. No partial result is published.
+The overall job deadline is 15 minutes. Unsupported/uncertain text remains explicit.
+
+Upgrade API first: legacy classification claims return null but their owned job can
+heartbeat/finish. Withdraw old web instances, wait for the active job to finish, then
+replace the consumer under its canonical lock. Keep a protocol-2-compatible old release
+for rollback. Translation can be disabled independently by its flag. New systemd units
+use `flock --no-fork` and `KillMode=mixed`: SIGTERM stops future claims while Node and
+its media children finish owned work; after 96 minutes systemd may kill the cgroup.
+Do not stop a legacy consumer in the middle of a job: its old shutdown aborts it.

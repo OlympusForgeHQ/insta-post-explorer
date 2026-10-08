@@ -1,3 +1,4 @@
+import {enqueueCaptionTranslation} from '@/server/classification/translation-jobs';
 import "server-only";
 
 import {
@@ -183,6 +184,7 @@ async function persistBatch(
           update: data,
           select: { id: true },
         });
+        if (process.env.CAPTION_TRANSLATION_ENABLED === '1') await enqueueCaptionTranslation(ownerId, post.id, transaction);
         persistedPosts.push({ id: post.id, source });
       }
 

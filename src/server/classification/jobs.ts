@@ -23,7 +23,7 @@ export async function claimClassification(ownerId:string,deps:Dependencies={}){
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`classification:${ownerId}`},0))::text`;
   const now=new Date();
   if(await tx.postClassificationJob.findFirst({where:{ownerId,status:'PROCESSING',leaseExpiresAt:{gt:now}}}))return null;
-  await tx.postClassificationJob.updateMany({where:{ownerId,attemptCount:{gte:3},OR:[{status:'PENDING'},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},data:{status:'FAILED',errorCode:'ATTEMPTS_EXHAUSTED',completedAt:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
+  await tx.postClassificationJob.updateMany({where:{ownerId,analysisVersion:CLASSIFICATION_VERSION,attemptCount:{gte:3},OR:[{status:'PENDING'},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},data:{status:'FAILED',errorCode:'ATTEMPTS_EXHAUSTED',completedAt:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
   for(let scan=0;scan<100;scan++){
    const job=await tx.postClassificationJob.findFirst({where:{ownerId,analysisVersion:CLASSIFICATION_VERSION,attemptCount:{lt:3},OR:[{status:'PENDING',OR:[{nextAttemptAt:null},{nextAttemptAt:{lte:now}}]},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},orderBy:[{createdAt:'asc'},{id:'asc'}]});
    if(!job)return null;
@@ -81,7 +81,7 @@ export async function completeClassification(ownerId:string,command:Lease&{resul
  if(outcome.error)throw Error(outcome.error);return outcome.receipt!;
 }
 export async function failClassification(ownerId:string,lease:Lease&{code:string}){
- const job=await prisma.postClassificationJob.findFirst({where:{id:lease.jobId,ownerId}});const now=new Date();
+ const job=await prisma.postClassificationJob.findFirst({where:{id:lease.jobId,ownerId,analysisVersion:CLASSIFICATION_VERSION}});const now=new Date();
  if(!job||job.status!=='PROCESSING'||job.leaseOwner!==lease.leaseToken||!job.leaseExpiresAt||job.leaseExpiresAt<=now)throw Error('CLASSIFICATION_LEASE_LOST');
  const retryable=['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','WORKER_STOPPING','WORKER_TIMEOUT'].includes(lease.code)&&job.attemptCount<3;
  const updated=await prisma.postClassificationJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});

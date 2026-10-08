@@ -2,6 +2,23 @@
 
 Last updated: 8 October 2026 — throughput release active; historical classification running
 
+## Caption translation — 8 October 2026
+
+The owner requested French translations for descriptions in languages other than
+French/English, for both existing and future posts. Implementation adds a separate
+versioned text-only queue in the existing classification table, transactional import
+admission, current-hash DTOs and French/default + original toggle. It preserves
+original captions, Post.updatedAt, categories, protected tags, deletions and Places.
+Classification retains priority. No schema migration or additional service is needed.
+
+Local app tests: 664 passing; worker tests: 139 passing. The real isolated systemd
+stop test proves Node and its child drain normally with the canonical lock held until
+exit (`flock --no-fork`, `KillMode=mixed`). Source publication/production activation
+and historical admission are pending; this paragraph is not an activation claim.
+The 20:30 UTC classification observation has 3,420 successes, one active and 498
+pending; four historical failures remain. All protected fingerprints still match.
+See [translation specification and rollout](changes/2026-10-08-caption-translation.md).
+
 ## Classification throughput — 8 October 2026
 
 The owner authorized optimization without interrupting the active analysis.

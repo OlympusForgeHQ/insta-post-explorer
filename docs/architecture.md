@@ -51,3 +51,20 @@ This fallback is explicit and must never be treated as production persistence.
 Vercel runs `prisma generate` during install/build and `prisma migrate deploy`
 against the production database before the first production release. Required
 secrets are documented in `.env.example`; none are committed.
+
+
+## Caption translation queue
+
+Foreign caption prose is translated to French by the existing serial DeepSeek
+classification consumer after classification work is unavailable. The shared
+`PostClassificationJob` table distinguishes `caption-translation-v1` from
+`post-classification-v1`; shared owner claim locks exclude concurrent owned jobs.
+Translation services live in `src/server/classification/translation-*`, and a
+pure contract is shared with the independently packaged worker. The dedicated
+`/api/v1/classification/translation` endpoint reuses the classification capability.
+
+`Post.caption` is immutable to this operation. Results are tied to the full source
+hash and shown through an optional sanitized `captionTranslation` DTO; changed
+captions requeue atomically and hide stale output. Import hooks and historical
+admission are audited. No media, themes, tags or Places are reprocessed. See the
+[caption translation specification](changes/2026-10-08-caption-translation.md).

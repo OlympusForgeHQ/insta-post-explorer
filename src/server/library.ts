@@ -1,4 +1,6 @@
 import "server-only";
+import {CAPTION_TRANSLATION_VERSION} from "@/lib/classification/translation";
+import {currentCaptionTranslation} from "@/server/classification/translation-inputs";
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -29,19 +31,14 @@ import { databaseConfigured, prisma } from "@/server/db";
 import { getApplicationOwnerId, parseOwnerId } from "@/server/owner";
 import { calculateDetailedFallbackStats, calculateLibraryYears, getDatabaseLibraryStats, getLibraryAuthors as queryLibraryAuthors } from "@/server/library-insights";
 
-type PostWithTags = Prisma.PostGetPayload<{
-  include: {
-    postTags: { include: { tag: true } };
-    media: true;
-    collectionPosts: { include: { collection: true } };
-  };
-}>;
-
 const postInclude = {
+  classificationJobs: { where: { analysisVersion: CAPTION_TRANSLATION_VERSION, status: 'SUCCEEDED' as const }, select: { ownerId: true, inputHash: true, result: true } },
   postTags: { include: { tag: true } },
   media: { orderBy: { position: "asc" as const } },
   collectionPosts: { include: { collection: true } },
 } satisfies Prisma.PostInclude;
+
+type PostWithTags = Prisma.PostGetPayload<{include: typeof postInclude}>;
 
 export type LibraryTag = { name: string; slug: string; count: number };
 
@@ -574,6 +571,7 @@ function toLibraryPost(row: PostWithTags, compact: boolean): LibraryPost {
     media: resolvedMedia,
     authorUsername: row.authorUsername,
     caption: compact ? row.caption.slice(0, 500) : row.caption,
+    captionTranslation: currentCaptionTranslation(row, row.classificationJobs ?? [], compact),
     tags: tags.sort((a, b) => a.localeCompare(b, "fr")),
     savedAt: row.savedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),

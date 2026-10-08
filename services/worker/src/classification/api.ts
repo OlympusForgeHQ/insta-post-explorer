@@ -6,11 +6,11 @@ export const classificationClaimSchema=z.object({jobId:z.string().min(1),leaseTo
 export type ClassificationClaim=z.infer<typeof classificationClaimSchema>;
 export interface ClassificationApi{call(command:Record<string,unknown>,signal?:AbortSignal):Promise<unknown>;}
 export class ClassificationHttpApi implements ClassificationApi{
- constructor(private readonly origin:string,private readonly key:string,private readonly request:typeof fetch=fetch){}
+ constructor(private readonly origin:string,private readonly key:string,private readonly request:typeof fetch=fetch,private readonly endpoint='/api/v1/classification/worker'){}
  async call(command:Record<string,unknown>,signal?:AbortSignal):Promise<unknown>{
   for(let attempt=0;attempt<3;attempt++){
    signal?.throwIfAborted();let response:Response,data:unknown;
-   try{response=await this.request(new URL('/api/v1/classification/worker',this.origin),{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify(command),signal:AbortSignal.any([AbortSignal.timeout(40_000),...(signal?[signal]:[])])});data=await boundedJson(response);}
+   try{response=await this.request(new URL(this.endpoint,this.origin),{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify(command),signal:AbortSignal.any([AbortSignal.timeout(40_000),...(signal?[signal]:[])])});data=await boundedJson(response);}
    catch{if(signal?.aborted)throw Error('WORKER_STOPPING');if(attempt<2){await delay(1000*(attempt+1),undefined,{signal});continue;}throw Error('API_UNAVAILABLE');}
    if(response.ok)return data;
    if([429,500,502,503,504].includes(response.status)&&attempt<2){await delay(1000*(attempt+1),undefined,{signal});continue;}
