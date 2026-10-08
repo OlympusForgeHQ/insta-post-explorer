@@ -69,7 +69,7 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
         </div>
         <div className="post-card-copy">
           <p className="truncate text-sm font-medium">@{post.authorUsername.replace(/^@/, "")}</p>
-          {post.caption ? <p className="line-clamp-2 text-pretty text-xs text-muted">{post.caption}</p> : null}
+          {post.caption ? <p className="line-clamp-2 text-pretty text-xs text-muted">{post.captionTranslation?.text ?? post.caption}</p> : null}
           <div className="card-tags" aria-label="Tags">
             {visibleTags.slice(0, 3).map((tag) => <span key={tag}>#{tag}</span>)}
           </div>

@@ -20,6 +20,7 @@ export type LibraryPost = {
   media: LibraryPostMedia[];
   authorUsername: string;
   caption: string;
+  captionTranslation?: {text: string; sourceLanguages: string[]};
   tags: string[];
   savedAt: string | null;
   createdAt?: string | null;

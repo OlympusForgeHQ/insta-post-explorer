@@ -17,10 +17,11 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=TOKENIZERS_PARALLELISM=false
 Environment=CLASSIFICATION_ASR_CPU_THREADS=4
-ExecStart=/usr/bin/flock -n -E 0 --close /var/lib/insta-explorer-classification/.consumer.lock @NODE@ @RELEASE@/dist/classification/cli.js
+ExecStart=/usr/bin/flock -n -E 0 --no-fork /var/lib/insta-explorer-classification/.consumer.lock @NODE@ @RELEASE@/dist/classification/cli.js
 Restart=on-failure
 RestartSec=15
-TimeoutStopSec=45
+TimeoutStopSec=96min
+KillMode=mixed
 UMask=0077
 CPUQuota=400%
 MemoryMax=2G

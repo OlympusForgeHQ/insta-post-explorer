@@ -26,6 +26,19 @@ describe('Classification consumer scheduling',()=>{
   }finally{stop.abort();finish();await running;}
  });
 
+ it('drains an active job on shutdown without aborting its lease or claiming again',async()=>{
+  const stop=new AbortController();let finish!:()=>void,activeSignal!:AbortSignal;let claims=0;
+  const active=new Promise<void>(resolve=>{finish=resolve;});
+  const running=runClassificationLoop({runOnce:async signal=>{claims++;activeSignal=signal;await active;return {status:'SUCCEEDED'};},cleanup:async()=>{}},stop.signal);
+  await settle();stop.abort();expect(activeSignal.aborted).toBe(false);finish();await running;expect(claims).toBe(1);
+ });
+
+ it.each(['SUCCEEDED','idle'])('only polls translations after classification is idle (%s)',async status=>{
+  const stop=new AbortController(),events:string[]=[];
+  const running=runClassificationLoop({runOnce:async()=>{events.push('classification');if(status!=='idle')stop.abort();return {status};},translateOnce:async()=>{events.push('translation');stop.abort();return {status:'SUCCEEDED'};},cleanup:async()=>{}},stop.signal);
+  await running;expect(events).toEqual(status==='idle'?['classification','translation']:['classification']);
+ });
+
  it.each(['idle','NEEDS_REVIEW','FAILED','CANCELLED'])('waits after %s and cancels the wait on shutdown',async status=>{
   const stop=new AbortController();let claims=0,cleanups=0;
   const running=runClassificationLoop({runOnce:async()=>{claims++;return {status};},cleanup:async()=>{cleanups++;}},stop.signal);

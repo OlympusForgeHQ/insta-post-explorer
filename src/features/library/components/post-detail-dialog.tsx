@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { DeletePostAlert } from "@/features/library/components/admin/delete-post-alert";
+import { PostCaption } from '@/features/library/components/post-caption';
 import { PostTagEditor } from "@/features/library/components/admin/post-tag-editor";
 import { BrokenImage } from "@/features/library/components/library-states";
 import { parseCaptionMetrics } from "@/features/library/caption-metrics";
@@ -131,7 +132,7 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
               </section>
             ) : null}
 
-            <p className="detail-caption text-pretty">{caption.text || "Aucune légende disponible."}</p>
+            <PostCaption key={`caption-${displayPost.id}`} caption={displayPost.caption} translation={displayPost.captionTranslation?.text} />
 
             <section className="detail-section" aria-labelledby="detail-tags">
               <h2 id="detail-tags" className="field-label">Tags</h2>
