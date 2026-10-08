@@ -17,7 +17,8 @@ describe('Classification worker authentication',()=>{
  it('bounds and validates commands, derives ownership, and fences stale responses without exposing internals',async()=>{
   vi.stubEnv('APP_OWNER_ID','classification-owner');services.claimClassification.mockResolvedValue(null);
   const send=(body:string,headers:Record<string,string>={})=>POST(new Request('https://example.test/api/v1/classification/worker',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json',...headers},body}));
-  const accepted=await send(JSON.stringify({action:'claim'}));expect(accepted.status).toBe(200);expect(accepted.headers.get('Cache-Control')).toContain('no-store');expect(services.claimClassification).toHaveBeenCalledWith('classification-owner');
+  const legacy=await send(JSON.stringify({action:'claim'}));expect(await legacy.json()).toBeNull();expect(services.claimClassification).not.toHaveBeenCalled();
+  const accepted=await send(JSON.stringify({action:'claim',protocol:2}));expect(accepted.status).toBe(200);expect(accepted.headers.get('Cache-Control')).toContain('no-store');expect(services.claimClassification).toHaveBeenCalledWith('classification-owner');
   for(const body of ['{',JSON.stringify({action:'claim',ownerId:'other'}),JSON.stringify({action:'enqueue',postId:'old'})])expect((await send(body)).status).toBe(400);
   expect((await send(' '.repeat(128*1024+1))).status).toBe(413);
   services.heartbeatClassification.mockRejectedValue(Error('CLASSIFICATION_LEASE_LOST'));
