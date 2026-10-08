@@ -65,6 +65,13 @@ classification jobs are reused and the finished geographic review is preserved.
 
 ## Throughput release — 8 October 2026
 
+Release 20261008 is active/enabled since 09:58:40 UTC after PR #125 and green
+quality/browser CI. The old post completed before the replacement. Three new
+successful posts (six-image carousel and two fully transcribed videos) showed
+0.15–0.17-second success-to-next-job gaps, zero restarts and unchanged protections.
+The actual process uses four threads and the new ASR script; systemd confirms
+400% CPU and the same 2 GiB cap. Web and sync were not redeployed.
+
 The reviewed template permits four CPUs and sets `CLASSIFICATION_ASR_CPU_THREADS=4`.
 The shared Python transcriber accepts 1–4 and defaults to two when unset, keeping
 Places unchanged. Five local full-audio trials produced identical text/timestamps;

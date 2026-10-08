@@ -1,7 +1,7 @@
 # Classification throughput with an uninterrupted active job
 
 **Mode:** Critical (production service rollout)  
-**Status:** Approved scope; implementation and verification in progress  
+**Status:** Deployed and verified; historical queue continues
 **Owner:** Application owner; authorization in the 8 October conversation
 
 ## Problem and measured baseline
@@ -100,4 +100,35 @@ Independent source and handover design review found no remaining functional issu
 
 Private receipts, release manifest and logs are under
 `.tmp/classification-performance-20261008/`; no transcripts, post identifiers or
-secrets are published. Runtime activation evidence remains pending.
+secrets are published. Runtime activation evidence is recorded below.
+
+## Production activation and observations
+
+PR #125 merged to develop at `bb3d5e3` after quality and browser CI #307 passed;
+the merged tree exactly matches the reviewed source. Main remains `5620a9d`.
+The classifier-only immutable 20261008 release became active at 09:58:40 UTC
+on 8 October. The old job completed successfully at 09:58:37; the controller
+confirmed the old process stopped about 0.11 seconds after the journaled acknowledgment,
+inside the verified old 15-second pause. No active analysis was cancelled or
+requeued. The old process exited and released its canonical flock before the
+replacement started. Seven operator guard tests and independent review passed.
+
+Effective process environment selects the 20261008 transcriber and four threads.
+Systemd confirms a four-CPU quota, the unchanged 2 GiB memory cap, active/enabled
+service and zero restarts. The unit persists both CPU/thread settings across
+reboots; the prior live trial override now also reads 400%. The private environment
+change updates only the ASR script path; old secrets/unit are backed up privately.
+
+At 10:00:52 UTC three new jobs had completed successfully: a six-image carousel
+and two videos with complete ASR and eight/twelve frames. The next jobs started
+149.8–166.9 milliseconds after successful completion, replacing the old fixed
+15-second pause. Memory peak was about 803 MiB. This small live sample confirms
+the scheduling/configuration change, not a long-term posts/hour guarantee.
+
+The 10:00:39 UTC database snapshot has 2,392 successes, one processing, 1,526
+pending and the four pre-existing failures across 3,923 jobs. All 2,763 protected
+manual/imported tag links compare unchanged per post; deletion and Places
+fingerprints also match. No failed post was retried by this optimization.
+Web/sync remain healthy; main, auto-deploy settings and the exact sync schedule
+are unchanged. Private operational receipts and the historical CSV are updated.
+The full library batch is still running under the existing durable queue.

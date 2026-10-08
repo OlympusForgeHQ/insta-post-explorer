@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 6 October 2026 — long-video pilot complete; historical classification running
+Last updated: 8 October 2026 — throughput release active; historical classification running
 
 ## Classification throughput — 8 October 2026
 
@@ -9,9 +9,13 @@ The two-CPU live trial preserved the PID/start time and zero restarts. The revie
 replacement removes the fixed 15-second success delay and configures four CPU
 threads, supported by five identical-transcript ASR trials (about 43 → 27 seconds).
 Manual tags, deletions, Places, full audio and serial inference remain protected.
-Local app/worker gates passed; release activation and post-rollout observation
-are pending. Web/main and the sync image/schedule are outside this worker-only
-rollout. The library batch is still running; this is not a batch completion claim.
+PR #125 merged at `bb3d5e3` after green quality/browser CI. Release 20261008
+was activated at 09:58:40 UTC, after the old post completed. Three new successful
+posts verify ASR/image coverage and 0.15–0.17-second success-to-next-job gaps.
+Effective quota/threads are four, with zero restarts and the same 2 GiB cap.
+The 10:00 UTC snapshot has 2,392 successes; all protected fingerprints match.
+Web/main and sync image/schedule are unchanged. The library batch is still
+running; this is not a batch completion claim.
 See [requirements, measurements and rollout](changes/2026-10-08-classification-throughput.md).
 
 ## Long classification videos and historical library — 6 October 2026
