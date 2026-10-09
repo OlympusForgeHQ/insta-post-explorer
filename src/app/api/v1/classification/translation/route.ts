@@ -11,7 +11,7 @@ export async function POST(request:Request){
  try{
   requireExternalApiKey(request,'classification-worker');const owner=getConfiguredOwnerId();const c=translationCommandSchema.parse(await readBoundedJsonBody(request,1024*1024));
   switch(c.action){
-   case 'claim':return externalApiJson(process.env.CAPTION_TRANSLATION_ENABLED==='1'?await claimCaptionTranslation(owner):null);
+   case 'claim':return externalApiJson(process.env.CAPTION_TRANSLATION_ENABLED==='1'?await (c.learning?claimCaptionTranslation(owner,true):claimCaptionTranslation(owner)):null);
    case 'heartbeat':return externalApiJson(await heartbeatClassification(owner,c));
    case 'complete':return externalApiJson(await completeCaptionTranslation(owner,c));
    case 'fail':return externalApiJson(await failCaptionTranslation(owner,c));

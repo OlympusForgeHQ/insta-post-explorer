@@ -2,6 +2,18 @@
 
 Last updated: 9 October 2026 — throughput release active; historical classification running
 
+## Verified worker memory — 9 October 2026
+
+Owner-authorized integration adds explicit manual correction memory, bounded
+retrieval and content-free attempt observations to the existing classification/
+translation consumer. No historical batch is requeued. Protected imported tags
+never become verified examples automatically. See
+[specification](changes/worker-learning/spec.md) and
+[operations](../services/worker/classification/README.md#verified-learning-memory-9-october).
+Rollout order: additive migration → compatible web API → opt-in independent worker.
+Deployment receipts and integrity hashes: private `.tmp/worker-learning-20261009/`.
+
+
 ## Contextual translation review — 9 October 2026
 
 The completed historical pass left 58 language reviews and one technical failure.

@@ -199,3 +199,38 @@ refund the inference attempt for up to 24 hours from first claim. Other retry
 limits, the global call budget, lease heartbeat and job deadline remain enabled.
 Operator recovery is restricted to failed, unchanged translation inputs before a
 fixed cutoff and journals each row. See the recovery specification for rollout.
+
+### Verified learning memory (9 October)
+
+Deploy migration `20261009210000_worker_learning` and the web API before setting
+`CLASSIFICATION_LEARNING_ENABLED=1` on the independent consumer. The flag is optional
+and defaults off. Existing consumers and legacy completion receipts remain valid.
+Disable the flag and restore the prior worker release to roll back; retain additive
+DB tables and verified manual corrections.
+
+Authenticated tag edits now record verified positive/negative examples. Imported
+protected tags and model successes never become verified training labels. A manual
+full review is available through `GET /api/posts/:id/learning` (current source hashes),
+then `POST` with `{domain, sourceHash, mainTheme, tags}` for classification or
+`{domain, sourceHash, decision, sourceLanguages, translatedCaption}` for translation.
+The existing session supplies ownership; classification uses the existing catalog,
+and translation must pass all protected-source checks. `DELETE` with `{domain}`
+revokes use as an example, preserving the actual manual correction on the source.
+Original captions are never overwritten. All writes are audited.
+
+Each opt-in claim has optional `learningContext`; complete/fail may include a bounded
+`learning` report outside the model result. At most three current verified examples
+are retrieved from 200 recent owner/domain records using lexical overlap. Sources
+are bounded to 1200 characters, total examples to 8000. A changed source/media or
+stale catalog label excludes a teaching example. Manual removal guards are stored
+separately without the prompt-example limit, and apply to classification and imports.
+
+Recent same-shape failures select only shipped `standard`, `format_guidance` or
+translation `preserve_source` procedures. Every accepted reported lease records
+normalized diagnostic families, usage and duration; stale failures teach nothing.
+Pre-claim failures/expired leases without a worker report remain visible in existing
+job state, outside attempt observations. A daily idle request to the scoped
+`/api/v1/classification/learning` endpoint logs a seven-day aggregate (latest 1000
+attempts, explicit truncation), with latest outcome per job, errors, p95 latency and
+tokens. This is operational evidence, not a measured semantic accuracy or causal
+strategy comparison. No additional provider calls or historical requeue are made.

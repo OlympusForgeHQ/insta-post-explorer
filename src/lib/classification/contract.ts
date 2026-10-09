@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {learningReportSchema} from '../../../services/worker/src/classification/learning';
 import {SYNC_MAIN_THEMES} from '@/lib/sync/enrich-post';
 import {tagSlug} from '@/lib/import/normalize';
 export const CLASSIFICATION_VERSION='post-classification-v1';
@@ -26,9 +27,9 @@ export const classificationResultSchema=z.object({
 }).strict().superRefine((result,ctx)=>{if(!classificationOutputSchema.safeParse({status:result.status,mainTheme:result.mainTheme,tags:result.tags,reason:result.reason}).success)ctx.addIssue({code:'custom',message:'Invalid classification'});});
 const lease={jobId:id,leaseToken:z.string().uuid()};
 export const classificationCommandSchema=z.discriminatedUnion('action',[
- z.object({action:z.literal('claim'),protocol:z.literal(2).optional()}).strict(),
+ z.object({action:z.literal('claim'),protocol:z.literal(2).optional(),learning:z.boolean().optional()}).strict(),
  z.object({action:z.literal('heartbeat'),...lease}).strict(),
- z.object({action:z.literal('complete'),...lease,result:classificationResultSchema}).strict(),
- z.object({action:z.literal('fail'),...lease,code:z.enum(['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','WORKER_STOPPING','WORKER_TIMEOUT'])}).strict(),
+ z.object({action:z.literal('complete'),...lease,result:classificationResultSchema,learning:learningReportSchema.optional()}).strict(),
+ z.object({action:z.literal('fail'),...lease,code:z.enum(['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','WORKER_STOPPING','WORKER_TIMEOUT']),learning:learningReportSchema.optional()}).strict(),
 ]);
 export type ClassificationResult=z.infer<typeof classificationResultSchema>;
