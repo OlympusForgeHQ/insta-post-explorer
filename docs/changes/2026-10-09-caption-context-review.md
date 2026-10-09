@@ -188,3 +188,18 @@ Existing wrong-ID, extra-context and copied-unchanged fixtures prove that repeat
 malformed replies remain bounded and rejected. Recovery, if needed, selects only
 the recorded still-reviewable jobs with a contextual format rejection; true
 INSUFFICIENT_CONTEXT results and successful captions are not automatically reset.
+
+
+## Indexed-span review contract clarification
+
+A real synthetic activation pilot reproduced three invalid span responses: the
+model returned NEEDS_REVIEW/es with a tentative French translation. The span
+prompt required null for unchanged spans but did not explicitly say so for review
+spans; JSON Schema does not convey the local cross-field refinement. The consumer
+was restored automatically and no production review was requeued.
+
+Clarify that both unchanged and review decisions require JSON null, and instruct
+the model to read the ordered tokens as a full sentence before selecting spans.
+Keep the strict validator, existing outer retry budget and uncertainty policy.
+The unchanged synthetic pilot is the before/after check; deterministic span
+contract and fidelity regressions remain in caption-mixed-spans.test.ts.
