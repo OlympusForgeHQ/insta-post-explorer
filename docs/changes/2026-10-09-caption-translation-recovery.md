@@ -54,9 +54,23 @@ Fallback and retries retain lease heartbeat/deadline and owner/source-hash fenci
 
 Implementation and independent review are complete. Red/green regressions cover
 indexed inference, protected-unit preservation, busy attempt refund and scoped
-recovery. Local full worker suite: 146 passing including PostgreSQL; app suite
-666 passing including the recovery regression. Lint/types
-and builds passed. The real synthetic pilot found no free provider slot while the
-old consumer ran; it is deferred to the planned drained handover. No production
-activation or failed-job reset is claimed yet. Freeze the recovery cutoff after
-the old task drains and before the new consumer starts; retain it for every replay.
+recovery. Full local suites: 666 app and 146 worker tests including PostgreSQL.
+Lint/types/builds and both PR quality/browser CI runs passed (#131/#132).
+
+Production evidence: web/main `e84e96c` is healthy. At 08:12 UTC the old consumer
+finished its owned job and released the canonical lock before activation. Five
+synthetic cases passed against the real provider in 1.9–4.8 seconds; the pilot uses
+one global five-minute deadline and execve to avoid orphan processes on timeout.
+The new immutable release `20261009-translation-recovery` retains four CPUs and
+the environment, with Node main PID and zero restarts. At 08:13 UTC, 141 failed
+jobs were requeued under fixed cutoff `2026-10-09T08:12:24.908Z`; an identical
+replay requeued zero. At 08:14 UTC, five recovered jobs had succeeded with no
+new cohort failures. The remainder continues; this is not a claim that all
+historical translations are complete. Source captions, 2,763 protected tag links,
+36 tombstones, 1,230 Places and 1,165 place links match their prior fingerprints.
+Web/sync deployment controls were restored and the sync image/cron preserved.
+
+Detailed private activation, recovery, replay, integrity and cohort receipts are
+in `.tmp/caption-recovery-20261009/`. Future status must separate versions and
+use the recorded cohort, not the entire translation queue. Do not repeat recovery
+with a later cutoff merely to hide new failures; inspect the new diagnostic codes.

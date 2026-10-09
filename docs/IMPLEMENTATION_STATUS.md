@@ -1,6 +1,18 @@
 # Implementation Status
 
-Last updated: 8 October 2026 — throughput release active; historical classification running
+Last updated: 9 October 2026 — throughput release active; historical classification running
+
+## Caption recovery — 9 October 2026
+
+Indexed inference/local preservation and bounded busy deferral are deployed on
+web `e84e96c` and consumer `20261009-translation-recovery`. All 666 app tests,
+146 worker tests and quality/browser CI passed. The owned job drained before
+activation, and five real synthetic provider cases passed. At 08:13 UTC, 141
+failed translations were recovered; replay changed zero. The cohort is still
+processing (five successes and no new failures at 08:14 UTC). Original captions
+and protected content match; sync and deployment controls are preserved. See
+[recovery evidence](changes/2026-10-09-caption-translation-recovery.md) and private
+`.tmp/caption-recovery-20261009/` receipts for newer cohort observations.
 
 ## Caption translation — 8 October 2026
 
