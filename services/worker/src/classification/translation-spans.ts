@@ -31,6 +31,7 @@ export async function translateCaptionSpans(source:string,url:string,secret:stri
  let body:unknown;try{body=await boundedJson(response);}catch{throw Error('INFERENCE_FAILED');}
  const envelope=z.object({model:z.literal('insta-places'),choices:z.array(z.object({message:z.object({content:z.string()}),finish_reason:z.string().nullable().optional()})).min(1),usage:z.object({prompt_tokens:z.number().int().nonnegative(),completion_tokens:z.number().int().nonnegative()})}).parse(body);
  const usage={inputTokens:envelope.usage.prompt_tokens,outputTokens:envelope.usage.completion_tokens};onUsage?.(usage);
+ if(envelope.choices[0].finish_reason==='error')throw Error('INFERENCE_FAILED');
  if(envelope.choices[0].finish_reason==='length')throw Error('TRUNCATED');
  const raw=envelope.choices[0].message.content.trim().replace(/^```(?:json)?\s*\n?/,'').replace(/\n?```$/,'');
  return {...assembleCaptionSpans(source,JSON.parse(raw)),usage};
