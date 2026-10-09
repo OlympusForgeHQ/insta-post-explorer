@@ -1,8 +1,9 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import {z} from 'zod';
+import {learningContextSchema} from './learning.js';
 import {boundedJson} from '../places/api.js';
 import {CLASSIFICATION_MEDIA_LIMITS} from './limits.js';
-export const classificationClaimSchema=z.object({jobId:z.string().min(1),leaseToken:z.string().uuid(),heartbeatIntervalMs:z.literal(30_000),input:z.object({post_id:z.string().min(1),input_hash:z.string().min(1),caption:z.string().max(100_000),author_username:z.string().max(255)}),media:z.array(z.object({id:z.string(),kind:z.enum(['IMAGE','VIDEO']),mimeType:z.string(),byteSize:z.number().int().positive().max(CLASSIFICATION_MEDIA_LIMITS.maxVideoBytes),versionTag:z.string().nullable(),url:z.string().url()}).refine(m=>m.kind==='VIDEO'||m.byteSize<=250*1024*1024)).min(1).max(20),themes:z.array(z.string().min(1).max(120)).min(1).max(32),existingTags:z.array(z.string().max(80)).max(300),outputSchema:z.record(z.string(),z.unknown())});
+export const classificationClaimSchema=z.object({learningContext:learningContextSchema.optional(),jobId:z.string().min(1),leaseToken:z.string().uuid(),heartbeatIntervalMs:z.literal(30_000),input:z.object({post_id:z.string().min(1),input_hash:z.string().min(1),caption:z.string().max(100_000),author_username:z.string().max(255)}),media:z.array(z.object({id:z.string(),kind:z.enum(['IMAGE','VIDEO']),mimeType:z.string(),byteSize:z.number().int().positive().max(CLASSIFICATION_MEDIA_LIMITS.maxVideoBytes),versionTag:z.string().nullable(),url:z.string().url()}).refine(m=>m.kind==='VIDEO'||m.byteSize<=250*1024*1024)).min(1).max(20),themes:z.array(z.string().min(1).max(120)).min(1).max(32),existingTags:z.array(z.string().max(80)).max(300),outputSchema:z.record(z.string(),z.unknown())});
 export type ClassificationClaim=z.infer<typeof classificationClaimSchema>;
 export interface ClassificationApi{call(command:Record<string,unknown>,signal?:AbortSignal):Promise<unknown>;}
 export class ClassificationHttpApi implements ClassificationApi{

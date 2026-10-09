@@ -32,6 +32,7 @@ import { getApplicationOwnerId, parseOwnerId } from "@/server/owner";
 import { calculateDetailedFallbackStats, calculateLibraryYears, getDatabaseLibraryStats, getLibraryAuthors as queryLibraryAuthors } from "@/server/library-insights";
 
 const postInclude = {
+  learningExamples: { where: { domain: 'translation', kind: 'translation', provenance: 'MANUAL_REVIEW' }, select: { sourceHash: true, payload: true } },
   classificationJobs: { where: { analysisVersion: CAPTION_TRANSLATION_VERSION, status: 'SUCCEEDED' as const }, select: { ownerId: true, inputHash: true, result: true } },
   postTags: { include: { tag: true } },
   media: { orderBy: { position: "asc" as const } },

@@ -1,4 +1,6 @@
 import 'server-only';
+import {loadLearningContext,recordLearningObservation,manualClassificationGuards} from './learning';
+import type {LearningReport} from '../../../services/worker/src/classification/learning';
 import {randomUUID} from 'node:crypto';
 import {Prisma} from '@prisma/client';
 import {prisma} from '@/server/db';
@@ -9,7 +11,7 @@ import {foldForSearch,tagSlug} from '@/lib/import/normalize';
 import {lockPostWrites} from '@/server/post-deletions';
 import {setAuditAction} from '@/server/audit-log';
 type Lease={jobId:string;leaseToken:string};
-type Dependencies={signMedia?:MediaSigner};
+type Dependencies={signMedia?:MediaSigner;learning?:boolean};
 export async function enqueueClassification(ownerId:string,postId:string,tx:Prisma.TransactionClient){
  const {inputHash}=await classificationInputs(ownerId,postId,tx);
  await setAuditAction(tx,'classification.enqueue');
@@ -35,7 +37,7 @@ export async function claimClassification(ownerId:string,deps:Dependencies={}){
     if(code==='PLACES_MEDIA_UNAVAILABLE')await tx.postClassificationJob.update({where:{id:job.id},data:{status:'FAILED',errorCode:'MEDIA_UNAVAILABLE',completedAt:now}});else await cancel(tx,job.id,ownerId,code);continue;}
    const leaseToken=randomUUID();await setAuditAction(tx,'classification.claim');
    await tx.postClassificationJob.update({where:{id:job.id},data:{status:'PROCESSING',attemptCount:{increment:1},leaseOwner:leaseToken,leaseExpiresAt:new Date(Date.now()+CLASSIFICATION_LEASE_MS),heartbeatAt:new Date(),startedAt:job.startedAt??now,nextAttemptAt:null,errorCode:null}});
-   return {jobId:job.id,leaseToken,heartbeatIntervalMs:30_000,...prepared};
+   return {jobId:job.id,leaseToken,heartbeatIntervalMs:30_000,...prepared,...(deps.learning?{learningContext:await loadLearningContext(tx,ownerId,job.postId,'classification')}:{})};
   }
   return null;
  },{timeout:30_000});
@@ -48,8 +50,8 @@ function coverage(result:ClassificationResult,media:WorkerMedia[]){
  if(result.media.length!==media.length||new Set(result.media.map(m=>m.mediaId)).size!==media.length)throw Error('CLASSIFICATION_MEDIA_INCOMPLETE');
  for(const m of media){const c=result.media.find(c=>c.mediaId===m.id);if(!c||c.kind!==m.kind||(m.kind==='IMAGE'&&(c.durationMs!==null||c.frameCount!==1||c.audio!=='not_applicable'))||(m.kind==='VIDEO'&&(c.durationMs===null||c.audio==='not_applicable')))throw Error('CLASSIFICATION_MEDIA_INCOMPLETE');}
 }
-export async function completeClassification(ownerId:string,command:Lease&{result:unknown}){
- const result=classificationResultSchema.parse(command.result);const requestHash=digest(result),leaseHash=digest(command.leaseToken);
+export async function completeClassification(ownerId:string,command:Lease&{result:unknown;learning?:LearningReport}){
+ const result=classificationResultSchema.parse(command.result);const requestHash=digest(command.learning?{result,learning:command.learning}:result),leaseHash=digest(command.leaseToken);
  const outcome=await prisma.$transaction(async tx=>{
   await lockPostWrites(tx,ownerId);
   const before=await tx.postClassificationJob.findFirst({where:{id:command.jobId,ownerId,analysisVersion:CLASSIFICATION_VERSION}});
@@ -66,24 +68,31 @@ export async function completeClassification(ownerId:string,command:Lease&{resul
   coverage(result,await loadWorkerMedia(ownerId,job.postId,async()=>'',tx,CLASSIFICATION_MAX_VIDEO_BYTES));
   await setAuditAction(tx,'classification.complete');
   if(result.status==='SUCCEEDED'){
+   const guards=await manualClassificationGuards(tx,ownerId,job.postId);
+   const mainTheme=guards.mainTheme??result.mainTheme;
    const resolved=[] as {id:string;name:string}[];
-   for(const rawName of result.tags){const name=rawName.replace(/\s+/g,' ');resolved.push(await tx.tag.upsert({where:{ownerId_slug:{ownerId,slug:tagSlug(name)}},create:{ownerId,slug:tagSlug(name),name},update:{},select:{id:true,name:true}}));}
+   for(const rawName of result.tags.filter(t=>!guards.avoidTags.includes(tagSlug(t)))){const name=rawName.replace(/\s+/g,' ');resolved.push(await tx.tag.upsert({where:{ownerId_slug:{ownerId,slug:tagSlug(name)}},create:{ownerId,slug:tagSlug(name),name},update:{},select:{id:true,name:true}}));}
    await tx.postTag.deleteMany({where:{postId:job.postId,isManual:false}});
    await tx.postTag.createMany({data:resolved.map(t=>({postId:job.postId!,tagId:t.id,isManual:false})),skipDuplicates:true});
    const tags=await tx.postTag.findMany({where:{postId:job.postId},include:{tag:true}});
    const metadata=state.post.metadata&&typeof state.post.metadata==='object'&&!Array.isArray(state.post.metadata)?state.post.metadata:{};
-   await tx.post.update({where:{id:job.postId},data:{mainTheme:result.mainTheme,searchText:foldForSearch([state.post.authorUsername,state.post.caption,result.mainTheme??'',...tags.map(t=>t.tag.name)].join(' ')),metadata:{...metadata,classification:{version:CLASSIFICATION_VERSION,jobId:job.id,model:result.model}} as Prisma.InputJsonValue}});
+   await tx.post.update({where:{id:job.postId},data:{mainTheme,searchText:foldForSearch([state.post.authorUsername,state.post.caption,mainTheme??'',...tags.map(t=>t.tag.name)].join(' ')),metadata:{...metadata,classification:{version:CLASSIFICATION_VERSION,jobId:job.id,model:result.model}} as Prisma.InputJsonValue}});
   }
   const receipt={postId:job.sourcePostId,status:result.status};
   await tx.postClassificationJob.update({where:{id:job.id},data:{status:result.status,completedAt:new Date(),leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,errorCode:null,result:{...result,completion:{requestHash,leaseHash,receipt}} as Prisma.InputJsonValue}});
+  await recordLearningObservation(tx,ownerId,job.id,job.postId,command.leaseToken,'classification',result.status,command.learning);
   return {receipt};
  },{timeout:30_000});
  if(outcome.error)throw Error(outcome.error);return outcome.receipt!;
 }
-export async function failClassification(ownerId:string,lease:Lease&{code:string}){
- const job=await prisma.postClassificationJob.findFirst({where:{id:lease.jobId,ownerId,analysisVersion:CLASSIFICATION_VERSION}});const now=new Date();
+export async function failClassification(ownerId:string,lease:Lease&{code:string;learning?:LearningReport}){
+ return prisma.$transaction(async tx=>{
+ const job=await tx.postClassificationJob.findFirst({where:{id:lease.jobId,ownerId,analysisVersion:CLASSIFICATION_VERSION}});const now=new Date();
  if(!job||job.status!=='PROCESSING'||job.leaseOwner!==lease.leaseToken||!job.leaseExpiresAt||job.leaseExpiresAt<=now)throw Error('CLASSIFICATION_LEASE_LOST');
  const retryable=['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','WORKER_STOPPING','WORKER_TIMEOUT'].includes(lease.code)&&job.attemptCount<3;
- const updated=await prisma.postClassificationJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
- if(updated.count!==1)throw Error('CLASSIFICATION_LEASE_LOST');return {ok:true,retryable};
+ const updated=await tx.postClassificationJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
+ if(updated.count!==1)throw Error('CLASSIFICATION_LEASE_LOST');
+ await recordLearningObservation(tx,ownerId,job.id,job.postId,lease.leaseToken,'classification',retryable?'RETRY':'FAILED',lease.learning,lease.code);
+ return {ok:true,retryable};
+ });
 }

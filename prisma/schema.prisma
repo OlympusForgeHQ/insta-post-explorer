@@ -119,6 +119,7 @@ model Post {
   placeEvidence   PlaceEvidence[]
   placeJobs       PlaceAnalysisJob[]
   classificationJobs PostClassificationJob[]
+  learningExamples WorkerLearningExample[]
 
   @@unique([ownerId, postUrl], map: "posts_owner_id_post_url_key")
   // Composite identity key referenced by owner-consistent composite foreign
@@ -430,7 +431,50 @@ model PostClassificationJob {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   post Post? @relation(fields:[postId], references:[id], onDelete:SetNull, map:"classification_jobs_post_id_fkey")
+  learningObservations WorkerLearningObservation[]
+  @@unique([ownerId,id],map:"classification_jobs_owner_id_id_key")
   @@unique([ownerId, sourcePostId, analysisVersion], map:"classification_jobs_idempotency_key")
   @@index([ownerId,status,nextAttemptAt,leaseExpiresAt,createdAt],map:"classification_jobs_claim_idx")
   @@map("post_classification_jobs")
+}
+
+
+model WorkerLearningExample {
+  enabled Boolean @default(true)
+  removedTags String[] @default([]) @map("removed_tags")
+  id String @id @default(cuid())
+  ownerId String @map("owner_id")
+  postId String @map("post_id")
+  domain String
+  kind String
+  provenance String
+  sourceHash String @map("source_hash")
+  payload Json
+  reviewedAt DateTime @default(now()) @map("reviewed_at") @db.Timestamptz(3)
+  post Post @relation(fields:[ownerId,postId],references:[ownerId,id],onDelete:Cascade,onUpdate:Cascade)
+  @@unique([ownerId,postId,domain,kind],map:"worker_learning_examples_identity_key")
+  @@index([ownerId,domain,reviewedAt(sort:Desc)],map:"worker_learning_examples_lookup_idx")
+  @@map("worker_learning_examples")
+}
+
+model WorkerLearningObservation {
+  id String @id @default(cuid())
+  ownerId String @map("owner_id")
+  jobId String @map("job_id")
+  leaseHash String @map("lease_hash")
+  domain String
+  shape String
+  strategy String
+  outcome String
+  errorFamily String? @map("error_family")
+  signals String[]
+  exampleIds String[] @map("example_ids")
+  elapsedMs Int @map("elapsed_ms")
+  inputTokens Int @map("input_tokens")
+  outputTokens Int @map("output_tokens")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  job PostClassificationJob @relation(fields:[ownerId,jobId],references:[ownerId,id],onDelete:Cascade,onUpdate:Cascade)
+  @@unique([jobId,leaseHash],map:"worker_learning_observations_attempt_key")
+  @@index([ownerId,domain,createdAt(sort:Desc)],map:"worker_learning_observations_lookup_idx")
+  @@map("worker_learning_observations")
 }

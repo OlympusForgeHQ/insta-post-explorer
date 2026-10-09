@@ -1,3 +1,4 @@
+import {manualClassificationGuards} from '@/server/classification/learning';
 import {enqueueCaptionTranslation} from '@/server/classification/translation-jobs';
 import "server-only";
 
@@ -171,13 +172,17 @@ async function persistBatch(
       const urls = allowed.map((post) => post.postUrl);
       const existingPosts = await transaction.post.findMany({
         where: { ownerId, postUrl: { in: urls } },
-        select: { postUrl: true },
+        select: { id: true, postUrl: true },
       });
       const existingUrls = new Set(existingPosts.map((post) => post.postUrl));
       const persistedPosts: Array<{ id: string; source: NormalizedImportPost }> = [];
 
-      for (const source of allowed) {
+      for (const incoming of allowed) {
+        const existing=existingPosts.find(p=>p.postUrl===incoming.postUrl);
+        const guards=existing?await manualClassificationGuards(transaction,ownerId,existing.id):{mainTheme:undefined,avoidTags:[]};
+        const source={...incoming,mainTheme:guards.mainTheme??incoming.mainTheme,tags:incoming.tags.filter(t=>!guards.avoidTags.includes(tagSlug(t)))};
         const data = toPostData(source);
+        if(existing){const protectedTags=await transaction.postTag.findMany({where:{postId:existing.id,isManual:true},include:{tag:true}});data.searchText=foldForSearch([source.authorUsername,source.caption,source.mainTheme??'',...source.tags,...protectedTags.map(t=>t.tag.name)].join(' '));}
         const post = await transaction.post.upsert({
           where: { ownerId_postUrl: { ownerId, postUrl: source.postUrl } },
           create: { ownerId, ...data },

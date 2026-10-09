@@ -1,3 +1,4 @@
+import type {LearningTracker} from './learning.js';
 import {parseClassificationConfig} from './config.js';
 import {ClassificationHttpApi} from './api.js';
 import {createClassificationAnalyzer} from './analyze.js';
@@ -9,8 +10,9 @@ import {runClassificationLoop} from './loop.js';
 async function main(){
  const config=parseClassificationConfig(process.env);const stop=new AbortController();process.once('SIGTERM',()=>stop.abort());process.once('SIGINT',()=>stop.abort());
  const log=(event:Record<string,unknown>)=>process.stdout.write(JSON.stringify(event)+'\n');const workdirs=await prepareClassificationWorkdirs(config.tempRoot);
- const deps={api:new ClassificationHttpApi(config.origin,config.apiKey),workdirs,analyze:createClassificationAnalyzer(config,log),log};
- const translation={api:new ClassificationHttpApi(config.origin,config.apiKey,fetch,'/api/v1/classification/translation'),log,analyze:async(caption:string,signal:AbortSignal)=>{const started=Date.now();const result=await translateCaption(caption,config.hermesUrl,config.hermesKey,signal,fetch,log);return {...result,model:'deepseek/deepseek-v4.1-flash' as const,elapsedMs:Date.now()-started};}};
- await runClassificationLoop({runOnce:signal=>runClassificationOnce(deps,signal),translateOnce:signal=>runCaptionTranslationOnce(translation,signal),cleanup:()=>workdirs.cleanupStale(),log},stop.signal);
+ const deps={learningEnabled:config.learningEnabled,api:new ClassificationHttpApi(config.origin,config.apiKey),workdirs,analyze:createClassificationAnalyzer(config,log),log};
+ const translation={learningEnabled:config.learningEnabled,api:new ClassificationHttpApi(config.origin,config.apiKey,fetch,'/api/v1/classification/translation'),log,analyze:async(caption:string,signal:AbortSignal,tracker?:LearningTracker)=>{const started=Date.now();const result=await translateCaption(caption,config.hermesUrl,config.hermesKey,signal,fetch,event=>{log(event);tracker?.observe(event);},tracker?.context);return {...result,model:'deepseek/deepseek-v4.1-flash' as const,elapsedMs:Date.now()-started};}};
+ const evaluation=new ClassificationHttpApi(config.origin,config.apiKey,fetch,'/api/v1/classification/learning');
+ await runClassificationLoop({...config.learningEnabled?{evaluate:async(signal:AbortSignal)=>{const report=await evaluation.call({},signal);log({stage:'learning_evaluation',report});}}:{},runOnce:signal=>runClassificationOnce(deps,signal),translateOnce:signal=>runCaptionTranslationOnce(translation,signal),cleanup:()=>workdirs.cleanupStale(),log},stop.signal);
 }
 main().catch(()=>{process.stderr.write('CLASSIFICATION_WORKER_FAILED\n');process.exitCode=1;});
