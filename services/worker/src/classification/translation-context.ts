@@ -16,9 +16,12 @@ export async function reviewAmbiguousUnits(args:{all:CaptionUnit[];outputs:Outpu
  const batches:CaptionUnit[][]=[];let batch:CaptionUnit[]=[],size=0;
  for(const unit of targets){if(batch.length&&(batch.length>=40||size+unit.text.length>4000)){batches.push(batch);batch=[];size=0;}batch.push(unit);size+=unit.text.length;}if(batch.length)batches.push(batch);
  for(const units of batches){
-  args.signal.throwIfAborted();let response:Response;
+  args.signal.throwIfAborted();
   const input={output_schema:z.toJSONSchema(indexedTranslationSchema),units:units.map(({id,text})=>({id,text,...(text.normalize('NFKC')!==text?{normalizedHint:text.normalize('NFKC')}: {})})),context:captionReviewContext(args.all,units),observedLanguages:[...new Set(args.outputs.filter(u=>u.decision!=='NEEDS_REVIEW').flatMap(u=>u.sourceLanguages))]};
-  try{response=await args.request(args.url+'/chat/completions',{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+args.secret,'Content-Type':'application/json'},body:JSON.stringify({model:'insta-places',messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],stream:false,temperature:0,max_tokens:16384}),signal:AbortSignal.any([args.signal,AbortSignal.timeout(180_000)])});}catch(error){args.signal.throwIfAborted();if(error instanceof Error&&error.message==='CALL_LIMIT')throw error;throw Error('INFERENCE_FAILED');}
+  const messages=[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}];
+  for(let attempt=0;attempt<2;attempt++){
+  args.signal.throwIfAborted();let response:Response;
+  try{response=await args.request(args.url+'/chat/completions',{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+args.secret,'Content-Type':'application/json'},body:JSON.stringify({model:'insta-places',messages,stream:false,temperature:0,max_tokens:16384}),signal:AbortSignal.any([args.signal,AbortSignal.timeout(180_000)])});}catch(error){args.signal.throwIfAborted();if(error instanceof Error&&error.message==='CALL_LIMIT')throw error;throw Error('INFERENCE_FAILED');}
   if(!response.ok){await response.body?.cancel();throw Error(response.status===429?'INFERENCE_BUSY':'INFERENCE_FAILED');}
   let body:unknown;try{body=await boundedJson(response);}catch{throw Error('INFERENCE_FAILED');}
   try{
@@ -31,7 +34,11 @@ export async function reviewAmbiguousUnits(args:{all:CaptionUnit[];outputs:Outpu
     reviewed[args.all.findIndex(u=>u.id===output.id)]=output;
     args.log?.({stage:'caption_translation_context_unit',unitId:output.id,decision:output.decision,reasonCode:reasonCodes.has(output.reason)?output.reason:'UNSPECIFIED'});
    }
-  }catch(error){if(error instanceof Error&&error.message==='INFERENCE_FAILED')throw error;args.log?.({stage:'caption_translation_context_rejected',reason:args.diagnostic(error),unitCount:units.length});}
+   break;
+  }catch(error){if(error instanceof Error&&error.message==='INFERENCE_FAILED')throw error;const reason=args.diagnostic(error);args.log?.({stage:'caption_translation_context_rejected',reason,unitCount:units.length,attempt:attempt+1});
+   messages.push({role:'user',content:`Validation failed: ${reason}. Return only the target unit ids in order and strict JSON. Both UNCHANGED and NEEDS_REVIEW require translatedCaption null. Do not echo context or source text. Keep all protected markers in translated units. An honestly uncertain unit must remain NEEDS_REVIEW.`});
+  }
+  }
  }
  return {outputs:reviewed,usage};
 }
