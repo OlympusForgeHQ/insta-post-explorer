@@ -111,3 +111,11 @@ effectiveness remain unmeasured until verified evaluation data accumulates.
 Production migration history contains historical omissions; deployment must apply
 only this additive migration, preserving existing migration receipts. Use a verified
 private PostgreSQL 17 backup and retain before/after source/protection digests.
+
+During publication, GitHub CI failed twice before checkout because Docker Hub
+rejected the PostgreSQL service image with unauthenticated pull-rate limits.
+Both CI services now use the Docker Official Image published on ECR Public
+(`public.ecr.aws/docker/library/postgres:16-alpine`), preserving PostgreSQL 16
+and every validation gate. Docker documents this distribution at
+https://www.docker.com/blog/news-from-aws-reinvent-docker-official-images-on-amazon-ecr-public/.
+The exact application commit subsequently passed 676 application tests locally.
