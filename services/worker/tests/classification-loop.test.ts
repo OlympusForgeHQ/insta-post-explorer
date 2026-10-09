@@ -55,3 +55,9 @@ describe('Classification consumer scheduling',()=>{
   stop.abort();await running;expect(claims).toBe(1);
  });
 });
+
+it('evaluates only when idle and isolates evaluation errors from the processing loop',async()=>{
+ const stop=new AbortController();let evaluations=0,cleanups=0;
+ await runClassificationLoop({runOnce:async()=>({status:'idle'}),translateOnce:async()=>({status:'idle'}),cleanup:async()=>{cleanups++;},evaluate:async()=>{evaluations++;stop.abort();throw Error('unavailable');}},stop.signal);
+ expect(evaluations).toBe(1);expect(cleanups).toBe(1);
+});
