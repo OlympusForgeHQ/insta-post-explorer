@@ -64,4 +64,34 @@ async function clear(){await db.post.deleteMany({where:{ownerId:owner}});await d
   expect(await db.post.findUniqueOrThrow({where:{id:post.id}})).toEqual(post);
  });
 
+ it('recovers only an explicit current review snapshot and never replays a newer outcome',async()=>{
+  const post=await seed();await enqueue(post.id);const claim=(await service.claimCaptionTranslation(owner))!;
+  await service.completeCaptionTranslation(owner,{...claim,result:{...result,decision:'NEEDS_REVIEW',sourceLanguages:['und'],translatedCaption:null,reason:'Ambiguous source unit'}});
+  const review=await db.postClassificationJob.findUniqueOrThrow({where:{id:claim.jobId}});const targets=[{id:review.id,inputHash:review.inputHash}];const cutoff=new Date();
+  expect(await service.recoverReviewedCaptionTranslations('wrong-owner',targets,cutoff)).toEqual({requeued:0,skipped:1});
+  expect(await service.recoverReviewedCaptionTranslations(owner,[{...targets[0],inputHash:'0'.repeat(64)}],cutoff)).toEqual({requeued:0,skipped:1});
+  expect(await service.recoverReviewedCaptionTranslations(owner,targets,cutoff)).toEqual({requeued:1,skipped:0});
+  expect(await db.auditEvent.count({where:{ownerId:owner,action:'caption_translation.recover_review'}})).toBe(1);
+  expect(await service.recoverReviewedCaptionTranslations(owner,targets,cutoff)).toEqual({requeued:0,skipped:1});
+  expect(await db.post.findUniqueOrThrow({where:{id:post.id}})).toEqual(post);
+  await db.postClassificationJob.update({where:{id:review.id},data:{status:'NEEDS_REVIEW',completedAt:new Date(cutoff.getTime()+1),result:{decision:'NEEDS_REVIEW'}}});
+  expect(await service.recoverReviewedCaptionTranslations(owner,targets,cutoff)).toEqual({requeued:0,skipped:1});
+ });
+
+ it('fences changed sources, excluded terminal states and other analysis versions during review recovery',async()=>{
+  const targets=[];const expectedPosts=[];
+  for(const mode of ['source','version','success','active','failed','excluded','limit']){
+   const post=await seed();await enqueue(post.id);const job=await db.postClassificationJob.findFirstOrThrow({where:{ownerId:owner,postId:post.id}});targets.push({id:job.id,inputHash:job.inputHash});
+   await db.postClassificationJob.update({where:{id:job.id},data:{status:'NEEDS_REVIEW',completedAt:new Date(0),result:{decision:'NEEDS_REVIEW'},...(mode==='version'?{analysisVersion:'post-classification-v1'}:{}),...(mode==='success'?{status:'SUCCEEDED'}:{}),...(mode==='active'?{status:'PROCESSING',leaseOwner:randomUUID()}:{}),...(mode==='failed'?{status:'FAILED'}:{}),...(mode==='excluded'?{result:{decision:'UNCHANGED'}}:{}),...(mode==='limit'?{errorCode:'CAPTION_LIMIT'}:{})}});
+   if(mode==='source')await db.post.update({where:{id:post.id},data:{caption:'Changed after review'}});
+   expectedPosts.push(await db.post.findUniqueOrThrow({where:{id:post.id}}));
+  }
+  const before=await db.postClassificationJob.findMany({where:{ownerId:owner},orderBy:{id:'asc'}});
+  expect(await service.recoverReviewedCaptionTranslations(owner,targets,new Date())).toEqual({requeued:0,skipped:7});
+  expect(await db.postClassificationJob.findMany({where:{ownerId:owner},orderBy:{id:'asc'}})).toEqual(before);
+  for(const post of expectedPosts)expect(await db.post.findUniqueOrThrow({where:{id:post.id}})).toEqual(post);
+  await expect(service.recoverReviewedCaptionTranslations(owner,[targets[0],targets[0]],new Date())).rejects.toThrow('INVALID_RECOVERY_SNAPSHOT');
+  await expect(service.recoverReviewedCaptionTranslations(owner,targets,new Date(Date.now()+60000))).rejects.toThrow('INVALID_RECOVERY_SNAPSHOT');
+ });
+
 });

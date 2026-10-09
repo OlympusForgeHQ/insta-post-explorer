@@ -7,6 +7,15 @@ Current web release: `main` at `e84e96c`
 Sync retains its previous image and hourly recovery command.
 Older phase references below are historical.
 
+## Contextual translation review — 9 October 2026
+
+The completed historical pass left 58 language reviews and one technical failure.
+A bounded second opinion now supplies neighboring caption context only for uncertain
+units. Accepted units and originals remain locally preserved; unresolved cases stay
+NEEDS_REVIEW. Explicit snapshot recovery is operator-only and audited. See
+[context review evidence](changes/2026-10-09-caption-context-review.md) and private
+`.tmp/caption-review-20261009/` receipts for diagnostic and activation outcomes.
+
 ## Latest caption worker follow-ups
 
 Mixed-language marker restoration shipped through PRs #134/#135 (main `e30677a`),
