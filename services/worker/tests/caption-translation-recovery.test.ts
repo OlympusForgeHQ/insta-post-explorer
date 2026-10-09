@@ -67,4 +67,13 @@ describe('Caption recovery protocol',()=>{
   await expect(translateCaption('Mezcla 200 y 300, keep this exact.','http://test/v1','test',new AbortController().signal,request)).rejects.toThrow('TRANSLATION_MARKERS_CHANGED');
  });
 
+ it('keeps protected markers atomic at sentence boundaries',async()=>{
+  const request:typeof fetch=async(_url,init)=>{const {units}=JSON.parse(JSON.parse(String(init?.body)).messages[1].content);return envelope({units:units.map((u:{id:number;text:string})=>output(u.id,'es',u.text.replaceAll('Hola','Bonjour')))});};
+  for(const source of ['Hola!🙂\n\n#receta','Hola.200 g','Hola?@chef','Hola!👩🏽‍🍳 Hola.']){
+   const prepared=prepareCaptionUnits(source);
+   expect(prepared.units.map(u=>u.prefix+prepared.restore(u.text)+u.suffix).join('')+prepared.trailing).toBe(source);
+   expect((await translateCaption(source,'http://test/v1','test',new AbortController().signal,request)).translatedCaption).toBe(source.replaceAll('Hola','Bonjour'));
+  }
+ });
+
 });

@@ -87,3 +87,22 @@ paths. This is a worker-only follow-up; no API/schema or sync change is needed.
 The current activation and recovery outcome is recorded in the private execution
 receipt, with separate receipts for this follow-up. The original 141-job cohort
 remains the observation scope; do not infer completion from enqueue success.
+
+## Atomic marker follow-up
+
+A remaining live failure reproduced locally with a simulated provider: sentence
+segmentation cut `Hola![[IPEKEEP0]]` into `Hola![[` and `IPEKEEP0]]`. Whole-caption
+restoration was exact, but per-unit restoration retained the broken marker and
+correctly failed the final structure check. Merge sentence boundaries that fall
+strictly inside a generated marker span before constructing units. Original text,
+whitespace and outer sentence boundaries remain unchanged. The actual failing
+caption now reconstructs exactly in the in-container read-only probe; no caption
+content was exported and no production state changed during diagnosis.
+
+The existing recovery test covers punctuation-adjacent emoji, quantity and handle
+markers, including paragraphs. It failed before the fix and passes afterward.
+Independent review found no blockers; 22 focused tests and 720 synthetic codec
+combinations passed. This is another worker-only release with the same graceful
+drain, real synthetic pilot and scoped/audited recovery procedure. Preserve web
+`e84e96c`, sync image/cron and all source/protected data. Current activation and
+cohort results belong in the private execution receipt, not an enqueue claim.
