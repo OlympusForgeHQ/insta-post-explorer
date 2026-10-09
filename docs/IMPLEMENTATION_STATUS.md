@@ -2,6 +2,15 @@
 
 Last updated: 9 October 2026 — throughput release active; historical classification running
 
+## Latest caption worker follow-ups
+
+Mixed-language marker restoration shipped through PRs #134/#135 (main `e30677a`),
+while web remains `e84e96c`. A further sentence-boundary defect was reproduced and
+fixed: protected markers must remain atomic when punctuation touches an emoji or
+other protected value. See the recovery evidence for the red/green regression and
+`.tmp/caption-recovery-20261009/` for current activation/cohort receipts. The
+initial 08:14 observations below are historical; do not treat them as live counts.
+
 ## Caption recovery — 9 October 2026
 
 Indexed inference/local preservation and bounded busy deferral are deployed on
