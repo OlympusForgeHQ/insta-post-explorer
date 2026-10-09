@@ -187,3 +187,15 @@ for rollback. Translation can be disabled independently by its flag. New systemd
 use `flock --no-fork` and `KillMode=mixed`: SIGTERM stops future claims while Node and
 its media children finish owned work; after 96 minutes systemd may kill the cgroup.
 Do not stop a legacy consumer in the middle of a job: its old shutdown aborts it.
+
+### Translation recovery (9 October)
+
+Caption inference uses indexed sentence/line units; original English/French and
+nonlinguistic units are copied locally. Protected tokens and emoji are masked and
+restored in exact order. Mixed units retain the exact-segment fallback. Diagnostics
+record bounded rejection codes, never caption/provider content. HTTP 429 honors a
+bounded Retry-After pause (1–60 seconds); server deferrals wait five minutes and
+refund the inference attempt for up to 24 hours from first claim. Other retry
+limits, the global call budget, lease heartbeat and job deadline remain enabled.
+Operator recovery is restricted to failed, unchanged translation inputs before a
+fixed cutoff and journals each row. See the recovery specification for rollout.

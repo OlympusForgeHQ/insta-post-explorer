@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {translateCaption,splitCaption} from '../src/classification/translation-inference.js';
+import {translateCaptionExact as translateCaption,splitCaption} from '../src/classification/translation-inference.js';
 import {assembleTranslation} from '../src/classification/translation-contract.js';
 const unchanged=(sourceText:string,language='en')=>({sourceText,decision:'UNCHANGED',sourceLanguages:[language],translatedCaption:null,reason:'Retain source'});
 const translated=(sourceText:string,translatedCaption:string)=>({sourceText,decision:'TRANSLATED',sourceLanguages:['es'],translatedCaption,reason:'Spanish'});
