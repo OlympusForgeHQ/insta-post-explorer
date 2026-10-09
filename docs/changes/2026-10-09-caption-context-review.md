@@ -93,10 +93,43 @@ review found no blocking issue; 31 focused worker tests passed. Recovery tests p
 explicit cohort/owner/version/hash/source/status/cutoff fences and an audit event.
 Content-free context logs retain an allowlisted reason code for each reviewed unit.
 
-Initial real-provider diagnostic: 21 completed replays yielded 12 unchanged, one
-translated and eight still ambiguous. A provider timeout/saturation delayed the
-remaining probes; those transport outcomes are not language diagnoses and are
-retried with bounded backoff. Source captions remain inside the normal VPS/provider
+Completed real-provider diagnostic of all 58 reviews using the old protocol:
+27 unchanged, seven translated and 24 still ambiguous. The separate technical
+failure reproduced source-echo errors before becoming a name-related review.
+This confirms that some cases vary between model calls, while others need more
+context. A timed-out diagnostic saturated the provider; after a controlled drain
+with no production jobs active, it was recovered and all probes completed.
+Transport errors are excluded from the language diagnosis. Source captions remain inside the normal VPS/provider
 processing boundary and are excluded from tool output and diagnostic receipts.
 Runtime activation and the full 58-post outcome must be read from the private
 receipts; this document does not claim every ambiguous caption is resolved.
+
+## Mixed-unit source echo follow-up
+
+The separate technical failure repeatedly rejected exact fallback source echoes
+(TRANSLATION_SOURCE_CHANGED). Its unchanged-protocol replay reproduced these
+errors and took 133 seconds before yielding a name-related review. Another review
+needed 244 seconds of schema retries. Strict fidelity checks correctly prevented
+publication; asking the model to regenerate exact source boundaries is fragile.
+
+REQ-007: After content-validation failure of the legacy exact fallback on a unit
+of at most 4,000 characters, select contiguous indexed word-token spans instead.
+Protected markers stay atomic. Require complete ordered coverage with no gaps,
+overlaps or out-of-bounds indexes; construct each sourceText locally and pass it
+through existing assembleTranslation checks. English/French/nonlinguistic spans
+remain locally copied; genuinely ambiguous spans remain NEEDS_REVIEW. No transport
+or busy error invokes this content fallback. Share the existing request/job budget.
+
+AC-006: A synthetic corrupted source echo fails before the change and succeeds via
+indexed spans afterward while retaining exact English and quantity. Regression
+cases reject malformed coverage, mixed-language translated spans and token loss;
+nonlinguistic spans cannot gain model-generated prose. The dedicated
+caption-mixed-spans.test.ts covers this source-copy regression and its fidelity
+boundary. No application or API contract changes.
+
+Independent review also found that failed exact-copy attempts lost their token
+usage when switching protocols. Validated response usage is now accumulated before
+content validation, including rejected exact/span responses, without double
+counting successful responses. The source-echo regression asserts the total usage
+of all four provider responses. Final validation: 668 application tests, 163 worker
+tests, four Python tests, 35 focused translation tests, lint, types and builds.
