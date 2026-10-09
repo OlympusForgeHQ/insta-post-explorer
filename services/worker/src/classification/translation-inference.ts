@@ -40,6 +40,7 @@ export async function translateCaptionExact(caption:string,url:string,secret:str
    const body=z.object({model:z.literal('insta-places'),choices:z.array(z.object({message:z.object({content:z.string()}),finish_reason:z.string().nullable().optional()})).min(1),usage:z.object({prompt_tokens:z.number().int().nonnegative(),completion_tokens:z.number().int().nonnegative()})}).safeParse(responseBody);
    if(!body.success)throw Error('INVALID_RESULT');usage.inputTokens+=body.data.usage.prompt_tokens;usage.outputTokens+=body.data.usage.completion_tokens;
    onUsage?.({inputTokens:body.data.usage.prompt_tokens,outputTokens:body.data.usage.completion_tokens});
+   if(body.data.choices[0].finish_reason==='error')throw Error('INFERENCE_FAILED');
    try{
     if(body.data.choices[0].finish_reason==='length')throw Error('TRUNCATED');
     const raw=body.data.choices[0].message.content.trim().replace(/^```(?:json)?\s*\n?/,'').replace(/\n?```$/,'');
@@ -110,6 +111,7 @@ export async function translateCaption(caption:string,url:string,secret:string,s
    try{
     const envelope=z.object({model:z.literal('insta-places'),choices:z.array(z.object({message:z.object({content:z.string()}),finish_reason:z.string().nullable().optional()})).min(1),usage:z.object({prompt_tokens:z.number().int().nonnegative(),completion_tokens:z.number().int().nonnegative()})}).parse(body);
     usage.inputTokens+=envelope.usage.prompt_tokens;usage.outputTokens+=envelope.usage.completion_tokens;
+    if(envelope.choices[0].finish_reason==='error')throw Error('INFERENCE_FAILED');
     if(envelope.choices[0].finish_reason==='length')throw Error('TRUNCATED');
     const raw=envelope.choices[0].message.content.trim().replace(/^```(?:json)?\s*\n?/,'').replace(/\n?```$/,'');
     const outputs=validateIndexedUnits(units,JSON.parse(raw));const localResults:TranslationOutput[]=[],localParts:string[]=[];

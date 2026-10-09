@@ -24,13 +24,14 @@ export async function reviewAmbiguousUnits(args:{all:CaptionUnit[];outputs:Outpu
   try{
    const envelope=z.object({model:z.literal('insta-places'),choices:z.array(z.object({message:z.object({content:z.string()}),finish_reason:z.string().nullable().optional()})).min(1),usage:z.object({prompt_tokens:z.number().int().nonnegative(),completion_tokens:z.number().int().nonnegative()})}).parse(body);
    usage.inputTokens+=envelope.usage.prompt_tokens;usage.outputTokens+=envelope.usage.completion_tokens;
+   if(envelope.choices[0].finish_reason==='error')throw Error('INFERENCE_FAILED');
    if(envelope.choices[0].finish_reason==='length')throw Error('TRUNCATED');
    const raw=envelope.choices[0].message.content.trim().replace(/^```(?:json)?\s*\n?/,'').replace(/\n?```$/,'');
    for(const output of validateIndexedUnits(units,JSON.parse(raw))){
     reviewed[args.all.findIndex(u=>u.id===output.id)]=output;
     args.log?.({stage:'caption_translation_context_unit',unitId:output.id,decision:output.decision,reasonCode:reasonCodes.has(output.reason)?output.reason:'UNSPECIFIED'});
    }
-  }catch(error){args.log?.({stage:'caption_translation_context_rejected',reason:args.diagnostic(error),unitCount:units.length});}
+  }catch(error){if(error instanceof Error&&error.message==='INFERENCE_FAILED')throw error;args.log?.({stage:'caption_translation_context_rejected',reason:args.diagnostic(error),unitCount:units.length});}
  }
  return {outputs:reviewed,usage};
 }
