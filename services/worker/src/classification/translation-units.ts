@@ -14,7 +14,14 @@ export function prepareCaptionUnits(caption:string){
  const units:CaptionUnit[]=[];let pending='';
  for(const line of masked.split(/(\r\n|\r|\n)/)){
   if(!line||/^\s+$/u.test(line)){pending+=line;continue;}
-  for(const {segment} of new Intl.Segmenter('und',{granularity:'sentence'}).segment(line)){
+  // Sentence segmentation can split "Hola![[IPEKEEP0]]" inside the marker.
+  // Merge those boundaries before constructing independently restored units.
+  const spans=[...line.matchAll(markerPattern)].map(m=>[m.index,m.index+m[0].length]);
+  let joined='';
+  for(const sentence of new Intl.Segmenter('und',{granularity:'sentence'}).segment(line)){
+   joined+=sentence.segment;const end=sentence.index+sentence.segment.length;
+   if(spans.some(([start,stop])=>start<end&&end<stop))continue;
+   const segment=joined;joined='';
    const edge=/^(\s*)([\s\S]*?)(\s*)$/u.exec(segment)!;
    if(!edge[2]){pending+=segment;continue;}
    units.push({id:units.length,text:edge[2],prefix:pending+edge[1],suffix:edge[3]});pending='';
