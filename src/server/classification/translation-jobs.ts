@@ -1,4 +1,6 @@
 import 'server-only';
+import {loadLearningContext,recordLearningObservation} from './learning';
+import type {LearningReport} from '../../../services/worker/src/classification/learning';
 import {randomUUID} from 'node:crypto';
 import {Prisma} from '@prisma/client';
 import {z} from 'zod';
@@ -24,7 +26,7 @@ export async function enqueueCaptionTranslation(ownerId:string,postId:string,tx:
  await setAuditAction(tx,previous?.action??'');
 }
 async function cancel(tx:Prisma.TransactionClient,id:string,code:string){await setAuditAction(tx,'caption_translation.cancel');await tx.postClassificationJob.update({where:{id},data:{status:'CANCELLED',errorCode:code,completedAt:new Date(),...cleared}});}
-export async function claimCaptionTranslation(ownerId:string){
+export async function claimCaptionTranslation(ownerId:string,learning=false){
  return prisma.$transaction(async tx=>{
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`classification:${ownerId}`},0))::text`;
   const now=new Date();
@@ -48,13 +50,13 @@ export async function claimCaptionTranslation(ownerId:string){
    if(post.caption.length>100_000){await setAuditAction(tx,'caption_translation.reject_limit');await tx.postClassificationJob.update({where:{id:job.id},data:{status:'NEEDS_REVIEW',errorCode:'CAPTION_LIMIT',completedAt:now,...cleared}});continue;}
    const leaseToken=randomUUID();await setAuditAction(tx,'caption_translation.claim');
    await tx.postClassificationJob.update({where:{id:job.id},data:{status:'PROCESSING',attemptCount:{increment:1},leaseOwner:leaseToken,leaseExpiresAt:new Date(Date.now()+CLASSIFICATION_LEASE_MS),heartbeatAt:new Date(),startedAt:fresh.startedAt??now,nextAttemptAt:null,errorCode:null}});
-   return {jobId:job.id,leaseToken,heartbeatIntervalMs:30_000,input:{post_id:post.id,input_hash:hash,caption:post.caption},outputSchema:z.toJSONSchema(translationOutputSchema)};
+   return {jobId:job.id,leaseToken,heartbeatIntervalMs:30_000,input:{post_id:post.id,input_hash:hash,caption:post.caption},outputSchema:z.toJSONSchema(translationOutputSchema),...(learning?{learningContext:await loadLearningContext(tx,ownerId,post.id,'translation')}:{})};
   }
   return null;
  },{timeout:30_000});
 }
-export async function completeCaptionTranslation(ownerId:string,command:Lease&{result:unknown}){
- const result=translationResultSchema.parse(command.result),requestHash=digest(result),leaseHash=digest(command.leaseToken);
+export async function completeCaptionTranslation(ownerId:string,command:Lease&{result:unknown;learning?:LearningReport}){
+ const result=translationResultSchema.parse(command.result),requestHash=digest(command.learning?{result,learning:command.learning}:result),leaseHash=digest(command.leaseToken);
  const outcome=await prisma.$transaction(async tx=>{
   await lockPostWrites(tx,ownerId);
   const before=await tx.postClassificationJob.findFirst({where:{id:command.jobId,ownerId,analysisVersion:CAPTION_TRANSLATION_VERSION}});
@@ -72,11 +74,12 @@ export async function completeCaptionTranslation(ownerId:string,command:Lease&{r
   const status=result.decision==='NEEDS_REVIEW'?'NEEDS_REVIEW':'SUCCEEDED';const receipt={postId:post.id,status,decision:result.decision};
   await setAuditAction(tx,'caption_translation.complete');
   await tx.postClassificationJob.update({where:{id:job.id},data:{status,completedAt:new Date(),...cleared,errorCode:null,result:{...result,completion:{requestHash,leaseHash,receipt}} as Prisma.InputJsonValue}});
+  await recordLearningObservation(tx,ownerId,job.id,post.id,command.leaseToken,'translation',status,command.learning);
   return {receipt};
  },{timeout:30_000});
  if(outcome.error)throw Error(outcome.error);return outcome.receipt;
 }
-export async function failCaptionTranslation(ownerId:string,lease:Lease&{code:string}){
+export async function failCaptionTranslation(ownerId:string,lease:Lease&{code:string;learning?:LearningReport}){
  return prisma.$transaction(async tx=>{
   const job=await tx.postClassificationJob.findFirst({where:{id:lease.jobId,ownerId,analysisVersion:CAPTION_TRANSLATION_VERSION}}),now=new Date();
   if(!job||job.status!=='PROCESSING'||job.leaseOwner!==lease.leaseToken||!job.leaseExpiresAt||job.leaseExpiresAt<=now)throw Error('CLASSIFICATION_LEASE_LOST');
@@ -85,7 +88,9 @@ export async function failCaptionTranslation(ownerId:string,lease:Lease&{code:st
   const retryable=busy?busyWindowOpen:['INFERENCE_FAILED','INFERENCE_BUSY','WORKER_TIMEOUT','WORKER_STOPPING'].includes(lease.code)&&job.attemptCount<3;
   await setAuditAction(tx,'caption_translation.fail');
   const updated=await tx.postClassificationJob.updateMany({where:{id:job.id,ownerId,inputHash:job.inputHash,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,...cleared,...(busy&&retryable?{attemptCount:Math.max(0,job.attemptCount-1)}:{}),nextAttemptAt:retryable?new Date(now.getTime()+(busy?300_000:job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now}});
-  if(updated.count!==1)throw Error('CLASSIFICATION_LEASE_LOST');return {ok:true,retryable};
+  if(updated.count!==1)throw Error('CLASSIFICATION_LEASE_LOST');
+  await recordLearningObservation(tx,ownerId,job.id,job.postId,lease.leaseToken,'translation',retryable?'RETRY':'FAILED',lease.learning,lease.code);
+  return {ok:true,retryable};
  });
 }
 

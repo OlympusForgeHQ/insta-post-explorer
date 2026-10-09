@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { foldForSearch, instagramPostCode, tagSlug } from "@/lib/import/normalize";
 import { databaseConfigured, prisma } from "@/server/db";
+import { recordTagFeedback } from "@/server/classification/learning";
 import { setAuditAction } from "@/server/audit-log";
 import { parseOwnerId } from "@/server/owner";
 import { findPostAliases, lockPostWrites } from "@/server/post-deletions";
@@ -58,6 +59,7 @@ export async function addTagToPost(input: {
       update: { isManual: true },
     });
 
+    await recordTagFeedback(transaction, ownerId, postId, tagName, "add");
     return synchronizePostSearchText(transaction, ownerId, post);
   });
 }
@@ -70,7 +72,8 @@ export async function removeTagFromPost(input: {
   requireDatabase();
   const ownerId = parseOwnerId(input.ownerId);
   const postId = postIdSchema.parse(input.postId);
-  const slug = tagSlug(tagNameSchema.parse(input.tagName));
+  const tagName = tagNameSchema.parse(input.tagName);
+  const slug = tagSlug(tagName);
 
   return prisma.$transaction(async (transaction) => {
     const post = await findOwnedPost(transaction, ownerId, postId);
@@ -88,6 +91,7 @@ export async function removeTagFromPost(input: {
       });
     }
 
+    await recordTagFeedback(transaction, ownerId, postId, tagName, "remove");
     return synchronizePostSearchText(transaction, ownerId, post);
   });
 }

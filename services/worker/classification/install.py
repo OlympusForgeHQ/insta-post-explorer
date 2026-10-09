@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 MARKER = 'insta-post-explorer:classification:v1\n'
 STATE = Path('/var/lib/insta-explorer-classification')
 UNIT = Path('/etc/systemd/system/insta-explorer-classification.service')
-KEYS = {'CLASSIFICATION_APP_ORIGIN', 'CLASSIFICATION_WORKER_API_KEY', 'CLASSIFICATION_HERMES_URL', 'CLASSIFICATION_HERMES_KEY', 'CLASSIFICATION_ASR_PYTHON', 'CLASSIFICATION_ASR_SCRIPT', 'CLASSIFICATION_TEMP_ROOT', 'CLASSIFICATION_ASR_CACHE'}
+KEYS = {'CLASSIFICATION_LEARNING_ENABLED', 'CLASSIFICATION_APP_ORIGIN', 'CLASSIFICATION_WORKER_API_KEY', 'CLASSIFICATION_HERMES_URL', 'CLASSIFICATION_HERMES_KEY', 'CLASSIFICATION_ASR_PYTHON', 'CLASSIFICATION_ASR_SCRIPT', 'CLASSIFICATION_TEMP_ROOT', 'CLASSIFICATION_ASR_CACHE'}
 
 
 def refuse_symlink(path):
@@ -103,7 +103,9 @@ def main():
     if not re.fullmatch(r'v24\.\d+\.\d+', version):
         raise ValueError('NODE_24_REQUIRED')
     values = read_env(args.env_file)
-    required = KEYS - {'CLASSIFICATION_ASR_SCRIPT', 'CLASSIFICATION_TEMP_ROOT', 'CLASSIFICATION_ASR_CACHE'}
+    if values.get('CLASSIFICATION_LEARNING_ENABLED', '0') not in ['0', '1']:
+        raise ValueError('INVALID_LEARNING_FLAG')
+    required = KEYS - {'CLASSIFICATION_LEARNING_ENABLED', 'CLASSIFICATION_ASR_SCRIPT', 'CLASSIFICATION_TEMP_ROOT', 'CLASSIFICATION_ASR_CACHE'}
     if not required.issubset(values):
         raise ValueError('CONFIG_INCOMPLETE')
     origin = urlsplit(values['CLASSIFICATION_APP_ORIGIN'])

@@ -1,3 +1,4 @@
+import {learningInstructions,learningGuidance,type LearningContext} from './learning.js';
 import {z} from 'zod';
 import {translateCaptionSpans} from './translation-spans.js';
 import {reviewAmbiguousUnits} from './translation-context.js';
@@ -68,7 +69,7 @@ export function translationDiagnostic(error:unknown){
  return error instanceof Error&&diagnosticCodes.has(error.message)?error.message:'INVALID_RESULT';
 }
 type Diagnostic=(event:Record<string,unknown>)=>void;
-export async function translateCaption(caption:string,url:string,secret:string,signal:AbortSignal,request:typeof fetch=fetch,log?:Diagnostic){
+export async function translateCaption(caption:string,url:string,secret:string,signal:AbortSignal,request:typeof fetch=fetch,log?:Diagnostic,learning?:LearningContext){
  if(caption.length>100_000)throw Error('CAPTION_LIMIT');
  const usage={inputTokens:0,outputTokens:0};let calls=0;
  const limitedRequest:typeof fetch=async(input,init)=>{
@@ -88,8 +89,8 @@ export async function translateCaption(caption:string,url:string,secret:string,s
  for(const unit of prepared.units){if(batch.length&&(size+unit.text.length>4000||batch.length>=40)){batches.push(batch);batch=[];size=0;}batch.push(unit);size+=unit.text.length;}if(batch.length)batches.push(batch);
  async function exact(unit:CaptionUnit){
   let result;
-  const trackUsage=(delta:{inputTokens:number;outputTokens:number})=>{usage.inputTokens+=delta.inputTokens;usage.outputTokens+=delta.outputTokens;};
-  try{result=await translateCaptionExact(unit.text,url,secret,signal,limitedRequest,log,trackUsage);}catch(error){
+  const trackUsage=(delta:{inputTokens:number;outputTokens:number})=>{usage.inputTokens+=delta.inputTokens;usage.outputTokens+=delta.outputTokens;log?.({stage:'inference_usage',usage:delta});};
+  try{if(learning?.strategy==='preserve_source'&&unit.text.length<=4000){result=await translateCaptionSpans(unit.text,url,secret,signal,limitedRequest,trackUsage);}else result=await translateCaptionExact(unit.text,url,secret,signal,limitedRequest,log,trackUsage);}catch(error){
    signal.throwIfAborted();if(unit.text.length>4000||(error instanceof Error&&['INFERENCE_FAILED','INFERENCE_BUSY','WORKER_TIMEOUT','CAPTION_LIMIT'].includes(error.message)))throw error;
    log?.({stage:'caption_translation_span_fallback',unitId:unit.id,reason:translationDiagnostic(error)});
    result=await translateCaptionSpans(unit.text,url,secret,signal,limitedRequest,trackUsage);
@@ -100,7 +101,7 @@ export async function translateCaption(caption:string,url:string,secret:string,s
   signal.throwIfAborted();
   if(units.every(u=>prepared.isNonlinguistic(u.text))){for(const unit of units){results.push({decision:'UNCHANGED',sourceLanguages:['zxx'],translatedCaption:null,reason:'No prose'});parts.push(unit.prefix+prepared.restore(unit.text)+unit.suffix);}return;}
   if(units.length===1&&units[0].text.length>4000){const result=await exact(units[0]);results.push(result);parts.push(units[0].prefix+(result.translatedCaption??prepared.restore(units[0].text))+units[0].suffix);return;}
-  const messages=[{role:'system',content:indexedSystem},{role:'user',content:JSON.stringify({output_schema:z.toJSONSchema(indexedTranslationSchema),units:units.map(({id,text})=>({id,text}))})}];
+  const messages=[{role:'system',content:indexedSystem+' '+learningInstructions+' '+learningGuidance(learning)},{role:'user',content:JSON.stringify({output_schema:z.toJSONSchema(indexedTranslationSchema),verified_examples:learning?.examples??[],units:units.map(({id,text})=>({id,text}))})}];
   for(let attempt=0;attempt<2;attempt++){
    let response:Response;
    try{response=await limitedRequest(url+'/chat/completions',{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({model:'insta-places',messages,stream:false,temperature:0,max_tokens:16384}),signal:AbortSignal.any([signal,AbortSignal.timeout(180_000)])});}
@@ -110,7 +111,7 @@ export async function translateCaption(caption:string,url:string,secret:string,s
    let body:unknown;try{body=await boundedJson(response);}catch{throw Error('INFERENCE_FAILED');}
    try{
     const envelope=z.object({model:z.literal('insta-places'),choices:z.array(z.object({message:z.object({content:z.string()}),finish_reason:z.string().nullable().optional()})).min(1),usage:z.object({prompt_tokens:z.number().int().nonnegative(),completion_tokens:z.number().int().nonnegative()})}).parse(body);
-    usage.inputTokens+=envelope.usage.prompt_tokens;usage.outputTokens+=envelope.usage.completion_tokens;
+    usage.inputTokens+=envelope.usage.prompt_tokens;usage.outputTokens+=envelope.usage.completion_tokens;log?.({stage:'inference_usage',usage:{inputTokens:envelope.usage.prompt_tokens,outputTokens:envelope.usage.completion_tokens}});
     if(envelope.choices[0].finish_reason==='error')throw Error('INFERENCE_FAILED');
     if(envelope.choices[0].finish_reason==='length')throw Error('TRUNCATED');
     const raw=envelope.choices[0].message.content.trim().replace(/^```(?:json)?\s*\n?/,'').replace(/\n?```$/,'');
@@ -137,7 +138,7 @@ export async function translateCaption(caption:string,url:string,secret:string,s
  const uncertain=results.filter(r=>r.decision==='NEEDS_REVIEW').length;
  if(uncertain){
   const reviewed=await reviewAmbiguousUnits({all:prepared.units,outputs:results.map((r,i)=>({...r,id:prepared.units[i].id})),url,secret,signal,request:limitedRequest,log,diagnostic:translationDiagnostic});
-  usage.inputTokens+=reviewed.usage.inputTokens;usage.outputTokens+=reviewed.usage.outputTokens;
+  usage.inputTokens+=reviewed.usage.inputTokens;usage.outputTokens+=reviewed.usage.outputTokens;log?.({stage:'inference_usage',usage:reviewed.usage});
   for(let i=0;i<results.length;i++){
    if(results[i].decision!=='NEEDS_REVIEW'||reviewed.outputs[i].decision==='NEEDS_REVIEW')continue;
    const unit=prepared.units[i];let candidate:TranslationOutput=reviewed.outputs[i];
