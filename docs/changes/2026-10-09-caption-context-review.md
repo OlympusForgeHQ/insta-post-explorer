@@ -203,3 +203,21 @@ the model to read the ordered tokens as a full sentence before selecting spans.
 Keep the strict validator, existing outer retry budget and uncertainty policy.
 The unchanged synthetic pilot is the before/after check; deterministic span
 contract and fidelity regressions remain in caption-mixed-spans.test.ts.
+
+
+## Context language/decision contract
+
+The last targeted format retry still returned UNCHANGED with sourceLanguages=de
+and reason ABBREVIATION twice. A read-only replay reproduced this exact structural
+contradiction without exposing the private caption. The null-field repair was
+therefore insufficient: the provider schema also omitted the decision-dependent
+language restrictions enforced by the local validator.
+
+Expose a discriminated outcome schema for contextual requests: unchanged permits
+only en/fr/zxx and null; review requires null; translation requires nonempty text.
+Explicitly distinguish retained nonlinguistic abbreviation labels from meaningful
+foreign prose/connectives. Do not automatically remap a foreign language to zxx.
+The local validator remains authoritative, including language/decision rules not
+fully expressible in the provider schema. The existing rejection fixture now also
+checks persistent UNCHANGED/de responses remain reviewable after bounded repair.
+The real-provider structural replay supplies the before/after regression evidence.
