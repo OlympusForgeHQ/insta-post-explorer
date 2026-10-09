@@ -7,6 +7,18 @@ Current web release: `main` at `365f545`
 Sync retains its previous image and hourly recovery command.
 Older phase references below are historical.
 
+## Caption translation recovery — 9 October 2026
+
+The owner approved fixing invalid responses and transient busy failures. The
+reviewed correction uses indexed sentence/line units, local protected-token/emoji
+restoration, exact fallback for mixed-language units and allowlisted diagnostics.
+Busy deferrals refund the inference attempt within a 24-hour window; genuine
+failures remain bounded. Failed-job recovery is owner/version/hash/cutoff scoped,
+audited and idempotent. Successful work and active leases are excluded.
+Source implementation is ready for validation/publication; production rollout and
+scoped recovery are not yet claimed. See
+[recovery specification](changes/2026-10-09-caption-translation-recovery.md).
+
 ## Caption translation — 8 October 2026
 
 The owner requested French translations for descriptions in languages other than
