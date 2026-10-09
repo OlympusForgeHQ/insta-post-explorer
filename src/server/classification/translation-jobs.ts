@@ -80,9 +80,33 @@ export async function failCaptionTranslation(ownerId:string,lease:Lease&{code:st
  return prisma.$transaction(async tx=>{
   const job=await tx.postClassificationJob.findFirst({where:{id:lease.jobId,ownerId,analysisVersion:CAPTION_TRANSLATION_VERSION}}),now=new Date();
   if(!job||job.status!=='PROCESSING'||job.leaseOwner!==lease.leaseToken||!job.leaseExpiresAt||job.leaseExpiresAt<=now)throw Error('CLASSIFICATION_LEASE_LOST');
-  const retryable=['INFERENCE_FAILED','INFERENCE_BUSY','WORKER_TIMEOUT','WORKER_STOPPING'].includes(lease.code)&&job.attemptCount<3;
+  const busy=lease.code==='INFERENCE_BUSY';
+  const busyWindowOpen=!!job.startedAt&&now.getTime()-job.startedAt.getTime()<24*3600_000;
+  const retryable=busy?busyWindowOpen:['INFERENCE_FAILED','INFERENCE_BUSY','WORKER_TIMEOUT','WORKER_STOPPING'].includes(lease.code)&&job.attemptCount<3;
   await setAuditAction(tx,'caption_translation.fail');
-  const updated=await tx.postClassificationJob.updateMany({where:{id:job.id,ownerId,inputHash:job.inputHash,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,...cleared,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now}});
+  const updated=await tx.postClassificationJob.updateMany({where:{id:job.id,ownerId,inputHash:job.inputHash,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,...cleared,...(busy&&retryable?{attemptCount:Math.max(0,job.attemptCount-1)}:{}),nextAttemptAt:retryable?new Date(now.getTime()+(busy?300_000:job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now}});
   if(updated.count!==1)throw Error('CLASSIFICATION_LEASE_LOST');return {ok:true,retryable};
  });
+}
+
+// Operator recovery is deliberately version-scoped, cutoff-bound and idempotent.
+// A repeated invocation cannot pick up a new failure produced after this cutoff.
+export async function recoverFailedCaptionTranslations(ownerId:string,failedBefore:Date){
+ if(!Number.isFinite(failedBefore.getTime())||failedBefore>new Date())throw Error('INVALID_RECOVERY_CUTOFF');
+ const candidates=await prisma.postClassificationJob.findMany({where:{ownerId,analysisVersion:CAPTION_TRANSLATION_VERSION,status:'FAILED',completedAt:{lte:failedBefore},errorCode:{in:['INVALID_RESULT','INFERENCE_BUSY','INFERENCE_FAILED','WORKER_TIMEOUT','ATTEMPTS_EXHAUSTED']}},select:{id:true,postId:true},orderBy:{id:'asc'},take:5000});
+ let requeued=0,skipped=0;
+ for(const candidate of candidates){
+  const changed=await prisma.$transaction(async tx=>{
+   if(!candidate.postId)return false;
+   await tx.$queryRaw`SELECT id FROM posts WHERE owner_id=${ownerId} AND id=${candidate.postId} FOR UPDATE`;
+   await tx.$queryRaw`SELECT id FROM post_classification_jobs WHERE owner_id=${ownerId} AND id=${candidate.id} FOR UPDATE`;
+   const job=await tx.postClassificationJob.findFirst({where:{id:candidate.id,ownerId,analysisVersion:CAPTION_TRANSLATION_VERSION,status:'FAILED',completedAt:{lte:failedBefore},errorCode:{in:['INVALID_RESULT','INFERENCE_BUSY','INFERENCE_FAILED','WORKER_TIMEOUT','ATTEMPTS_EXHAUSTED']}}});
+   const post=await tx.post.findFirst({where:{id:candidate.postId,ownerId},select:{id:true,caption:true}});
+   if(!job||!post||job.postId!==post.id||job.inputHash!==captionSourceHash(ownerId,post.id,post.caption))return false;
+   await setAuditAction(tx,'caption_translation.recover');
+   await tx.postClassificationJob.update({where:{id:job.id},data:{status:'PENDING',attemptCount:0,errorCode:null,result:Prisma.DbNull,startedAt:null,completedAt:null,...cleared}});return true;
+  });
+  if(changed)requeued++;else skipped++;
+ }
+ return {requeued,skipped};
 }

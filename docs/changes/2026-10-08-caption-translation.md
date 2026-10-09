@@ -137,4 +137,19 @@ legacy requests. Implementation evidence: 664 app and 139 worker tests pass; app
 pass. Chromium verifies French/default and the original toggle. Independent review corrected paragraph/emoji preservation, copied FR/EN
 source segments, transient response-body errors, and systemd child drainage. A real
 isolated systemd test proves one claim, an unaborted active signal, a successful
-child exit and lock release only after draining. Production evidence is pending.
+child exit and lock release only after draining. Production activation completed at 21:24 UTC on 8 October: web `365f545`
+(PR #129, green CI) fences legacy claims, then the consumer was replaced only after
+zero active jobs. Subsequent classification successes, Node main PID, canonical
+lock, four CPU quota and zero restarts were verified. All 3,923 existing captions
+were admitted at 21:25 UTC; translation processing follows eligible classification,
+so this is an admission/activation claim, not a completed-library claim. Future
+imports use the enabled transactional admission hook. Aggregate fingerprints prove
+original captions, 2,763 protected tag links, 36 deletion tombstones, 1,230 Places
+and 1,165 place links unchanged. Original auto-deployment controls and sync cron
+were restored. Detailed private receipts are in
+`.tmp/caption-translation-20261008/`; use version-filtered operational counts.
+
+Release CI exposed a slow Ubuntu regional mirror. The follow-up reuses installed
+FFmpeg/ffprobe, bounds package installation, retains Ubuntu signature verification,
+and uses the official archive without optional recommended packages. All validation
+steps remain enabled.
