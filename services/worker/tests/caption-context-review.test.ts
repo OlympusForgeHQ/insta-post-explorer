@@ -25,18 +25,19 @@ describe('Contextual review of ambiguous caption units',()=>{
   };
   expect(await translateCaption(source,'http://test/v1','test',new AbortController().signal,request)).toMatchObject({decision:'UNCHANGED',translatedCaption:null});expect(calls).toBe(2);
  });
- it.each(['unresolved','wrong-id','missing-marker','extra-context','copied-unchanged'])('keeps the review outcome for %s context results',async mode=>{
+ it.each(['unresolved','wrong-id','missing-marker','extra-context','copied-unchanged','foreign-unchanged'])('keeps the review outcome for %s context results',async mode=>{
   let calls=0;const logs:unknown[]=[];
   const request:typeof fetch=async(_url,init)=>{calls++;const input=JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
    if(calls===1)return envelope([result(0,'UNCHANGED',['en']),result(1,'NEEDS_REVIEW',['und'])]);
    if(mode==='wrong-id')return envelope([result(0,'UNCHANGED',['en'])]);
    if(mode==='extra-context')return envelope([result(0,'UNCHANGED',['en']),result(1,'UNCHANGED',['zxx'])]);
+   if(mode==='foreign-unchanged')return envelope([result(1,'UNCHANGED',['de'])]);
    if(mode==='copied-unchanged')return envelope([result(1,'UNCHANGED',['zxx'],input.units[0].text)]);
    if(mode==='missing-marker')return envelope([result(1,'TRANSLATED',['es'],'Bonjour')]);
    return envelope(input.units.map((u:{id:number})=>result(u.id,'NEEDS_REVIEW',['und'])));
   };
   expect(await translateCaption('Keep this exact.\nSecretlabel 200 🙂','http://test/v1','test',new AbortController().signal,request,e=>logs.push(e))).toMatchObject({decision:'NEEDS_REVIEW',translatedCaption:null});
-  expect(calls).toBe(['wrong-id','extra-context','copied-unchanged'].includes(mode)?3:2);expect(JSON.stringify(logs)).not.toContain('Secretlabel');
+  expect(calls).toBe(['wrong-id','extra-context','copied-unchanged','foreign-unchanged'].includes(mode)?3:2);expect(JSON.stringify(logs)).not.toContain('Secretlabel');
  });
  it('translates a resolved foreign unit and retains protected content and English',async()=>{
   let calls=0;const request:typeof fetch=async(_url,init)=>{calls++;const input=JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
