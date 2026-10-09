@@ -1,9 +1,9 @@
 # Operational Handoff
 
-Last updated: 8 October 2026
+Last updated: 9 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
-Reference development base: `develop` at `edf507f` (caption translation)
-Current web release: `main` at `365f545`
+Reference development base: `develop` at `5130362` (translation recovery)
+Current web release: `main` at `e84e96c`
 Sync retains its previous image and hourly recovery command.
 Older phase references below are historical.
 
@@ -15,8 +15,18 @@ restoration, exact fallback for mixed-language units and allowlisted diagnostics
 Busy deferrals refund the inference attempt within a 24-hour window; genuine
 failures remain bounded. Failed-job recovery is owner/version/hash/cutoff scoped,
 audited and idempotent. Successful work and active leases are excluded.
-Source implementation is ready for validation/publication; production rollout and
-scoped recovery are not yet claimed. See
+PR #131 merged at `5130362`; release PR #132 deployed web/main `e84e96c`
+after green quality/browser CI. The previous consumer finished its owned task;
+zero processing jobs and a free canonical lock were verified before the synthetic
+pilot. All five real-provider cases passed (French, English, Spanish, mixed and
+Russian). Immutable consumer `20261009-translation-recovery` is active with four
+CPUs, unchanged environment, Node main PID and zero restarts. At 08:13 UTC,
+141 failed translations were requeued with cutoff `2026-10-09T08:12:24.908Z`;
+replay requeued zero. At 08:14 UTC, five recovered jobs had succeeded and none had
+failed again; the remaining cohort is still processing, not claimed complete.
+Original-caption and all protected fingerprints match; deployment controls were
+restored and the sync image/cron were preserved. Private receipts and cohort status:
+`.tmp/caption-recovery-20261009/`. See
 [recovery specification](changes/2026-10-09-caption-translation-recovery.md).
 
 ## Caption translation — 8 October 2026
