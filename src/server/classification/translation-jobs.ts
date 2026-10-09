@@ -110,3 +110,26 @@ export async function recoverFailedCaptionTranslations(ownerId:string,failedBefo
  }
  return {requeued,skipped};
 }
+
+// Explicit review snapshots prevent broad or repeated reanalysis of uncertain posts.
+export async function recoverReviewedCaptionTranslations(ownerId:string,targets:Array<{id:string;inputHash:string}>,reviewedBefore:Date){
+ const selected=z.array(z.object({id:z.string().min(1),inputHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict()).min(1).max(5000).parse(targets);
+ if(!Number.isFinite(reviewedBefore.getTime())||reviewedBefore>new Date()||new Set(selected.map(t=>t.id)).size!==selected.length)throw Error('INVALID_RECOVERY_SNAPSHOT');
+ let requeued=0;
+ for(const target of selected){
+  const changed=await prisma.$transaction(async tx=>{
+   const where={id:target.id,ownerId,analysisVersion:CAPTION_TRANSLATION_VERSION,inputHash:target.inputHash,status:'NEEDS_REVIEW' as const,completedAt:{lte:reviewedBefore}};
+   const candidate=await tx.postClassificationJob.findFirst({where});if(!candidate?.postId)return false;
+   await tx.$queryRaw`SELECT id FROM posts WHERE owner_id=${ownerId} AND id=${candidate.postId} FOR UPDATE`;
+   await tx.$queryRaw`SELECT id FROM post_classification_jobs WHERE owner_id=${ownerId} AND id=${target.id} FOR UPDATE`;
+   const job=await tx.postClassificationJob.findFirst({where});
+   const post=await tx.post.findFirst({where:{id:candidate.postId,ownerId},select:{id:true,caption:true}});
+   if(!job||!post||job.postId!==post.id||job.errorCode!==null||(job.result as {decision?:unknown}|null)?.decision!=='NEEDS_REVIEW'||captionSourceHash(ownerId,post.id,post.caption)!==target.inputHash)return false;
+   await setAuditAction(tx,'caption_translation.recover_review');
+   await tx.postClassificationJob.update({where:{id:job.id},data:{status:'PENDING',attemptCount:0,result:Prisma.DbNull,errorCode:null,startedAt:null,completedAt:null,...cleared}});
+   return true;
+  },{timeout:30_000});
+  if(changed)requeued++;
+ }
+ return {requeued,skipped:selected.length-requeued};
+}

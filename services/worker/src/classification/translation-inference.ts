@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {reviewAmbiguousUnits} from './translation-context.js';
 import {setTimeout as delay} from 'node:timers/promises';
 import {prepareCaptionUnits,indexedTranslationSchema,validateIndexedUnits,combineUnits,type CaptionUnit} from './translation-units.js';
 import {boundedJson} from '../places/api.js';
@@ -124,5 +125,19 @@ export async function translateCaption(caption:string,url:string,secret:string,s
   const result=await exact(units[0]);results.push(result);parts.push(units[0].prefix+(result.translatedCaption??prepared.restore(units[0].text))+units[0].suffix);
  }
  for(const group of batches)await process(group);
+ const uncertain=results.filter(r=>r.decision==='NEEDS_REVIEW').length;
+ if(uncertain){
+  const reviewed=await reviewAmbiguousUnits({all:prepared.units,outputs:results.map((r,i)=>({...r,id:prepared.units[i].id})),url,secret,signal,request:limitedRequest,log,diagnostic:translationDiagnostic});
+  usage.inputTokens+=reviewed.usage.inputTokens;usage.outputTokens+=reviewed.usage.outputTokens;
+  for(let i=0;i<results.length;i++){
+   if(results[i].decision!=='NEEDS_REVIEW'||reviewed.outputs[i].decision==='NEEDS_REVIEW')continue;
+   const unit=prepared.units[i];let candidate:TranslationOutput=reviewed.outputs[i];
+   try{
+    if(candidate.decision==='TRANSLATED')candidate=candidate.sourceLanguages.some(l=>['en','fr','zxx'].includes(l))?await exact(unit):{...candidate,translatedCaption:prepared.restoreTranslation(unit.text,candidate.translatedCaption!.trim())};
+    validateTranslationContent(prepared.restore(unit.text),candidate);results[i]=candidate;parts[i]=unit.prefix+(candidate.translatedCaption??prepared.restore(unit.text))+unit.suffix;
+   }catch(error){signal.throwIfAborted();if(error instanceof Error&&['INFERENCE_FAILED','INFERENCE_BUSY'].includes(error.message))throw error;log?.({stage:'caption_translation_context_rejected',reason:translationDiagnostic(error),unitId:unit.id});}
+  }
+  const unresolved=results.filter(r=>r.decision==='NEEDS_REVIEW').length;log?.({stage:'caption_translation_context_review',targetCount:uncertain,resolvedCount:uncertain-unresolved,unresolvedCount:unresolved});
+ }
  parts.push(prepared.trailing);const result=combineUnits(results,parts);validateTranslationContent(caption,result);return {...result,usage};
 }
