@@ -133,3 +133,18 @@ content validation, including rejected exact/span responses, without double
 counting successful responses. The source-echo regression asserts the total usage
 of all four provider responses. Final validation: 668 application tests, 163 worker
 tests, four Python tests, 35 focused translation tests, lint, types and builds.
+
+## Real-provider contextual contract clarification
+
+The pre-activation synthetic pilot correctly blocked rollout: on a recognized
+restaurant name, DeepSeek returned UNCHANGED/zxx but copied the name into
+translatedCaption instead of returning null. The context prompt had explicitly
+required null only for NEEDS_REVIEW, while describing unchanged content as copied
+locally. The old consumer was automatically restored; no cohort was reset.
+
+The prompt now explicitly requires null for both unchanged/review decisions,
+states that the worker performs the copy, supplies a proper-name JSON example,
+and requests exact reason codes. Validation remains strict; no source-recopy
+normalization or extra retry is added. The real synthetic name probe fails before
+and passes after this clarification. The copied-unchanged fixture remains rejected
+in caption-context-review.test.ts. Worker regressions now include 164 cases.
