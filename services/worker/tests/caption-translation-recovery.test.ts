@@ -47,4 +47,24 @@ describe('Caption recovery protocol',()=>{
   expect((await translateCaption('Hola.\n200 👩🏽‍🍳','http://test/v1','test',new AbortController().signal,request)).translatedCaption).toBe('Bonjour.\n200 👩🏽‍🍳');
  });
 
+ it('keeps protected markers through the mixed-language exact fallback',async()=>{
+  const request:typeof fetch=async(_url,init)=>{
+   const input=JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+   if(input.units)return envelope({units:[{...output(0,'es',input.units[0].text.replace('Mezcla','Mélange')),sourceLanguages:['es','en']}]});
+   const source=input.untrusted_caption as string;expect(source).toContain('[[IPEKEEP0]]');expect(source).not.toContain('200');
+   const boundary=source.indexOf('keep');return envelope({segments:[{sourceText:source.slice(0,boundary),decision:'TRANSLATED',sourceLanguages:['es'],translatedCaption:source.slice(0,boundary).replace('Mezcla','Mélange'),reason:'Spanish'},{sourceText:source.slice(boundary),decision:'UNCHANGED',sourceLanguages:['en'],translatedCaption:null,reason:'English'}]});
+  };
+  expect((await translateCaption('Mezcla 200 g, keep this exact.','http://test/v1','test',new AbortController().signal,request)).translatedCaption).toBe('Mélange 200 g, keep this exact.');
+ });
+
+ it.each(['mixed','invalid-indexed'])('rejects marker permutation from the %s fallback',async mode=>{
+  const request:typeof fetch=async(_url,init)=>{
+   const input=JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
+   if(input.units)return envelope({units:[{...output(mode==='mixed'?0:999,'es','Bonjour'),sourceLanguages:['es','en']}]});
+   const source=input.untrusted_caption as string;const changed=source.replace('[[IPEKEEP0]]','TEMP').replace('[[IPEKEEP1]]','[[IPEKEEP0]]').replace('TEMP','[[IPEKEEP1]]');
+   return envelope({segments:[{sourceText:source,decision:'TRANSLATED',sourceLanguages:['es'],translatedCaption:changed,reason:'Spanish'}]});
+  };
+  await expect(translateCaption('Mezcla 200 y 300, keep this exact.','http://test/v1','test',new AbortController().signal,request)).rejects.toThrow('TRANSLATION_MARKERS_CHANGED');
+ });
+
 });

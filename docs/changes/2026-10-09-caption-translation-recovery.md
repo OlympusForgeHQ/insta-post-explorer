@@ -74,3 +74,16 @@ Detailed private activation, recovery, replay, integrity and cohort receipts are
 in `.tmp/caption-recovery-20261009/`. Future status must separate versions and
 use the recorded cohort, not the entire translation queue. Do not repeat recovery
 with a later cutoff merely to hide new failures; inspect the new diagnostic codes.
+
+## Mixed-language fallback follow-up
+
+The live cohort exposed repeated TRANSLATION_TOKENS_CHANGED in the exact fallback:
+its input was being unmasked before inference. Keep markers throughout that path,
+then validate their presence/order and restore protected content locally. The exact
+prompt now explicitly excludes marker letters from language detection. Original
+FR/EN segment copying and final raw-caption checks remain unchanged. Regressions
+cover a mixed-language quantity and marker permutation through both fallback entry
+paths. This is a worker-only follow-up; no API/schema or sync change is needed.
+The current activation and recovery outcome is recorded in the private execution
+receipt, with separate receipts for this follow-up. The original 141-job cohort
+remains the observation scope; do not infer completion from enqueue success.
