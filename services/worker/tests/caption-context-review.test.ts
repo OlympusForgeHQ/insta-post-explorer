@@ -4,6 +4,17 @@ import {translateCaption} from '../src/classification/translation-inference.js';
 const envelope=(units:unknown[])=>Response.json({model:'insta-places',choices:[{message:{content:JSON.stringify({units})},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:10}});
 const result=(id:number,decision:string,sourceLanguages:string[],translatedCaption:string|null=null)=>({id,decision,sourceLanguages,translatedCaption,reason:'test'});
 describe('Contextual review of ambiguous caption units',()=>{
+ it('repairs one malformed contextual response without restarting the whole caption',async()=>{
+  let calls=0;
+  const request:typeof fetch=async()=>{
+   calls++;
+   if(calls===1)return envelope([result(0,'NEEDS_REVIEW',['und'])]);
+   if(calls===2)return envelope([result(0,'UNCHANGED',['zxx'],'Casa Azul')]);
+   return envelope([result(0,'UNCHANGED',['zxx'])]);
+  };
+  expect(await translateCaption('Casa Azul','http://test/v1','test',new AbortController().signal,request)).toMatchObject({decision:'UNCHANGED',translatedCaption:null,usage:{inputTokens:60,outputTokens:30}});
+  expect(calls).toBe(3);
+ });
  it('uses the surrounding caption to resolve a name without rewriting accepted English',async()=>{
   const source='Visit this lovely restaurant.\nCasa Azul\nBook your table today.';let calls=0;
   const request:typeof fetch=async(_url,init)=>{calls++;const input=JSON.parse(JSON.parse(String(init?.body)).messages[1].content);
@@ -25,7 +36,7 @@ describe('Contextual review of ambiguous caption units',()=>{
    return envelope(input.units.map((u:{id:number})=>result(u.id,'NEEDS_REVIEW',['und'])));
   };
   expect(await translateCaption('Keep this exact.\nSecretlabel 200 🙂','http://test/v1','test',new AbortController().signal,request,e=>logs.push(e))).toMatchObject({decision:'NEEDS_REVIEW',translatedCaption:null});
-  expect(calls).toBe(2);expect(JSON.stringify(logs)).not.toContain('Secretlabel');
+  expect(calls).toBe(['wrong-id','extra-context','copied-unchanged'].includes(mode)?3:2);expect(JSON.stringify(logs)).not.toContain('Secretlabel');
  });
  it('translates a resolved foreign unit and retains protected content and English',async()=>{
   let calls=0;const request:typeof fetch=async(_url,init)=>{calls++;const input=JSON.parse(JSON.parse(String(init?.body)).messages[1].content);

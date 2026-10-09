@@ -171,3 +171,20 @@ schema or API change. A provider timeout is per internal call, not a guarantee o
 an entire multi-turn request. Apply only after graceful consumer drain and zero
 classification/Places jobs processing; preserve the exact previous profile for
 rollback and journal config hashes, service health and cohort outcomes privately.
+
+## Bounded contextual format repair
+
+One recovered caption still reached review because the contextual response failed
+schema validation, rather than because its language remained uncertain. REQ-009 /
+AC-008: permit one format-repair request for a malformed contextual envelope or
+unit list. A valid NEEDS_REVIEW result is never retried; transport failures still
+propagate to the leased queue. Failed repair retains the original review decision.
+Both responses count toward usage and the shared request/time budgets. Never echo
+the rejected response or provider text into the repair prompt or logs.
+
+The regression first returns a malformed unchanged response and then a valid one:
+only the uncertain target is retried and all three response usages are counted.
+Existing wrong-ID, extra-context and copied-unchanged fixtures prove that repeated
+malformed replies remain bounded and rejected. Recovery, if needed, selects only
+the recorded still-reviewable jobs with a contextual format rejection; true
+INSUFFICIENT_CONTEXT results and successful captions are not automatically reset.
