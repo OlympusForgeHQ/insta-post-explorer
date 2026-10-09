@@ -9,7 +9,7 @@ describe("worker container contract", () => {
   it("uses a multi-stage Node 24 image with a numeric non-root healthchecked runtime", async () => {
     const dockerfile = await readFile(path.join(workerRoot, "Dockerfile"), "utf8");
 
-    expect(dockerfile.match(/^FROM node:24[^\n]* AS /gm)?.length).toBeGreaterThanOrEqual(2);
+    expect(dockerfile.match(/^FROM public\.ecr\.aws\/docker\/library\/node:24[^\n]* AS /gm)?.length).toBeGreaterThanOrEqual(2);
     expect(dockerfile).toMatch(/^USER 10001:10001$/m);
     expect(dockerfile).toMatch(/^HEALTHCHECK /m);
     expect(dockerfile).toMatch(/^ENTRYPOINT \["\/usr\/bin\/tini", "--"\]$/m);

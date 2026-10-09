@@ -119,3 +119,8 @@ Both CI services now use the Docker Official Image published on ECR Public
 and every validation gate. Docker documents this distribution at
 https://www.docker.com/blog/news-from-aws-reinvent-docker-official-images-on-amazon-ecr-public/.
 The exact application commit subsequently passed 676 application tests locally.
+
+The next CI run reached worker validation but Docker Hub also rate-limited the
+Node base image during the container build. Its three stages now use the same
+official Node 24 Bookworm image on ECR Public; the container contract test covers
+the new source. Running sync containers and runtime permissions are unchanged.
