@@ -44,4 +44,24 @@ async function clear(){await db.post.deleteMany({where:{ownerId:owner}});await d
   const {claimClassification}=await import('@/server/classification/jobs');expect(await claimClassification(owner)).toBeNull();expect((await db.postClassificationJob.findUniqueOrThrow({where:{id:job.id}})).status).toBe('PENDING');
   expect(await service.claimCaptionTranslation(owner)).toBeNull();expect((await db.postClassificationJob.findUniqueOrThrow({where:{id:job.id}})).status).toBe('FAILED');
  });
+ it('defers busy inference without exhausting attempts, but stops after a day',async()=>{
+  const post=await seed();await enqueue(post.id);const claim=(await service.claimCaptionTranslation(owner))!;
+  await service.failCaptionTranslation(owner,{...claim,code:'INFERENCE_BUSY'});
+  let job=await db.postClassificationJob.findUniqueOrThrow({where:{id:claim.jobId}});
+  expect(job).toMatchObject({status:'PENDING',attemptCount:0,errorCode:'INFERENCE_BUSY'});
+  expect(job.nextAttemptAt!.getTime()).toBeGreaterThan(Date.now());expect(await service.claimCaptionTranslation(owner)).toBeNull();
+  await db.postClassificationJob.update({where:{id:job.id},data:{startedAt:new Date(Date.now()-25*3600_000),nextAttemptAt:new Date(0)}});
+  const again=(await service.claimCaptionTranslation(owner))!;await service.failCaptionTranslation(owner,{...again,code:'INFERENCE_BUSY'});
+  job=await db.postClassificationJob.findUniqueOrThrow({where:{id:job.id}});expect(job.status).toBe('FAILED');
+ });
+
+ it('recovers only failed current translations and replays without touching live/completed jobs',async()=>{
+  const post=await seed();await enqueue(post.id);const c=(await service.claimCaptionTranslation(owner))!;await service.failCaptionTranslation(owner,{...c,code:'INVALID_RESULT'});
+  const active=await seed();await enqueue(active.id);const live=(await service.claimCaptionTranslation(owner))!;
+  const cutoff=new Date();expect(await service.recoverFailedCaptionTranslations(owner,cutoff)).toEqual({requeued:1,skipped:0});
+  expect(await service.recoverFailedCaptionTranslations(owner,cutoff)).toEqual({requeued:0,skipped:0});
+  expect(await db.postClassificationJob.findUniqueOrThrow({where:{id:live.jobId}})).toMatchObject({status:'PROCESSING',leaseOwner:live.leaseToken});
+  expect(await db.post.findUniqueOrThrow({where:{id:post.id}})).toEqual(post);
+ });
+
 });
