@@ -148,3 +148,26 @@ and requests exact reason codes. Validation remains strict; no source-recopy
 normalization or extra retry is added. The real synthetic name probe fails before
 and passes after this clarification. The copied-unchanged fixture remains rejected
 in caption-context-review.test.ts. Worker regressions now include 164 cases.
+
+## Provider failures and timeout ownership
+
+During scoped recovery, an upstream call outlived the worker's 180-second request
+deadline, leaving the inference slot occupied and deferring subsequent jobs as
+INFERENCE_BUSY. The gateway's default request/retry/recovery limits were longer
+than the consumer deadline. Its OpenAI-compatible endpoint can also return HTTP
+200 with finish_reason=error and a textual failure response. Previously this was
+misclassified as invalid translation content, or retained as context ambiguity.
+
+REQ-008 / AC-007: indexed, exact, contextual and span response paths recognize
+finish_reason=error as INFERENCE_FAILED before parsing translation content. The
+existing leased job retry policy handles the failure; no provider error text is
+logged or published. caption-provider-errors.test.ts reproduces all four paths
+(four failures before the fix), asserts bounded call counts and no error leakage.
+
+Operational follow-up uses the existing isolated provider profile: bound request
+and stale timeouts, use one internal attempt and disable hidden recovery cycles,
+leaving retries to the durable worker queue. No model, credentials, endpoint,
+schema or API change. A provider timeout is per internal call, not a guarantee on
+an entire multi-turn request. Apply only after graceful consumer drain and zero
+classification/Places jobs processing; preserve the exact previous profile for
+rollback and journal config hashes, service health and cohort outcomes privately.
