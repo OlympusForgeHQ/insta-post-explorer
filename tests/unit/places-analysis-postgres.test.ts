@@ -136,6 +136,47 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     expect((await prisma.place.findUniqueOrThrow({where:{id:place.id}})).category).toBe("patisserie");
   });
 
+  it("preserves a known venue category across unknown mentions while accepting specific corrections", async () => {
+    const resolver = new FakeResolver({ "Nobu Dubai": [resolved()] });
+    const write = async (postId: string, category: PlaceCandidate["category"]) => {
+      await seedPost(postId, OWNER_A, "Voyages");
+      await analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A, resolver, commit: true,
+        record: await freshRecord(OWNER_A, postId, [candidate({ category, categoryReason: `Evidence for ${category}` })]),
+      });
+      return prisma.place.findFirstOrThrow({ where: { ownerId: OWNER_A } });
+    };
+    const first = await write("known-cafe", "cafe");
+    const unknown = await write("unknown-mention", "divers");
+    expect(unknown.category).toBe("cafe");
+    expect(unknown.metadata).toMatchObject({ classification: { category: "cafe", reason: "Evidence for cafe" } });
+    expect(await prisma.postPlace.count({ where: { ownerId: OWNER_A, placeId: first.id } })).toBe(2);
+    const corrected = await write("specific-pastry", "patisserie");
+    expect(corrected.category).toBe("patisserie");
+    await prisma.place.update({ where: { id: first.id }, data: { isUserConfirmed: true } });
+    expect((await write("automatic-restaurant", "restaurant")).category).toBe("patisserie");
+  });
+
+  it.each(["PLACE_CATEGORY_CORRECTED", "POST_PLACE_CORRECTED"])("scopes legacy protection to canonical corrections (%s)", async (action) => {
+    await seedPost("reviewed-cafe", OWNER_A, "Restaurant");
+    await seedPost("later-restaurant", OWNER_A, "Voyages");
+    const resolver = new FakeResolver({ "Nobu Dubai": [resolved()] });
+    const first = await analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A, resolver, commit: true,
+      record: await freshRecord(OWNER_A, "reviewed-cafe", [candidate({ category: "cafe" })]),
+    });
+    const before = await prisma.place.findFirstOrThrow({ where: { ownerId: OWNER_A } });
+    await prisma.placeEvidence.create({ data: { ownerId: OWNER_A, postId: "reviewed-cafe", placeId: before.id,
+      analysisJobId: first.jobId!, evidenceType: "USER_CORRECTION", excerpt: "Owner-approved cafe correction",
+      confidence: 1, metadata: { action },
+    } });
+    await analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A, resolver, commit: true,
+      record: await freshRecord(OWNER_A, "later-restaurant", [candidate({ category: "restaurant" })]),
+    });
+    const after = await prisma.place.findUniqueOrThrow({ where: { id: before.id } });
+    if (action === "PLACE_CATEGORY_CORRECTED") expect(after).toEqual(before);
+    else expect(after.category).toBe("restaurant");
+    expect(await prisma.postPlace.count({ where: { ownerId: OWNER_A, placeId: before.id } })).toBe(2);
+  });
+
   it.each(["strong-first", "weak-first"])("retains shared certainty and each post's score (%s)", async (order) => {
     const resolver = new FakeResolver({ "Nobu Dubai": [resolved()] });
     const strengths = order === "strong-first" ? [0.95, 0.85, 0.5] : [0.5, 0.85, 0.95];

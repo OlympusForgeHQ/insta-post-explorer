@@ -4,7 +4,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { foldForSearch } from "@/lib/import/normalize";
 import type { PlaceCandidate, PlaceCandidateRecord } from "@/lib/places/candidates";
-import { categoryFromProposal } from "@/lib/places/categories";
+import { categoryFromProposal, isPlaceCategoryGroup } from "@/lib/places/categories";
 import { canonicalPlacesTheme } from "@/lib/places/eligibility";
 import { continentCodeForCountry } from "@/lib/places/continents";
 import { distanceMeters } from "@/lib/places/distance";
@@ -318,7 +318,7 @@ async function upsertCanonicalPlace(
       providerMatchType: resolved.providerMatchType,
       attribution: resolved.attribution,
       classification: { source: "post_analysis", category: categoryFromProposal(candidate.category),
-        reason: candidate.categoryReason ?? null, evidenceTypes: [...new Set(candidate.evidence.map(item => item.type))] },
+        reason: candidate.categoryReason ?? null, evidenceTypes: [...new Set(candidate.evidence.map(item => item.type))] } as Prisma.InputJsonValue,
     } satisfies Prisma.InputJsonValue,
   };
 
@@ -336,6 +336,24 @@ async function upsertCanonicalPlace(
   }
   // Never overwrite a user-confirmed canonical place with automatic data.
   if (existing.isUserConfirmed) return existing;
+  // Earlier owner-authorized reviews recorded USER_CORRECTION evidence without
+  // setting the later confirmation flag. Their decisions have the same priority.
+  if (await tx.placeEvidence.findFirst({
+    where: { ownerId, placeId: existing.id, evidenceType: "USER_CORRECTION",
+      metadata: { path: ["action"], equals: "PLACE_CATEGORY_CORRECTED" },
+    }, select: { id: true },
+  })) return existing;
+  // A later mention with no specific type must not erase knowledge shared by
+  // earlier posts. Keep its provenance as well; the new evidence stays on its
+  // own post. Explicit supported types and manual corrections can still change it.
+  if (descriptive.category === "divers" && isPlaceCategoryGroup(existing.category) && existing.category !== "divers") {
+    descriptive.category = existing.category;
+    const previous = existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+      ? existing.metadata.classification : null;
+    descriptive.metadata.classification = previous ?? {
+      source: "preserved_existing_category", category: existing.category, reason: null, evidenceTypes: [],
+    };
+  }
   const sameResolution = (
     ["displayName", "category", "address", "city", "region", "country", "countryCode", "latitude", "longitude"] as const
   ).every(field => existing[field] === descriptive[field]);

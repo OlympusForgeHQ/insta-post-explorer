@@ -1,5 +1,17 @@
 # Operational Handoff
 
+## Places incremental refresh — 12 October 2026
+
+The owner requested Places analysis after post reclassification. Category guidance
+now distinguishes venue purpose, mixed itineraries and incidental products. A
+later unknown type cannot erase a known category, and legacy canonical category
+corrections remain protected even without confirmation flags. Link-only reviews
+remain independent. See [scope and validation](changes/2026-10-12-places-category-guidance.md).
+The private cohort excludes all previously analyzed posts. Deployment/batch
+receipts live in `.tmp/places-refresh-20261012/`; consult their status before
+claiming the live refresh is running or complete.
+
+
 Last updated: 9 October 2026
 Repository: `OlympusForgeHQ/insta-post-explorer`  
 Reference development base: `develop` at `5130362` (translation recovery)
