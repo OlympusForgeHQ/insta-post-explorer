@@ -220,12 +220,19 @@ export function entityNamesAgree(left: string, right: string): boolean {
   const a = normalizedEntityName(left), b = normalizedEntityName(right);
   if (!a || !b) return false;
   if (a === b) return true;
-  const prefix = /^(restaurant|hotel|plage)\s+/u;
-  const aPrefix = a.match(prefix), bPrefix = b.match(prefix);
-  // An omitted generic prefix is compatible; two different explicit entity
-  // descriptors (for example a hotel and a restaurant) are not interchangeable.
-  if (aPrefix && bPrefix) return false;
-  return a.replace(prefix, '') === b.replace(prefix, '');
+  const descriptors:Record<string,string>={restaurant:'restaurant',hotel:'hotel',plage:'beach',
+    cafe:'cafe',coffee:'cafe',bakery:'bakery',boulangerie:'bakery',patisserie:'bakery'};
+  const parts=(name:string)=>{
+    const words=name.split(' '),types=new Set<string>();
+    if(words.length>1&&descriptors[words[0]])types.add(descriptors[words.shift()!]);
+    if(words.length>1&&descriptors[words.at(-1)!])types.add(descriptors[words.pop()!]);
+    return {core:words.join(' '),types};
+  };
+  const x=parts(a),y=parts(b);
+  // Only omit generic descriptors. Keep the full distinctive name and reject
+  // incompatible explicit types, even at the same address or in the same city.
+  if(x.types.size>1||y.types.size>1||[...x.types].some(type=>y.types.size&&!y.types.has(type)))return false;
+  return x.core.length>=3&&x.core===y.core&&!descriptors[x.core];
 }
 
 export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): ScoredResolution {

@@ -17,8 +17,11 @@ export class FallbackPlaceResolver implements PlaceResolver {
       const nearby=await this.primary.resolve({...input,proximity:{latitude:hint.latitude,longitude:hint.longitude}});
       for(const resolved of nearby){
         if(resolved.provider==='geoapify'&&distanceMeters(hint,resolved)<=100&&
-          decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'&&
-          !verified.some(item=>item.provider===resolved.provider&&item.providerPlaceId===resolved.providerPlaceId))verified.push(resolved);
+          decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'){
+          const existing=verified.findIndex(item=>item.provider===resolved.provider&&item.providerPlaceId===resolved.providerPlaceId);
+          if(existing<0)verified.push(resolved);
+          else if(decidePlaceResolution({candidate:input.candidate,resolved:verified[existing]}).precision==='UNKNOWN')verified[existing]=resolved;
+        }
       }
     }
     return verified;
