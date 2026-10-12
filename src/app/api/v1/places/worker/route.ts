@@ -3,7 +3,7 @@ import { getConfiguredOwnerId } from '@/auth/config';
 import { externalApiError, externalApiErrorResponse, externalApiJson } from '@/contracts/api/error';
 import { workerCommandSchema } from '@/lib/places/worker-contract';
 import { readBoundedJsonBody, RequestBodyTooLargeError, UnsupportedMediaTypeError } from '@/server/http';
-import { claimPlacesJob, completePlacesJob, enqueuePlacesPosts, failPlacesJob, heartbeatPlacesJob, preparePlacesPost, previewPlacesResult, retryPlacesJob } from '@/server/places/worker';
+import { claimPlacesJob, completePlacesJob, enqueuePlacesPosts, failPlacesJob, heartbeatPlacesJob, preparePlacesPost, previewPlacesResult, retryPlacesJob, recoverPlacesResult } from '@/server/places/worker';
 export const runtime='nodejs';
 export const maxDuration=300;
 export async function POST(request:Request){
@@ -19,6 +19,7 @@ export async function POST(request:Request){
       case 'heartbeat':return externalApiJson(await heartbeatPlacesJob(ownerId,command));
       case 'complete':return externalApiJson(await completePlacesJob(ownerId,command));
       case 'preview':return externalApiJson(await previewPlacesResult(ownerId,command));
+      case 'recover':return externalApiJson(await recoverPlacesResult(ownerId,command));
       case 'fail':return externalApiJson(await failPlacesJob(ownerId,command));
     }
   }catch(error){
@@ -26,7 +27,7 @@ export async function POST(request:Request){
     if(error instanceof UnsupportedMediaTypeError||error instanceof SyntaxError)return externalApiError('BAD_REQUEST','Invalid JSON request',400);
     const code=error instanceof Error?error.message:'';
     if(['POST_NOT_FOUND','PLACES_JOB_NOT_FOUND'].includes(code))return externalApiError('NOT_FOUND','Resource not found',404);
-    if(['PLACES_LEASE_LOST','PLACES_INPUT_STALE','POST_NOT_PLACES_ELIGIBLE'].includes(code))return externalApiJson({error:{code,message:'The post or claim is no longer current'}},{status:409});
+    if(['PLACES_LEASE_LOST','PLACES_INPUT_STALE','POST_NOT_PLACES_ELIGIBLE','PLACES_JOB_CONFLICT'].includes(code))return externalApiJson({error:{code,message:'The post or claim is no longer current'}},{status:409});
     if(['PLACES_MEDIA_INCOMPLETE','PLACES_EVIDENCE_INVALID'].includes(code))return externalApiJson({error:{code,message:'Analysis evidence is incomplete or invalid'}},{status:400});
     if(code==='PLACES_MEDIA_UNAVAILABLE')return externalApiError('SERVICE_UNAVAILABLE','Verified media unavailable',503);
     return externalApiErrorResponse(error);

@@ -1,6 +1,9 @@
 import "server-only";
 
 import { GeoapifyPlaceResolver } from "@/server/places/resolvers/geoapify";
+import {GooglePlacesResolver} from './google';
+import {FallbackPlaceResolver} from './fallback';
+import {reserveGoogleRequest} from './google-budget';
 import type { PlaceResolver } from "@/server/places/resolvers/types";
 
 // Configured resolver selection. Reads server-only environment variables and
@@ -27,7 +30,7 @@ function parseBoundedInt(raw: string | undefined, fallback: number, min: number,
   return Math.min(max, Math.max(min, value));
 }
 
-export function getConfiguredPlaceResolver(): PlaceResolver {
+export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:string}): PlaceResolver {
   const provider = process.env.PLACES_RESOLVER_PROVIDER?.trim() || "geoapify";
   if (provider !== "geoapify") {
     throw new PlacesResolverConfigError("UNSUPPORTED_PLACES_RESOLVER");
@@ -44,7 +47,7 @@ export function getConfiguredPlaceResolver(): PlaceResolver {
     throw new PlacesResolverConfigError("PLACES_RESOLVER_INSECURE_BASE_URL");
   }
 
-  return new GeoapifyPlaceResolver({
+  const geoapify = new GeoapifyPlaceResolver({
     apiKey,
     baseUrl,
     timeoutMs: parseBoundedInt(process.env.PLACES_RESOLVER_TIMEOUT_MS, 8_000, 1_000, 30_000),
@@ -54,6 +57,9 @@ export function getConfiguredPlaceResolver(): PlaceResolver {
     baseRetryDelayMs: parseBoundedInt(process.env.PLACES_RESOLVER_RETRY_BASE_MS, 250, 0, 60_000),
     maxRetryDelayMs: parseBoundedInt(process.env.PLACES_RESOLVER_RETRY_MAX_MS, 8_000, 0, 60_000),
   });
+  const googleKey = process.env.GOOGLE_PLACES_API_KEY?.trim();
+  return googleKey && context ? new FallbackPlaceResolver(geoapify,new GooglePlacesResolver({apiKey:googleKey,
+    reserveRequest:()=>reserveGoogleRequest(context.ownerId,context.postId)})) : geoapify;
 }
 
 export { GeoapifyPlaceResolver, GeoapifyResolverError } from "@/server/places/resolvers/geoapify";

@@ -60,6 +60,7 @@ export const placeCandidateSchema = z
     city: boundedNullableName,
     region: boundedNullableName,
     country: boundedNullableName,
+    inferredFields: z.array(z.enum(['country', 'city', 'region'])).max(3).optional(),
     category: z.enum(PLACE_CANDIDATE_CATEGORIES),
     categoryReason: z.string().trim().min(1).max(500).optional(),
     confidence: z.number().min(0).max(1),
