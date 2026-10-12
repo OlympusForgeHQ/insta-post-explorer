@@ -1,5 +1,15 @@
 # Operational Handoff
 
+## Places evidence recovery — 12 October 2026
+
+The owner authorized fixing and resuming the interrupted incremental refresh.
+Empty geographic candidates now remain reviewable; invalid evidence is grounded
+and repaired once. Explicit failed-job retries preserve owner/hash/attempt limits.
+See [behavior and release gates](changes/2026-10-12-places-evidence-recovery.md).
+Private recovery and live status receipts: `.tmp/places-recovery-20261012/` and
+the original `.tmp/places-refresh-20261012/batch-state-private.json`. Consult them
+before claiming deployment, batch progress or completion.
+
 ## Places incremental refresh — 12 October 2026
 
 The owner requested Places analysis after post reclassification. Category guidance

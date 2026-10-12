@@ -67,6 +67,10 @@ async function planCandidate(
   sourceTheme: "Voyages" | "Restaurant",
   resolver: PlaceResolver,
 ): Promise<CandidatePlan> {
+  // Unidentified visual evidence still belongs in review. An empty provider
+  // query is invalid and must never prevent other candidates from completing.
+  if (![candidate.name, candidate.address, candidate.city, candidate.region, candidate.country]
+    .some(value => Boolean(value?.trim()))) return { candidate, best: null };
   const input: PlaceResolutionInput = { candidate, sourceTheme };
   const resolved = await resolver.resolve(input);
   const viable = resolved

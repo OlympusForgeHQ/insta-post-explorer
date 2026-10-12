@@ -35,7 +35,7 @@ export class PlacesHttpApi implements PlacesApi {
     if(attempt<2){await delay(1000*(attempt+1),undefined,{signal});continue;}
     throw Error('API_UNAVAILABLE');
    }
-   if(!response.ok){const code=z.object({error:z.object({code:z.string()})}).safeParse(data);throw Error(code.success&&['PLACES_LEASE_LOST','PLACES_INPUT_STALE','POST_NOT_PLACES_ELIGIBLE','NOT_FOUND'].includes(code.data.error.code)?code.data.error.code:response.status>=500||response.status===429?'API_UNAVAILABLE':'API_REJECTED');}
+   if(!response.ok){const code=z.object({error:z.object({code:z.string()})}).safeParse(data);throw Error(code.success&&['PLACES_LEASE_LOST','PLACES_INPUT_STALE','POST_NOT_PLACES_ELIGIBLE','NOT_FOUND','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE'].includes(code.data.error.code)?code.data.error.code:response.status>=500||response.status===429?'API_UNAVAILABLE':'API_REJECTED');}
    return data;
   }
   throw Error('API_UNAVAILABLE');
