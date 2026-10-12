@@ -8,11 +8,13 @@ import { categoryFromProposal, isPlaceCategoryGroup } from "@/lib/places/categor
 import { canonicalPlacesTheme } from "@/lib/places/eligibility";
 import { continentCodeForCountry } from "@/lib/places/continents";
 import { distanceMeters } from "@/lib/places/distance";
-import { scoreResolvedCandidate, type ScoredResolution } from "@/lib/places/scoring";
+import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
+import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
 import { prisma } from "@/server/db";
 import { computePlacesInputHash } from "@/server/places/hash";
 import { createMetadataAnalysisJob, PlacesJobError } from "@/server/places/jobs";
 import { loadAnalysisPostInputs } from "@/server/places/repository";
+import {enrichFromVerifiedMemory, loadVerifiedResolutionMemory, type VerifiedPlaceMemory} from './resolution-memory';
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 
 // Atomic metadata analysis persistence (design section 7). Candidates are
@@ -57,6 +59,7 @@ export type AnalyzeRecordResult = {
 export type CandidatePlan = {
   candidate: PlaceCandidate;
   best: { resolved: ResolvedPlaceCandidate; scored: ScoredResolution } | null;
+  reasons?: string[];
 };
 
 // Resolve one candidate and keep the best non-UNKNOWN resolution. Ordering is
@@ -70,14 +73,15 @@ async function planCandidate(
   // Unidentified visual evidence still belongs in review. An empty provider
   // query is invalid and must never prevent other candidates from completing.
   if (![candidate.name, candidate.address, candidate.city, candidate.region, candidate.country]
-    .some(value => Boolean(value?.trim()))) return { candidate, best: null };
+    .some(value => Boolean(value?.trim()))) return { candidate, best: null, reasons: ['no_identity_context'] };
   const input: PlaceResolutionInput = { candidate, sourceTheme };
   const resolved = await resolver.resolve(input);
-  const viable = resolved
+  const evaluated = resolved
     .map((candidateResolution) => ({
       resolved: candidateResolution,
-      scored: scoreResolvedCandidate({ candidate, resolved: candidateResolution }),
-    }))
+      scored: decidePlaceResolution({ candidate, resolved: candidateResolution }),
+    }));
+  const viable = evaluated
     .filter((entry) => entry.scored.precision !== "UNKNOWN")
     .sort(
       (left, right) =>
@@ -91,9 +95,11 @@ async function planCandidate(
   const specific = viable.filter(entry => entry.scored.precision !== 'APPROXIMATE');
   if (specific.some((entry, index) =>
     specific.slice(index + 1).some(other => distanceMeters(entry.resolved, other.resolved) > 100))) {
-    return { candidate, best: viable.find(entry => entry.scored.precision === 'APPROXIMATE') ?? null };
+    return { candidate, best: null, reasons: ['ambiguous_branches'] };
   }
-  return { candidate, best: viable[0] ?? null };
+  const best = viable[0] ?? null;
+  return { candidate, best, reasons: best?.scored.reasons ?? [...new Set(evaluated.flatMap(entry => entry.scored.reasons)),
+    ...(resolved.length ? [] : ['provider_no_results'])] };
 }
 
 export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Promise<AnalyzeRecordResult> {
@@ -135,7 +141,7 @@ export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Pr
 
   // Dry-run previews the plan without writing anything and without a job.
   if (!commit) {
-    const plans = await planAll(input.record.candidates, sourceTheme, input.resolver);
+    const plans = await planAll(input.record.candidates, sourceTheme, input.resolver, await loadVerifiedResolutionMemory(input.ownerId,input.record.candidates));
     return summarize(post.id, null, "SKIPPED_DRY_RUN", plans);
   }
 
@@ -145,7 +151,7 @@ export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Pr
 
   let plans: CandidatePlan[];
   try {
-    plans = await planAll(input.record.candidates, sourceTheme, input.resolver);
+    plans = await planAll(input.record.candidates, sourceTheme, input.resolver, await loadVerifiedResolutionMemory(input.ownerId,input.record.candidates));
   } catch (error) {
     await markJobFailed(prisma, job.id, error);
     throw error;
@@ -165,10 +171,14 @@ export async function planAll(
   candidates: PlaceCandidate[],
   sourceTheme: "Voyages" | "Restaurant",
   resolver: PlaceResolver,
+  memory: VerifiedPlaceMemory[] = [],
 ): Promise<CandidatePlan[]> {
   const plans: CandidatePlan[] = [];
   for (const candidate of candidates) {
-    plans.push(await planCandidate(candidate, sourceTheme, resolver));
+    const enriched=enrichFromVerifiedMemory(candidate,memory);
+    const plan=await planCandidate(enriched,sourceTheme,resolver);
+    if(enriched!==candidate)plan.reasons=['verified_memory_context',...(plan.reasons??[])];
+    plans.push(plan);
   }
   return plans;
 }
@@ -178,6 +188,7 @@ export type PersistMetadataAnalysisInput = {
   postId: string;
   jobId: string;
   plans: CandidatePlan[];
+  preserveExisting?: boolean;
 };
 
 type PersistedLink = {
@@ -189,8 +200,9 @@ type PersistedLink = {
 // The single atomic domain transaction. Any thrown error rolls back every write.
 export async function persistMetadataAnalysis(
   tx: TxClient,
-  { ownerId, postId, jobId, plans }: PersistMetadataAnalysisInput,
+  { ownerId, postId, jobId, plans, preserveExisting=false }: PersistMetadataAnalysisInput,
 ): Promise<AnalyzeRecordResult> {
+  await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${jobId} AND owner_id=${ownerId} FOR UPDATE`;
   // Re-runs are idempotent: drop the job's previous automatic evidence, never a
   // user correction, then rebuild it.
   await tx.placeEvidence.deleteMany({
@@ -214,10 +226,20 @@ export async function persistMetadataAnalysis(
     }
 
     const { resolved, scored } = plan.best;
-    const place = await upsertCanonicalPlace(tx, { ownerId, postId, resolved, scored, candidate: plan.candidate });
+    const place = await upsertCanonicalPlace(tx, { ownerId, postId, resolved, scored, candidate: plan.candidate, preserveExisting });
+    if(!place||place.reviewStatus==='REJECTED'){
+      plan.best=null;plan.reasons=[place?'manual_identity_rejected':'existing_identity_conflict'];
+      evidencePersisted+=await insertCandidateEvidence(tx,{ownerId,postId,placeId:null,jobId,candidate:plan.candidate});
+      continue;
+    }
     persistedPlaceIds.add(place.id);
 
-    const link = await upsertPostPlace(tx, { ownerId, postId, placeId: place.id, jobId, scored });
+    const link = await upsertPostPlace(tx, { ownerId, postId, placeId: place.id, jobId, scored, preserveExisting });
+    if(!link&&!await tx.postPlace.findUnique({where:{ownerId_postId_placeId:{ownerId,postId,placeId:place.id}},select:{id:true}})){
+      plan.best=null;plan.reasons=['manual_association_removed'];
+      evidencePersisted+=await insertCandidateEvidence(tx,{ownerId,postId,placeId:null,jobId,candidate:plan.candidate});
+      continue;
+    }
     if (link) {
       persistedLinks.push({
         placeId: place.id,
@@ -236,12 +258,14 @@ export async function persistMetadataAnalysis(
     evidencePersisted += await insertProviderEvidence(tx, { ownerId, postId, placeId: place.id, jobId, resolved, scored });
   }
 
-  await supersedeAutomaticApproximatePrimary(tx, { ownerId, postId, persistedLinks });
-  await assignPrimaryLink(tx, { ownerId, postId, persistedLinks });
+  if(!preserveExisting)await supersedeAutomaticApproximatePrimary(tx, { ownerId, postId, persistedLinks });
+  if(!preserveExisting||!await tx.postPlace.findFirst({where:{ownerId,postId,isPrimary:true}}))await assignPrimaryLink(tx, { ownerId, postId, persistedLinks });
 
   const resolvedCount = plans.filter((plan) => plan.best).length;
   const status: AnalyzeRecordStatus =
-    resolvedCount > 0 ? "SUCCEEDED" : plans.length > 0 ? "NEEDS_REVIEW" : "SUCCEEDED";
+    resolvedCount < plans.length ? "NEEDS_REVIEW" : "SUCCEEDED";
+  const prior=await tx.placeAnalysisJob.findUniqueOrThrow({where:{id:jobId},select:{result:true}});
+  const usage=prior.result&&typeof prior.result==='object'&&!Array.isArray(prior.result)?prior.result.googleUsage:undefined;
 
   await tx.placeAnalysisJob.update({
     where: { id: jobId },
@@ -252,10 +276,15 @@ export async function persistMetadataAnalysis(
       errorCode: null,
       errorMessage: null,
       result: {
+        ...(usage?{googleUsage:usage}:{}),
         placesPersisted: persistedPlaceIds.size,
         linksPersisted: persistedLinks.length,
         evidencePersisted,
         unknownCandidates: plans.length - resolvedCount,
+        resolutionPolicy: RESOLUTION_POLICY_VERSION,
+        decisions: plans.map((plan, index) => ({index, precision: plan.best?.scored.precision ?? 'UNKNOWN', reasons: plan.reasons ?? [],
+          candidate:{name:plan.candidate.name,address:plan.candidate.address,city:plan.candidate.city,region:plan.candidate.region,country:plan.candidate.country},
+          inferredFields: plan.candidate.inferredFields ?? []})),
       },
     },
   });
@@ -273,7 +302,7 @@ export async function persistMetadataAnalysis(
 
 async function upsertCanonicalPlace(
   tx: TxClient,
-  { ownerId, postId, resolved, scored, candidate }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution; candidate: PlaceCandidate },
+  { ownerId, postId, resolved, scored, candidate, preserveExisting }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution; candidate: PlaceCandidate; preserveExisting:boolean },
 ) {
   const precision = scored.precision as "EXACT" | "PROBABLE" | "APPROXIMATE";
   // Exact/provider-verified places remain canonical. An approximate area is an
@@ -282,6 +311,7 @@ async function upsertCanonicalPlace(
     precision === "APPROXIMATE"
       ? `${resolved.providerPlaceId}:post:${postId}`
       : resolved.providerPlaceId;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`place-identity:${ownerId}:${foldForSearch(resolved.city??'')}`},0))::text`;
   // Read the current certainty after any concurrent writer has committed.
   // Otherwise a weaker post can overwrite a stronger shared resolution using
   // an earlier snapshot. The existing transaction owns this row lock.
@@ -327,6 +357,18 @@ async function upsertCanonicalPlace(
   };
 
   if (!existing) {
+    // Provider IDs differ across catalogs. Reuse only the same named, addressed
+    // physical site; never merge nearby branches or a business with a city.
+    if(precision!=='APPROXIMATE'&&resolved.address&&resolved.city&&resolved.countryCode){
+      const alternatives=await tx.place.findMany({where:{ownerId,
+        city:{equals:resolved.city,mode:'insensitive'},countryCode:resolved.countryCode,provider:{not:resolved.provider},
+        latitude:{gte:resolved.latitude-.002,lte:resolved.latitude+.002},
+        precision:{in:['EXACT','PROBABLE']}},take:201});
+      const nearby=alternatives.filter(place=>entityNamesAgree(place.displayName,resolved.providerName??resolved.displayName)&&distanceMeters(place,resolved)<=100);
+      const sameSite=nearby.filter(place=>addressAgreement(place.address,resolved.address).match);
+      if(alternatives.length<=200&&sameSite.length===1)return sameSite[0];
+      if(nearby.length||alternatives.length>200)return null;
+    }
     return tx.place.create({
       data: {
         ownerId,
@@ -339,7 +381,7 @@ async function upsertCanonicalPlace(
     });
   }
   // Never overwrite a user-confirmed canonical place with automatic data.
-  if (existing.isUserConfirmed) return existing;
+  if (existing.isUserConfirmed || preserveExisting) return existing;
   // Earlier owner-authorized reviews recorded USER_CORRECTION evidence without
   // setting the later confirmation flag. Their decisions have the same priority.
   if (await tx.placeEvidence.findFirst({
@@ -385,16 +427,22 @@ async function upsertPostPlace(
     placeId,
     jobId,
     scored,
-  }: { ownerId: string; postId: string; placeId: string; jobId: string; scored: ScoredResolution },
+    preserveExisting,
+  }: { ownerId: string; postId: string; placeId: string; jobId: string; scored: ScoredResolution; preserveExisting:boolean },
 ) {
   const existing = await tx.postPlace.findUnique({
     where: { ownerId_postId_placeId: { ownerId, postId, placeId } },
   });
   // A user-confirmed link dominates any automatic re-analysis: leave it intact.
-  if (existing?.isUserConfirmed) return null;
+  if (existing && (existing.isUserConfirmed || preserveExisting)) return null;
 
   const precision = scored.precision as "EXACT" | "PROBABLE" | "APPROXIMATE";
   if (!existing) {
+    // An explicitly removed association must not be resurrected by another run.
+    const deletion=await tx.auditEvent.findFirst({where:{ownerId,tableName:'post_places',operation:'DELETE',AND:[
+      {beforeData:{path:['post_id'],equals:postId}},{beforeData:{path:['place_id'],equals:placeId}},
+    ]},select:{id:true}});
+    if(deletion)return null;
     return tx.postPlace.create({
       data: {
         ownerId,
@@ -496,7 +544,7 @@ async function insertCandidateEvidence(
       normalizedValue,
       excerpt: item.excerpt.slice(0, EXCERPT_MAX_LENGTH),
       videoTimestampMs: item.videoTimestampMs ?? null,
-      metadata: item.mediaId ? { mediaId: item.mediaId } : {},
+      metadata: { ...(item.mediaId ? {mediaId: item.mediaId} : {}), inferredFields: candidate.inferredFields ?? [] },
       confidence: candidate.confidence,
     })),
   });
@@ -530,7 +578,8 @@ async function insertProviderEvidence(
       evidenceType: "PROVIDER_MATCH",
       normalizedValue: `${resolved.provider}:${resolved.providerPlaceId}`,
       confidence: scored.confidence,
-      metadata: { providerResultType: resolved.providerResultType } satisfies Prisma.InputJsonValue,
+      metadata: { providerResultType: resolved.providerResultType, resolutionPolicy: RESOLUTION_POLICY_VERSION,
+        reasons: scored.reasons } satisfies Prisma.InputJsonValue,
     },
   });
   return 1;

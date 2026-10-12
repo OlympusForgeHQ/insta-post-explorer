@@ -60,9 +60,13 @@ it('does not spend a repair call after cancellation or an invalid upstream envel
 });
 
 it('does not add a call when the initial response is valid',async()=>{
- const request=vi.fn(async()=>reply(valid));
+ const request=vi.fn<typeof fetch>(async()=>reply(valid));
  const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'caption',prepared.input,[],new AbortController().signal);
  expect(result.usage).toEqual({inputTokens:10,outputTokens:5});expect(request).toHaveBeenCalledTimes(1);
+ const sent=JSON.parse(request.mock.calls[0][1]!.body as string);
+ expect(sent.messages[0].content).toContain('Infer missing country, city or region');
+ expect(sent.messages[0].content).toContain('inferredFields');
+ expect(sent.messages[0].content).toContain('Keep literal source excerpts unchanged');
 });
 
 it('preserves an itinerary larger than the old client limit when the server schema allows it',async()=>{

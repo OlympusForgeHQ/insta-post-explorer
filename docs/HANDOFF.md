@@ -1,5 +1,17 @@
 # Operational Handoff
 
+## Contextual Places resolution — 13 October 2026
+
+Owner-authorized contextual identity rules replace weighted acceptance gates;
+missing geography may be inferred and is recorded separately from source evidence.
+Confirmed owner identities supply bounded memory, and optional Google retrieval
+has durable quota reservations. Recovery accepts only the original unresolved
+cohort and preserves existing associations and manual decisions. See
+[scope and verification](changes/2026-10-13-places-contextual-resolution.md) and
+[worker contract](places-worker-api.md#contextual-resolution-and-bounded-recovery).
+Private backup, deployment, pilot and correction receipts are under
+`.tmp/places-context-20261013/`; their state determines actual rollout progress.
+
 ## Places evidence recovery — 12 October 2026
 
 The owner authorized fixing and resuming the interrupted incremental refresh.
