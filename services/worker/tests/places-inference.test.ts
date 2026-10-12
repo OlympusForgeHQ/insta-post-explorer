@@ -7,6 +7,21 @@ const valid='{"candidates":[{"name":"Cafe","category":"cafe"}]}';
 const invalid='{"candidates":[{"name":"Cafe","category":"cafe","evidenceNote":"unexpected"}]}';
 const reply=(content:string,model='insta-places',finishReason='stop')=>Response.json({model,choices:[{message:{content},finish_reason:finishReason}],usage:{prompt_tokens:10,completion_tokens:5}});
 
+it('repairs semantically invalid evidence once from original sources without trusting the rejected response',async()=>{
+ const request=vi.fn().mockResolvedValueOnce(reply(valid)).mockResolvedValueOnce(reply('{"candidates":[{"name":"Verified Cafe","category":"cafe"}]}'));
+ const validate=(candidates:Record<string,unknown>[])=>{
+  if(candidates[0]?.name!=='Verified Cafe')throw Error('PLACES_EVIDENCE_INVALID');
+  return candidates;
+ };
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'fusion',{caption:'Verified Cafe'},[],new AbortController().signal,validate);
+ expect(result.candidates[0].name).toBe('Verified Cafe');
+ expect(result.usage).toEqual({inputTokens:20,outputTokens:10});
+ expect(request).toHaveBeenCalledTimes(2);
+ const body=JSON.parse(request.mock.calls[1][1].body);
+ expect(body.messages).toHaveLength(3);
+ expect(body.messages.at(-1).content).toContain('PLACES_EVIDENCE_INVALID');
+});
+
 it('repairs one invalid model response, preserves the source and counts both calls',async()=>{
  const request=vi.fn().mockResolvedValueOnce(reply(invalid)).mockResolvedValueOnce(reply(valid));
  const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'caption',prepared.input,[],new AbortController().signal);
@@ -23,6 +38,12 @@ it('repairs one invalid model response, preserves the source and counts both cal
 it('keeps strict validation after the single repair attempt',async()=>{
  const request=vi.fn(async()=>reply('{"candidates":[{"name":"Cafe","category":"cafe","latitude":1}]}'));
  await expect(new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'caption',prepared.input,[],new AbortController().signal)).rejects.toThrow('INVALID_RESULT');
+ expect(request).toHaveBeenCalledTimes(2);
+});
+
+it('stops after one unsuccessful evidence repair without accepting ungrounded results',async()=>{
+ const request=vi.fn(async()=>reply(valid));
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'fusion',{},[],new AbortController().signal,()=>{throw Error('PLACES_EVIDENCE_INVALID');})).rejects.toThrow('PLACES_EVIDENCE_INVALID');
  expect(request).toHaveBeenCalledTimes(2);
 });
 
