@@ -155,7 +155,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   }
 
   async resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]> {
-    const addressResults = await this.search(input.candidate);
+    const addressResults = await this.search(input.candidate,input.proximity);
     // A caption can identify both a business and its street address. Keep the
     // business identity only when a specific address independently locates it.
     // Never substitute address coordinates into a named provider result.
@@ -164,7 +164,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
       ["building", "housenumber", "house", "amenity"].includes(result.providerResultType ?? "") &&
       (result.providerRank ?? 0) >= 0.9);
     if (!anchors.length) return addressResults;
-    const named = await this.search({ ...input.candidate, address: null });
+    const named = await this.search({ ...input.candidate, address: null },input.proximity);
     const foldName = (name: string) => foldForSearch(name).replace(/[’‘`]/g, "'");
     const corroborated = named.filter(result =>
       foldName(result.displayName) === foldName(input.candidate.name!) &&
@@ -172,8 +172,8 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     return corroborated.length ? corroborated : addressResults;
   }
 
-  private async search(candidate: PlaceCandidate): Promise<ResolvedPlaceCandidate[]> {
-    const response = await this.fetchWithRetry(this.buildUrl(candidate));
+  private async search(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"]): Promise<ResolvedPlaceCandidate[]> {
+    const response = await this.fetchWithRetry(this.buildUrl(candidate,proximity));
 
     let payload: unknown;
     try {
@@ -250,7 +250,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   // Address candidates use Geoapify's free-form address alternative. Other
   // candidates retain the structured request. The API key travels in the query
   // string but is never logged, and the full caption is never included.
-  private buildUrl(candidate: PlaceCandidate): string {
+  private buildUrl(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"]): string {
     const params = new URLSearchParams();
     if (candidate.address) {
       const addressKey = foldForSearch(candidate.address);
@@ -266,6 +266,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
       if (candidate.region) params.set("state", candidate.region);
       if (candidate.country) params.set("country", candidate.country);
     }
+    if(proximity)params.set("bias",`proximity:${proximity.longitude},${proximity.latitude}`);
     params.set("limit", String(this.maxResults));
     params.set("format", "json");
     params.set("apiKey", this.apiKey);

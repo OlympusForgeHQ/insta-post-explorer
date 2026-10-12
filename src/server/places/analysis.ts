@@ -226,6 +226,11 @@ export async function persistMetadataAnalysis(
     }
 
     const { resolved, scored } = plan.best;
+    if(resolved.provider!=='geoapify'){
+      plan.best=null;plan.reasons=['provider_content_not_persistable'];
+      evidencePersisted+=await insertCandidateEvidence(tx,{ownerId,postId,placeId:null,jobId,candidate:plan.candidate});
+      continue;
+    }
     const place = await upsertCanonicalPlace(tx, { ownerId, postId, resolved, scored, candidate: plan.candidate, preserveExisting });
     if(!place||place.reviewStatus==='REJECTED'){
       plan.best=null;plan.reasons=[place?'manual_identity_rejected':'existing_identity_conflict'];
