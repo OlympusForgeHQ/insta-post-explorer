@@ -91,6 +91,19 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
   });
 
   beforeEach(resetDatabase);
+  it('reuses the same verified identity across providers and keeps rejected identities rejected',async()=>{
+    await seedPost('provider-first',OWNER_A,'Restaurant');
+    await seedPost('provider-second',OWNER_A,'Restaurant');
+    await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,record:await freshRecord(OWNER_A,'provider-first',[candidate()]),
+      resolver:new FakeResolver({'Nobu Dubai':[resolved()]}),commit:true});
+    const known=await prisma.place.findFirstOrThrow({where:{ownerId:OWNER_A}});
+    await prisma.place.update({where:{id:known.id},data:{isUserConfirmed:true,reviewStatus:'REJECTED',displayName:'Restaurant Nobu Dubai',normalizedName:'restaurant nobu dubai'}});
+    await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,record:await freshRecord(OWNER_A,'provider-second',[candidate()]),
+      resolver:new FakeResolver({'Nobu Dubai':[resolved({provider:'google',providerPlaceId:'google-nobu',providerResultType:'poi',address:'Atlantis Hotel, Dubai'})]}),commit:true});
+    expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(1);
+    expect(await prisma.postPlace.count({where:{postId:'provider-second'}})).toBe(0);
+    expect((await prisma.place.findUniqueOrThrow({where:{id:known.id}})).reviewStatus).toBe('REJECTED');
+  });
 
   it("persists a resolved EXACT place with one primary link and evidence", async () => {
     await seedPost("nobu-post", OWNER_A, "Voyages");
@@ -184,7 +197,7 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
       const postId = `shared-${strength}`;
       await seedPost(postId, OWNER_A, "Voyages");
       await analysis.analyzeCandidateBatchRecord({
-        ownerId: OWNER_A, record: await freshRecord(OWNER_A, postId, [candidate({ confidence: strength })]),
+        ownerId: OWNER_A, record: await freshRecord(OWNER_A, postId, [candidate({ confidence: strength, ...(strength===.5?{country:null}:{}) })]),
         resolver, commit: true,
       });
     }
@@ -213,7 +226,7 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     const strongest = await prisma.place.findFirstOrThrow({ where: { ownerId: OWNER_A } });
     await prisma.place.update({ where: { id: strongest.id }, data: { precision: "PROBABLE", confidence: 0.8 } });
     await seedPost("shared-waiting", OWNER_A, "Voyages");
-    const record = await freshRecord(OWNER_A, "shared-waiting", [candidate({ confidence: 0.5 })]);
+    const record = await freshRecord(OWNER_A, "shared-waiting", [candidate({ confidence: 0.5, country:null })]);
     const ready = Promise.withResolvers<number>();
     const release = Promise.withResolvers<void>();
     const writer = prisma.$transaction(async (tx) => {
@@ -250,7 +263,7 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     await seedPost("corrected-location", OWNER_A, "Voyages");
     const correction = resolved({ address: "Corrected address, Dubai", latitude: 25.14 });
     await analysis.analyzeCandidateBatchRecord({ ownerId: OWNER_A,
-      record: await freshRecord(OWNER_A, "corrected-location", [candidate({ confidence: 0.5 })]),
+      record: await freshRecord(OWNER_A, "corrected-location", [candidate({ confidence: 0.5, country:null })]),
       resolver: new FakeResolver({ "Nobu Dubai": [correction] }), commit: true });
     const place = await prisma.place.findFirstOrThrow({ where: { ownerId: OWNER_A } });
     const correctedLink = await prisma.postPlace.findFirstOrThrow({ where: { postId: "corrected-location" } });

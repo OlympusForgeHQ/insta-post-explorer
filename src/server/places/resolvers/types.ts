@@ -10,7 +10,7 @@ export type PlaceResolutionInput = {
 };
 
 export type ResolvedPlaceCandidate = {
-  provider: "geoapify";
+  provider: "geoapify" | "google";
   providerPlaceId: string;
   displayName: string;
   // Raw provider entity name, distinct from a formatted address fallback.

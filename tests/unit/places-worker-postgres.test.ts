@@ -17,6 +17,62 @@ const suite=url?describe:describe.skip;
 suite('Places worker ownership, leases and atomic completion',()=>{
  beforeAll(async()=>{process.env.DATABASE_URL=url;({prisma:db}=await import('@/server/db'));service=await import('@/server/places/worker');await clear();});
  beforeEach(async()=>{await clear();await seed();});afterAll(async()=>{await clear();await db.$disconnect();});
+ it('learns only owner-confirmed geographic identities, excluding automatic and foreign examples',async()=>{
+   const {loadVerifiedResolutionMemory}=await import('@/server/places/resolution-memory');
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},dependencies);
+   const candidate={...result.candidates[0],country:null} as import('@/lib/places/candidates').PlaceCandidate;
+   expect(await loadVerifiedResolutionMemory(owner,[candidate])).toEqual([]);
+   await db.place.updateMany({where:{ownerId:owner},data:{isUserConfirmed:true,reviewStatus:'CONFIRMED'}});
+   expect(await loadVerifiedResolutionMemory(owner,[candidate])).toMatchObject([{name:'Example Cafe',country:'France'}]);
+   expect(await loadVerifiedResolutionMemory(other,[candidate])).toEqual([]);
+ });
+ it('reserves Google quota atomically and retains it after job completion',async()=>{
+   const {reserveGoogleRequest}=await import('@/server/places/resolvers/google-budget');
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const spent=await db.auditEvent.count({where:{ownerId:owner,action:'places.google.reserve',occurredAt:{gte:new Date(new Date().toISOString().slice(0,7)+'-01T00:00:00Z')}}});
+   vi.stubEnv('PLACES_GOOGLE_MONTHLY_CAP',String(spent+1));
+   try{
+     const attempts=await Promise.allSettled([reserveGoogleRequest(owner,'worker-post'),reserveGoogleRequest(owner,'worker-post')]);
+     expect(attempts.filter(attempt=>attempt.status==='fulfilled')).toHaveLength(1);
+     expect(attempts.filter(attempt=>attempt.status==='rejected')).toHaveLength(1);
+     await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},dependencies);
+     expect((await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}})).result).toMatchObject({googleUsage:{requests:1}});
+     await expect(reserveGoogleRequest(owner,'worker-post')).rejects.toThrow('GOOGLE_PLACES_BUDGET_EXHAUSTED');
+     await db.post.delete({where:{id:'worker-post'}});
+     await seed();await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+     await expect(reserveGoogleRequest(owner,'worker-post')).rejects.toThrow('GOOGLE_PLACES_BUDGET_EXHAUSTED');
+   }finally{vi.unstubAllEnvs();}
+ });
+ it('recovers only unresolved evidence with a fresh owner-bound input and idempotent additive writes',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},{...dependencies,resolver:{resolve:async()=>[]}});
+   const command={postId:'worker-post',sourceJobId:claim.jobId,inputHash:claim.input.input_hash,originalResult:result,sourceCandidateIndices:[0],result,commit:true};
+   const receipt=await service.recoverPlacesResult(owner,command,dependencies);
+   expect(receipt).toMatchObject({status:'SUCCEEDED',linksPersisted:1,unknownCandidates:0});
+   expect(await service.recoverPlacesResult(owner,command,dependencies)).toEqual(receipt);
+   expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(1);
+   await expect(service.recoverPlacesResult(other,command,dependencies)).rejects.toThrow();
+   await db.post.update({where:{id:'worker-post'},data:{caption:'Changed'}});
+   await expect(service.recoverPlacesResult(owner,command,dependencies)).rejects.toThrow('PLACES_INPUT_STALE');
+ });
+ it('cannot omit or substitute unresolved identities sharing the same excerpt',async()=>{
+   const original={...result,candidates:[result.candidates[0],{...result.candidates[0],name:'Second Cafe'}]};
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:original},{...dependencies,resolver:{resolve:async()=>[]}});
+   const command={postId:'worker-post',sourceJobId:claim.jobId,inputHash:claim.input.input_hash,originalResult:original,sourceCandidateIndices:[0],result,commit:true};
+   await expect(service.recoverPlacesResult(owner,command,dependencies)).rejects.toThrow('PLACES_EVIDENCE_INVALID');
+   await expect(service.recoverPlacesResult(owner,{...command,originalResult:result},dependencies)).rejects.toThrow('PLACES_EVIDENCE_INVALID');
+   for(const replacement of [{name:'Other Cafe'},{address:'999 Other Street'},{city:'Lyon'},{country:'Belgium'}]){
+     await expect(service.recoverPlacesResult(owner,{...command,sourceCandidateIndices:[0,1],
+       result:{...original,candidates:[{...original.candidates[0],...replacement},original.candidates[1]]}},dependencies)).rejects.toThrow('PLACES_EVIDENCE_INVALID');
+   }
+   expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(0);
+ });
  it('preserves unidentified evidence for review without making an empty geocoding request',async()=>{
    const empty={...result.candidates[0],name:null,address:null,city:null,region:null,country:null};
    const resolve=vi.fn(async()=>{throw Error('EMPTY_PROVIDER_QUERY');});
@@ -28,6 +84,15 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    expect(resolve).not.toHaveBeenCalled();
    expect(await db.placeEvidence.count({where:{ownerId:owner,placeId:null}})).toBe(1);
    expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+ });
+ it('keeps partial successes reviewable and persists explanations through completion',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const unknown={...result.candidates[0],name:null,address:null,city:null,region:null,country:null};
+   const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[result.candidates[0],unknown]}},dependencies);
+   expect(receipt).toMatchObject({status:'NEEDS_REVIEW',unknownCandidates:1,linksPersisted:1});
+   const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+   expect(job.result).toMatchObject({resolutionPolicy:'contextual-identity-v1',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
  });
 
  it('retries only the explicitly identified failed unchanged job within its original attempt budget',async()=>{
