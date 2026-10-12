@@ -1,7 +1,7 @@
 import { scoreResolvedCandidate, type ScoringInput, type ScoredResolution } from '@/lib/places/scoring';
 import {foldForSearch} from '@/lib/import/normalize';
 
-export const RESOLUTION_POLICY_VERSION = 'contextual-identity-v1';
+export const RESOLUTION_POLICY_VERSION = 'contextual-identity-v2';
 export const PLACE_CONTEXT_RULES = `Infer missing country, city or region from the combined post context and geographic knowledge when the identity is coherent. These fields need not appear literally in the post. Mark deduced fields in inferredFields and retain the original source excerpts unchanged. Do not override explicit contradictory context or invent a branch address. Split distinct branch addresses into separate candidates. A chain account alone does not identify a branch. Never output coordinates or provider IDs.`;
 
 // The legacy comparison layer provides normalized agreements and conflicts.

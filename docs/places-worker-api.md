@@ -60,6 +60,9 @@ lookup searches within 200 metres (maximum 20 POIs); the final 100-metre gate
 still applies. Generic venue descriptors may be omitted from an otherwise exact
 distinctive name, but incompatible explicit business types remain conflicts.
 Provider reference: https://apidocs.geoapify.com/docs/places/.
+Recovery receipts include the resolution-policy version in their identity, so a
+new policy can revisit old refusals without replaying writes for the same policy.
+The existing limit of three contextual recovery jobs per post still applies.
 Google-only results stay unresolved; Google payloads are never journaled. `PLACES_GOOGLE_MONTHLY_CAP` defaults
 to 4000 (maximum 4000). Migration of prior usage uses
 `PLACES_GOOGLE_BASELINE_MONTH=YYYY-MM` and `PLACES_GOOGLE_BASELINE_REQUESTS`.
