@@ -43,7 +43,8 @@ export async function runPlacesPipeline(options:Options,deps:Dependencies){
       summary.failed++;
       const code=options.signal.aborted?'WORKER_STOPPING':signal.aborted?'WORKER_TIMEOUT':error instanceof Error&&error.message==='API_UNAVAILABLE'?'INFERENCE_FAILED':error instanceof Error&&failureCodes.has(error.message)?error.message:'INVALID_RESULT';
       if(options.commit)await deps.api.call({action:'fail',...lease,code},AbortSignal.timeout(15_000)).catch(()=>undefined);
-      deps.log?.({postId:prepared.input.post_id,stage:'failed',code});
+      const reason=error instanceof Error&&['PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE'].includes(error.message)?error.message:undefined;
+      deps.log?.({postId:prepared.input.post_id,stage:'failed',code,...(reason?{reason}:{})});
     }finally{
       finishing=true;heartbeatStop.abort();await heartbeat;await deps.workdirs.remove(dir);
     }

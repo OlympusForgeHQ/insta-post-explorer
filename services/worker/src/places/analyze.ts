@@ -3,6 +3,7 @@ import type { PlacesConfig } from './config.js';
 import { HermesPlacesInference } from './inference.js';
 import { extractMedia, type ExtractedMedia } from './media.js';
 import type { PipelineResult } from './pipeline.js';
+import {groundPlacesEvidence} from './evidence.js';
 
 export function createPlacesAnalyzer(config:PlacesConfig,log:(event:Record<string,unknown>)=>void){
   const inference=new HermesPlacesInference(config.hermesUrl,config.hermesKey);
@@ -17,7 +18,9 @@ export function createPlacesAnalyzer(config:PlacesConfig,log:(event:Record<strin
       log({postId:prepared.input.post_id,stage:'media',...media.coverage,transcriptSegments:media.transcript.segments.length});
       const result=await inference.analyze(prepared,'ocr',{mediaId:media.coverage.mediaId},media.frames,signal);addUsage(result.usage);ocr.push(result.candidates);
     }
-    const final=await inference.analyze(prepared,'fusion',{post:prepared.input,captionCandidates:caption.candidates,ocrCandidates:ocr,transcripts:extracted.map(m=>m.transcript)},[],signal);addUsage(final.usage);
+    const coverage=extracted.map(m=>m.coverage);
+    const final=await inference.analyze(prepared,'fusion',{post:prepared.input,captionCandidates:caption.candidates,ocrCandidates:ocr,transcripts:extracted.map(m=>m.transcript),mediaCoverage:coverage},[],signal,
+      candidates=>groundPlacesEvidence(candidates,prepared.input.caption??'',coverage));addUsage(final.usage);
     log({postId:prepared.input.post_id,stage:'fusion',candidates:final.candidates.length});
     return {candidates:final.candidates,media:extracted.map(m=>m.coverage),model:'deepseek/deepseek-v4.1-flash',usage,elapsedMs:Date.now()-started};
   };
