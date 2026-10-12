@@ -14,7 +14,7 @@ import type { PlaceResolver } from '@/server/places/resolvers/types';
 import { loadWorkerMedia, type MediaSigner, type WorkerMedia } from '@/server/places/worker-media';
 import { setAuditAction } from '@/server/audit-log';
 import {loadVerifiedResolutionMemory} from './resolution-memory';
-import {PLACE_CONTEXT_RULES} from '@/lib/places/resolution';
+import {PLACE_CONTEXT_RULES,RESOLUTION_POLICY_VERSION} from '@/lib/places/resolution';
 import {foldForSearch} from '@/lib/import/normalize';
 import {isSupportedRecovery} from '@/lib/places/recovery';
 
@@ -50,7 +50,7 @@ export async function recoverPlacesResult(ownerId:string,options:{postId:string;
     if(digest(candidate.evidence)!==digest(before.evidence)||candidate.category!==before.category||!isSupportedRecovery(before,candidate))throw Error('PLACES_EVIDENCE_INVALID');
   });
   const recoveryVersion='places-contextual-recovery-v1';
-  const requestHash=digest({sourceJobId:source.id,sourceCandidateIndices:options.sourceCandidateIndices,result});
+  const requestHash=digest({resolutionPolicy:RESOLUTION_POLICY_VERSION,sourceJobId:source.id,sourceCandidateIndices:options.sourceCandidateIndices,result});
   const identity={ownerId,postId:options.postId,inputHash:requestHash,analysisVersion:recoveryVersion};
   const previous=await prisma.placeAnalysisJob.findFirst({where:identity});
   if(previous&&['SUCCEEDED','NEEDS_REVIEW'].includes(previous.status)){
