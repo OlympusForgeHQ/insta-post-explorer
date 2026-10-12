@@ -1,7 +1,7 @@
 import "server-only";
 
 import { GeoapifyPlaceResolver } from "@/server/places/resolvers/geoapify";
-import {GooglePlacesResolver} from './google';
+import {GooglePlacesSearch} from './google';
 import {FallbackPlaceResolver} from './fallback';
 import {reserveGoogleRequest} from './google-budget';
 import type { PlaceResolver } from "@/server/places/resolvers/types";
@@ -58,7 +58,7 @@ export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:strin
     maxRetryDelayMs: parseBoundedInt(process.env.PLACES_RESOLVER_RETRY_MAX_MS, 8_000, 0, 60_000),
   });
   const googleKey = process.env.GOOGLE_PLACES_API_KEY?.trim();
-  return googleKey && context ? new FallbackPlaceResolver(geoapify,new GooglePlacesResolver({apiKey:googleKey,
+  return googleKey && context ? new FallbackPlaceResolver(geoapify,new GooglePlacesSearch({apiKey:googleKey,
     reserveRequest:()=>reserveGoogleRequest(context.ownerId,context.postId)})) : geoapify;
 }
 

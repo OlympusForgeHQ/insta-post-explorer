@@ -7,6 +7,8 @@ import type { PlaceCandidate } from "@/lib/places/candidates";
 export type PlaceResolutionInput = {
   candidate: PlaceCandidate;
   sourceTheme: "Voyages" | "Restaurant";
+  // Transient retrieval bias; never persisted or substituted as result coordinates.
+  proximity?: {latitude:number;longitude:number};
 };
 
 export type ResolvedPlaceCandidate = {

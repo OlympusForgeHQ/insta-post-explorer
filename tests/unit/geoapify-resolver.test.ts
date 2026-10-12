@@ -74,6 +74,14 @@ function resolver(fetchImpl: typeof fetch) {
 }
 
 describe("GeoapifyPlaceResolver", () => {
+  it('uses a transient proximity bias without substituting hint coordinates',async()=>{
+    const fetchMock=vi.fn().mockResolvedValue(jsonResponse(validGeoapifyBody()));
+    const [match]=await resolver(fetchMock).resolve({...resolutionInput(),proximity:{latitude:25.1301,longitude:55.1101}});
+    const url=new URL(fetchMock.mock.calls[0][0]);
+    expect(url.searchParams.get('bias')).toBe('proximity:55.1101,25.1301');
+    expect(url.searchParams.get('name')).toBe('Nobu Dubai');
+    expect(match.latitude).toBe(25.13);expect(match.longitude).toBe(55.11);
+  });
   it("does not turn an address match into a different business, while retaining unnamed buildings", async () => {
     const candidate = restaurantCandidate({ name: 'New Bakery', address: '12 Rue de la Paix, 75002 Paris', city: 'Paris', country: 'France' });
     for (const [name, precision] of [['Old Grocer', 'UNKNOWN'], [undefined, 'EXACT']] as const) {
