@@ -13,6 +13,7 @@ import {
 } from "@/server/places/resolvers";
 import type { PlaceResolutionInput } from "@/server/places/resolvers/types";
 import { scoreResolvedCandidate } from "@/lib/places/scoring";
+import {entityNamesAgree} from '@/lib/places/scoring';
 
 const SECRET_KEY = "super-secret-geoapify-key";
 
@@ -74,6 +75,26 @@ function resolver(fetchImpl: typeof fetch) {
 }
 
 describe("GeoapifyPlaceResolver", () => {
+  it('recognizes omitted generic venue descriptors without conflating different business types',()=>{
+    expect(entityNamesAgree('Miel Bakery','Miel')).toBe(true);
+    expect(entityNamesAgree('Café Sakura','Sakura')).toBe(true);
+    expect(entityNamesAgree('Sakura Hotel','Sakura Restaurant')).toBe(false);
+    expect(entityNamesAgree('Miel Bakery','Miel Cafe')).toBe(false);
+    expect(entityNamesAgree('Bakery','')).toBe(false);
+  });
+  it('retrieves actual named POIs near a transient hint when geocoding only returns a locality',async()=>{
+    const properties={...validGeoapifyBody().results[0],result_type:undefined,rank:undefined};
+    const fetchMock=vi.fn().mockImplementation(async(url:string)=>new URL(url).pathname==='/v2/places'
+      ?jsonResponse({type:'FeatureCollection',features:[{type:'Feature',properties}]})
+      :jsonResponse({results:[{...properties,result_type:'building'}]}));
+    const matches=await resolver(fetchMock).resolve({...resolutionInput(),proximity:{latitude:25.1301,longitude:55.1101}});
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({provider:'geoapify',providerName:'Nobu Dubai',providerResultType:'amenity',latitude:25.13,longitude:55.11});
+    const url=new URL(fetchMock.mock.calls.find(([url])=>new URL(url).pathname==='/v2/places')![0]);
+    expect(url.searchParams.get('name')).toBe('Nobu Dubai');
+    expect(url.searchParams.get('filter')).toBe('circle:55.1101,25.1301,200');
+    expect(url.searchParams.get('limit')).toBe('20');
+  });
   it('uses a transient proximity bias without substituting hint coordinates',async()=>{
     const fetchMock=vi.fn().mockResolvedValue(jsonResponse(validGeoapifyBody()));
     const [match]=await resolver(fetchMock).resolve({...resolutionInput(),proximity:{latitude:25.1301,longitude:55.1101}});

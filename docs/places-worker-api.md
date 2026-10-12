@@ -55,6 +55,11 @@ are requested; locations remain request-local retrieval hints. The resolver
 re-queries Geoapify with a proximity bias and validates every result against the
 unchanged source candidate, within 100 metres of a hint. Only independently
 retrieved Geoapify fields/coordinates can reach persistence or confirmed memory.
+If geocoding yields no acceptable business identity, a named Geoapify Places
+lookup searches within 200 metres (maximum 20 POIs); the final 100-metre gate
+still applies. Generic venue descriptors may be omitted from an otherwise exact
+distinctive name, but incompatible explicit business types remain conflicts.
+Provider reference: https://apidocs.geoapify.com/docs/places/.
 Google-only results stay unresolved; Google payloads are never journaled. `PLACES_GOOGLE_MONTHLY_CAP` defaults
 to 4000 (maximum 4000). Migration of prior usage uses
 `PLACES_GOOGLE_BASELINE_MONTH=YYYY-MM` and `PLACES_GOOGLE_BASELINE_REQUESTS`.
