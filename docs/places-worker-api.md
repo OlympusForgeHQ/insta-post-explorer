@@ -40,3 +40,33 @@ Deployment is staged: isolated additive evidence-enum migration, application/API
 then named-post worker preview and commit. Disable the feature flag to stop new
 worker requests. Keep places, evidence and the database mutation journal on
 rollback. Do not replay the repository's historical production migrations.
+
+## Contextual resolution and bounded recovery
+
+`prepare.categoryRules` includes contextual geography instructions for existing
+worker clients. `inferredFields` marks inferred city/country/region; evidence stays
+literal. Canonical memory is owner-isolated and requires identity confirmation.
+Manual rejections and deleted associations are retained across provider changes.
+
+When `GOOGLE_PLACES_API_KEY` is configured server-side, worker resolution uses
+Google Places Text Search only after Geoapify has no acceptable identity. Requests
+are bounded to five responses, 15 seconds and 512 KB. Coordinates and provider IDs
+come only from validated provider responses. `PLACES_GOOGLE_MONTHLY_CAP` defaults
+to 4000 (maximum 4000). Migration of prior usage uses
+`PLACES_GOOGLE_BASELINE_MONTH=YYYY-MM` and `PLACES_GOOGLE_BASELINE_REQUESTS`.
+Reservations are serialized per owner and recorded in append-only audit before
+spending; failed calls consume budget and deletion/restarts cannot refund it.
+Dry runs also consume provider quota. Operators should bound each recovery run.
+
+Authenticated action `recover` accepts `postId`, `sourceJobId`, `inputHash`, the
+server-accepted `originalResult`, zero-based `sourceCandidateIndices`, enriched
+`result`, and `commit` (default false). It verifies the original completion hash,
+owner, current input hash, all unresolved identities and media coverage. It cannot
+omit an unresolved candidate or replace an asserted identity/geography/address.
+Explicitly separated complete branch addresses may be split; missing geography
+must be marked inferred. Evidence and categories remain unchanged.
+
+Committed recovery is additive, idempotent per payload and limited to three
+recovery jobs per post. Existing canonicals/links/primary associations are preserved;
+active leases and stale inputs block writes. Every recovery stores its source job,
+indices, decisions and receipt. Reports and original payloads remain private.

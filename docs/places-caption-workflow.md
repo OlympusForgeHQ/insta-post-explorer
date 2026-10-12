@@ -159,16 +159,24 @@ with `PLACES_INPUT_STALE` **before** any Geoapify call, job creation, or Prisma
 transaction — nothing is written for a stale line. The importer prints counts
 only — never a caption or candidate body.
 
-## 7. Precision and scoring
+## 7. Contextual identity and precision
 
-Deterministic scoring classifies each resolution:
+The `contextual-identity-v1` policy replaces weighted acceptance thresholds.
+The legacy confidence calculation remains diagnostic/display data only.
 
 | Precision | Condition |
 | --- | --- |
-| `EXACT` | provider-verified specific result, score ≥ 0.90, no contradiction, and either a name match or a strongly verified address match |
-| `PROBABLE` | provider-verified specific result, score ≥ 0.75 |
-| `APPROXIMATE` | provider-verified area (district/city/county/state), score ≥ 0.50, mandatory radius |
-| `UNKNOWN` | country-only, contradictory, or score < 0.50 |
+| `EXACT` | verified street address, or matching venue identity, city and country without inferred fields |
+| `PROBABLE` | matching provider venue identity and corroborating geography/address; missing geography is neutral |
+| `APPROXIMATE` | verified named geographic area, with mandatory radius |
+| `UNKNOWN` | contradictory, ambiguous, unsupported or insufficient identity |
+
+The model may infer missing country/city/region from combined post context and
+geographic knowledge, recording `inferredFields` separately from literal evidence.
+Only owner-confirmed, non-rejected identities supply geographic memory. Automatic
+outputs and category-only corrections do not train identity memory. Competing
+branches, conflicting streets/house numbers and occupants cannot be outvoted.
+Per-candidate reasons are stored in job results; partial success is `NEEDS_REVIEW`.
 
 Approximation radii: district 5 km, city 10 km, county 50 km, state 150 km. A
 country-only match is always `UNKNOWN`. `UNKNOWN` creates no `Place` row; its

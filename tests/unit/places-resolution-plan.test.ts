@@ -6,6 +6,26 @@ import type {PlaceCandidate} from '@/lib/places/candidates';
 import type {ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
 
 describe('geographic identity selection',()=>{
+  it('infers absent country from a matching venue and city without a model confidence threshold',async()=>{
+    const candidate:PlaceCandidate={name:'Example Café',city:'Paris',region:null,country:null,address:null,
+      category:'cafe',confidence:.3,evidence:[{type:'CAPTION',excerpt:'Example Café Paris'}]};
+    const venue:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'example',displayName:'Example Café',providerName:'Example Café',
+      city:'Paris',region:null,country:'France',countryCode:'FR',address:'12 Rue Example, Paris',latitude:48.85,longitude:2.35,
+      providerResultType:'amenity',providerRank:1,providerMatchType:'full_match',category:null,attribution:null};
+    const [plan]=await planAll([candidate],'Restaurant',{resolve:async()=>[venue]});
+    expect(plan.best?.scored.precision).toBe('PROBABLE');
+    expect(plan.best?.scored.reasons).toContain('inferred_country_from_resolved_identity');
+    for(const conflicting of [{...venue,city:'Lyon'},{...venue,providerName:'Different Tenant'},
+      {...venue,providerResultType:'street'},{...venue,providerRank:0}]){
+      expect((await planAll([candidate],'Restaurant',{resolve:async()=>[conflicting]}))[0].best).toBeNull();
+    }
+    const explicit={...candidate,country:'France',region:'Île-de-France',address:'12 Rue Example, Paris'};
+    for(const conflicting of [{...venue,region:'Auvergne'},{...venue,address:'12 Rue Different, Paris'}]){
+      expect((await planAll([explicit],'Restaurant',{resolve:async()=>[conflicting]}))[0].best).toBeNull();
+    }
+    expect((await planAll([{...candidate,address:'12345 Main Street'}],'Restaurant',
+      {resolve:async()=>[{...venue,address:'54321 Main Street, Paris'}]}))[0].best).toBeNull();
+  });
   it('leaves geographically distinct branches unresolved without address evidence, while accepting duplicate entrances',async()=>{
     const candidate:PlaceCandidate={name:'Example Café',city:'Paris',region:null,country:'France',address:null,
       category:'cafe',confidence:.9,evidence:[{type:'CAPTION',excerpt:'Example Café in Paris'}]};

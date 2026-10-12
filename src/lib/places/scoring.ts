@@ -13,7 +13,7 @@ import type { ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 export type PlacePrecisionOutcome = "EXACT" | "PROBABLE" | "APPROXIMATE" | "UNKNOWN";
 
 export type ScoringInput = {
-  candidate: Pick<PlaceCandidate, "name" | "address" | "city" | "region" | "country" | "category" | "confidence">;
+  candidate: Pick<PlaceCandidate, "name" | "address" | "city" | "region" | "country" | "category" | "confidence" | "inferredFields">;
   resolved: ResolvedPlaceCandidate;
 };
 
@@ -144,7 +144,12 @@ type AddressAgreement = {
 };
 
 function normalizeAddress(value: string): string {
-  return foldForSearch(value)
+  return foldForSearch(value).split(',').map((segment,index)=>index>0
+    ?segment.replace(/^\s*\d{4,6}(?:-\d{4})?\s+(?=\p{L})/u,''):segment).join(',')
+    .replace(/\b(?:bd|blvd)\b/gu, 'boulevard')
+    .replace(/\b(?:av|ave)\b/gu, 'avenue')
+    .replace(/\bst\b/gu, 'street')
+    .replace(/\brd\b/gu, 'road')
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
@@ -152,17 +157,17 @@ function normalizeAddress(value: string): string {
 function likelyHouseNumber(value: string): string | null {
   // Ignore postal codes and ordinal district names; a number must introduce
   // a street/address segment, rather than appear anywhere in formatted text.
-  const cleaned = value.replace(/\b\d{1,3}(?:st|nd|rd|th|er|e|eme|ème)\b/gi, '').replace(/\b\d{5,}\b/g, '');
+  const cleaned = value.replace(/\b\d{1,3}(?:st|nd|rd|th|er|e|eme|ème)\b/gi, '');
   for (const [index, segment] of cleaned.split(',').entries()) {
-    const leading = segment.match(/^\s*(\d{1,4}[a-z]?(?:[-/]\d{1,4}[a-z]?)?)\s+\p{L}/iu)?.[1];
-    if (leading && !(index > 0 && /^\d{4}$/.test(leading))) return leading.toLowerCase();
-    const trailing = segment.match(/\p{L}\s+(\d{1,4}[a-z]?(?:[-/]\d{1,4}[a-z]?)?)\s*$/iu)?.[1];
+    const leading = segment.match(/^\s*(\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)?)\s+\p{L}/iu)?.[1];
+    if (leading && !(index > 0 && /^\d{4,6}$/.test(leading))) return leading.toLowerCase();
+    const trailing = segment.match(/\p{L}\s+(\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)?)\s*$/iu)?.[1];
     if (trailing) return trailing.toLowerCase();
   }
   return null;
 }
 
-function addressAgreement(candidateValue: string | null, resolvedValue: string | null): AddressAgreement {
+export function addressAgreement(candidateValue: string | null, resolvedValue: string | null): AddressAgreement {
   if (!candidateValue || !resolvedValue) {
     return { match: false, houseNumberMatch: false, contradiction: false };
   }
@@ -211,7 +216,7 @@ function normalizedEntityName(value: string): string {
     .trim();
 }
 
-function entityNamesAgree(left: string, right: string): boolean {
+export function entityNamesAgree(left: string, right: string): boolean {
   const a = normalizedEntityName(left), b = normalizedEntityName(right);
   if (!a || !b) return false;
   if (a === b) return true;
