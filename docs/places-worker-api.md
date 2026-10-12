@@ -55,6 +55,14 @@ are requested; locations remain request-local retrieval hints. The resolver
 re-queries Geoapify with a proximity bias and validates every result against the
 unchanged source candidate, within 100 metres of a hint. Only independently
 retrieved Geoapify fields/coordinates can reach persistence or confirmed memory.
+If geocoding yields no acceptable business identity, a named Geoapify Places
+lookup searches within 200 metres (maximum 20 POIs); the final 100-metre gate
+still applies. Generic venue descriptors may be omitted from an otherwise exact
+distinctive name, but incompatible explicit business types remain conflicts.
+Provider reference: https://apidocs.geoapify.com/docs/places/.
+Recovery receipts include the resolution-policy version in their identity, so a
+new policy can revisit old refusals without replaying writes for the same policy.
+The existing limit of three contextual recovery jobs per post still applies.
 Google-only results stay unresolved; Google payloads are never journaled. `PLACES_GOOGLE_MONTHLY_CAP` defaults
 to 4000 (maximum 4000). Migration of prior usage uses
 `PLACES_GOOGLE_BASELINE_MONTH=YYYY-MM` and `PLACES_GOOGLE_BASELINE_REQUESTS`.
@@ -62,6 +70,9 @@ UTC and Pacific month windows are both enforced, preserving the prior guard.
 Reservations are serialized per owner and recorded in append-only audit before
 spending; failed calls consume budget and deletion/restarts cannot refund it.
 Dry runs also consume provider quota. Operators should bound each recovery run.
+Temporary Google 429/503 responses receive at most three attempts, each reserved
+against quota. Retry-After is respected; delays above 60 seconds are returned to
+the caller without an early retry. Without it, waits are 15 and 30 seconds.
 
 Authenticated action `recover` accepts `postId`, `sourceJobId`, `inputHash`, the
 server-accepted `originalResult`, zero-based `sourceCandidateIndices`, enriched

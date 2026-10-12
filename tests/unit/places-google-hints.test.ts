@@ -23,3 +23,14 @@ it('keeps Google-only or distant results unresolved',async()=>{
   expect(await resolver.resolve({candidate,sourceTheme:'Restaurant'})).toEqual([]);
  }
 });
+it('upgrades an unresolved geocoding record when the independent POI catalog corroborates the same ID',async()=>{
+ const resolver=new FallbackPlaceResolver({resolve:async input=>input.proximity?[geo]:[{...geo,providerResultType:'building'}]},
+  {searchHints:async()=>[{placeId:'google-id',latitude:48.85,longitude:2.35}]});
+ expect(await resolver.resolve({candidate,sourceTheme:'Restaurant'})).toEqual([geo]);
+});
+it('retains distinct nearby-hint branches so the decision layer can reject ambiguity',async()=>{
+ const other={...geo,providerPlaceId:'second-branch',latitude:48.86};
+ const resolver=new FallbackPlaceResolver({resolve:async input=>!input.proximity?[{...geo,providerResultType:'building'}]:input.proximity.latitude===48.85?[geo]:[other]},
+  {searchHints:async()=>[{placeId:'first-hint',latitude:48.85,longitude:2.35},{placeId:'second-hint',latitude:48.86,longitude:2.35}]});
+ expect(await resolver.resolve({candidate,sourceTheme:'Restaurant'})).toEqual([geo,other]);
+});
