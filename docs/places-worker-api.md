@@ -70,6 +70,9 @@ UTC and Pacific month windows are both enforced, preserving the prior guard.
 Reservations are serialized per owner and recorded in append-only audit before
 spending; failed calls consume budget and deletion/restarts cannot refund it.
 Dry runs also consume provider quota. Operators should bound each recovery run.
+Temporary Google 429/503 responses receive at most three attempts, each reserved
+against quota. Retry-After is respected; delays above 60 seconds are returned to
+the caller without an early retry. Without it, waits are 15 and 30 seconds.
 
 Authenticated action `recover` accepts `postId`, `sourceJobId`, `inputHash`, the
 server-accepted `originalResult`, zero-based `sourceCandidateIndices`, enriched
