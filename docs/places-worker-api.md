@@ -58,6 +58,7 @@ retrieved Geoapify fields/coordinates can reach persistence or confirmed memory.
 Google-only results stay unresolved; Google payloads are never journaled. `PLACES_GOOGLE_MONTHLY_CAP` defaults
 to 4000 (maximum 4000). Migration of prior usage uses
 `PLACES_GOOGLE_BASELINE_MONTH=YYYY-MM` and `PLACES_GOOGLE_BASELINE_REQUESTS`.
+UTC and Pacific month windows are both enforced, preserving the prior guard.
 Reservations are serialized per owner and recorded in append-only audit before
 spending; failed calls consume budget and deletion/restarts cannot refund it.
 Dry runs also consume provider quota. Operators should bound each recovery run.
