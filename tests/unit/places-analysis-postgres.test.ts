@@ -97,12 +97,21 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,record:await freshRecord(OWNER_A,'provider-first',[candidate()]),
       resolver:new FakeResolver({'Nobu Dubai':[resolved()]}),commit:true});
     const known=await prisma.place.findFirstOrThrow({where:{ownerId:OWNER_A}});
-    await prisma.place.update({where:{id:known.id},data:{isUserConfirmed:true,reviewStatus:'REJECTED',displayName:'Restaurant Nobu Dubai',normalizedName:'restaurant nobu dubai'}});
+    await prisma.place.update({where:{id:known.id},data:{provider:'legacy-provider',isUserConfirmed:true,reviewStatus:'REJECTED',displayName:'Restaurant Nobu Dubai',normalizedName:'restaurant nobu dubai'}});
     await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,record:await freshRecord(OWNER_A,'provider-second',[candidate()]),
-      resolver:new FakeResolver({'Nobu Dubai':[resolved({provider:'google',providerPlaceId:'google-nobu',providerResultType:'poi',address:'Atlantis Hotel, Dubai'})]}),commit:true});
+      resolver:new FakeResolver({'Nobu Dubai':[resolved({providerPlaceId:'geo-nobu-new',providerResultType:'poi',address:'Atlantis Hotel, Dubai'})]}),commit:true});
     expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(1);
     expect(await prisma.postPlace.count({where:{postId:'provider-second'}})).toBe(0);
     expect((await prisma.place.findUniqueOrThrow({where:{id:known.id}})).reviewStatus).toBe('REJECTED');
+  });
+
+  it('never persists raw Google content or coordinates through a resolver override',async()=>{
+    await seedPost('raw-google-blocked',OWNER_A,'Restaurant');
+    const receipt=await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,record:await freshRecord(OWNER_A,'raw-google-blocked',[candidate()]),
+      resolver:new FakeResolver({'Nobu Dubai':[resolved({provider:'google',providerPlaceId:'google-only'})]}),commit:true});
+    expect(receipt.unknownCandidates).toBe(1);
+    expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(0);
+    expect((await prisma.placeAnalysisJob.findFirstOrThrow({where:{postId:'raw-google-blocked'}})).result).toMatchObject({decisions:[{reasons:['provider_content_not_persistable']}]});
   });
 
   it("persists a resolved EXACT place with one primary link and evidence", async () => {

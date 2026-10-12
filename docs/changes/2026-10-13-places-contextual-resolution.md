@@ -57,3 +57,11 @@ home recipe. No schema migration or new service.
 
 Deployment, pilot, backup and remaining-only correction receipts are private in
 `.tmp/places-context-20261013/`; read them before claiming live completion.
+
+
+Integration correction before data recovery: Google remains a transient discovery
+source, as in the former helper. Only IDs/coordinates are requested; proximity
+queries return independently corroborated Geoapify records. Persistence rejects
+raw Google results even through an injected resolver. Regression coverage proves
+Google-only/distant hits cannot become Places and primary-provider values remain
+unchanged. No Google-derived canonical was created during rollout.

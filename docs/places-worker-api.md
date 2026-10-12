@@ -50,8 +50,12 @@ Manual rejections and deleted associations are retained across provider changes.
 
 When `GOOGLE_PLACES_API_KEY` is configured server-side, worker resolution uses
 Google Places Text Search only after Geoapify has no acceptable identity. Requests
-are bounded to five responses, 15 seconds and 512 KB. Coordinates and provider IDs
-come only from validated provider responses. `PLACES_GOOGLE_MONTHLY_CAP` defaults
+are bounded to five responses, 15 seconds and 512 KB. Only Google IDs and locations
+are requested; locations remain request-local retrieval hints. The resolver
+re-queries Geoapify with a proximity bias and validates every result against the
+unchanged source candidate, within 100 metres of a hint. Only independently
+retrieved Geoapify fields/coordinates can reach persistence or confirmed memory.
+Google-only results stay unresolved; Google payloads are never journaled. `PLACES_GOOGLE_MONTHLY_CAP` defaults
 to 4000 (maximum 4000). Migration of prior usage uses
 `PLACES_GOOGLE_BASELINE_MONTH=YYYY-MM` and `PLACES_GOOGLE_BASELINE_REQUESTS`.
 Reservations are serialized per owner and recorded in append-only audit before
