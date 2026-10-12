@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import type { PlaceResolver } from '@/server/places/resolvers/types';
+import {createHash} from 'node:crypto';
 vi.mock('server-only',()=>({}));
 const url=process.env.TEST_DATABASE_URL?.trim();
 const owner='places-worker-test', other='places-worker-other';
@@ -51,6 +52,8 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
    await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},{...dependencies,resolver:{resolve:async()=>[]}});
    const command={postId:'worker-post',sourceJobId:claim.jobId,inputHash:claim.input.input_hash,originalResult:result,sourceCandidateIndices:[0],result,commit:true};
+   const legacyHash=createHash('sha256').update(JSON.stringify({sourceJobId:claim.jobId,sourceCandidateIndices:[0],result})).digest('hex');
+   await db.placeAnalysisJob.create({data:{ownerId:owner,postId:'worker-post',inputHash:legacyHash,analysisVersion:'places-contextual-recovery-v1',sourceTheme:'Restaurant',status:'NEEDS_REVIEW',depth:'METADATA_ONLY',result:{recoveryReceipt:{status:'NEEDS_REVIEW',linksPersisted:0,unknownCandidates:1}}}});
    const receipt=await service.recoverPlacesResult(owner,command,dependencies);
    expect(receipt).toMatchObject({status:'SUCCEEDED',linksPersisted:1,unknownCandidates:0});
    expect(await service.recoverPlacesResult(owner,command,dependencies)).toEqual(receipt);
@@ -92,7 +95,7 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[result.candidates[0],unknown]}},dependencies);
    expect(receipt).toMatchObject({status:'NEEDS_REVIEW',unknownCandidates:1,linksPersisted:1});
    const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
-   expect(job.result).toMatchObject({resolutionPolicy:'contextual-identity-v1',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
+   expect(job.result).toMatchObject({resolutionPolicy:'contextual-identity-v2',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
  });
 
  it('retries only the explicitly identified failed unchanged job within its original attempt budget',async()=>{

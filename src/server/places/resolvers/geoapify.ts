@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { foldForSearch } from "@/lib/import/normalize";
 import { distanceMeters } from "@/lib/places/distance";
+import {decidePlaceResolution} from '@/lib/places/resolution';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 
@@ -155,6 +156,33 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   }
 
   async resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]> {
+    const results=await this.resolveGeocoding(input);
+    if(!input.proximity||!input.candidate.name||results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))return results;
+    // Geocoding often returns an address or city without its business. Query
+    // the independent POI catalog near the hint, keeping its own identity and
+    // coordinates. The caller still checks identity, distance and ambiguity.
+    const {latitude,longitude}=input.proximity;
+    const params=new URLSearchParams({apiKey:this.apiKey,lang:'en',name:input.candidate.name,
+      categories:'catering,commercial,accommodation,tourism,entertainment,leisure',
+      filter:`circle:${longitude},${latitude},200`,limit:'20'});
+    const response=await this.fetchWithRetry(`${this.baseUrl}/v2/places?${params.toString()}`);
+    let payload:unknown;
+    try{payload=await response.json();}catch{throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');}
+    const parsed=z.object({features:z.array(z.object({properties:geoapifyResultSchema})).max(20)}).safeParse(payload);
+    if(!parsed.success)throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');
+    for(const {properties} of parsed.data.features){
+      if(!properties.name||!Number.isFinite(properties.lat)||!Number.isFinite(properties.lon)||Math.abs(properties.lat)>90||Math.abs(properties.lon)>180)continue;
+      const match=normalizeResult({...properties,result_type:'amenity'});
+      if(distanceMeters(input.proximity,match)>200)continue;
+      const existing=results.findIndex(item=>item.providerPlaceId===match.providerPlaceId);
+      if(existing<0)results.push(match);
+      else if(decidePlaceResolution({candidate:input.candidate,resolved:results[existing]}).precision==='UNKNOWN'&&
+        decidePlaceResolution({candidate:input.candidate,resolved:match}).precision!=='UNKNOWN')results[existing]=match;
+    }
+    return results;
+  }
+
+  private async resolveGeocoding(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {
     const addressResults = await this.search(input.candidate,input.proximity);
     // A caption can identify both a business and its street address. Keep the
     // business identity only when a specific address independently locates it.
