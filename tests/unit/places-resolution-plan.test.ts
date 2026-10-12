@@ -27,6 +27,12 @@ describe('geographic identity selection',()=>{
     expect(areaPlans.map(plan=>plan.best)).toEqual([null,null,null]);
     const [located]=await planAll([{...candidate,address:'12 Rue Example, Paris'}],'Restaurant',{resolve:async()=>[venue]});
     expect(located.best?.resolved.providerPlaceId).toBe('branch-a');
+    const unknown={...candidate,name:null,city:null,country:null};
+    const resolve=vi.fn(async()=>[venue]);
+    const mixed=await planAll([unknown,{...candidate,address:'12 Rue Example, Paris'}],'Restaurant',{resolve});
+    expect(mixed[0].best).toBeNull();
+    expect(mixed[1].best?.resolved.providerPlaceId).toBe('branch-a');
+    expect(resolve).toHaveBeenCalledTimes(1);
     const [ambiguousAddress]=await planAll([{...candidate,address:'Rue Example, Paris'}],'Restaurant',
       {resolve:async()=>[venue,{...venue,providerPlaceId:'branch-b',latitude:48.87}]});
     expect(ambiguousAddress.best).toBeNull();

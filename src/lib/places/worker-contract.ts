@@ -28,6 +28,7 @@ const lease={jobId:id,leaseToken:z.string().uuid()};
 export const workerCommandSchema=z.discriminatedUnion('action',[
   z.object({action:z.literal('prepare'),postId:id}).strict(),
   z.object({action:z.literal('enqueue'),postId:id.optional(),cursor:id.optional()}).strict(),
+  z.object({action:z.literal('retry'),jobId:id,postId:id,inputHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),
   z.object({action:z.literal('claim'),postId:id.optional()}).strict(),
   z.object({action:z.literal('heartbeat'),...lease}).strict(),
   z.object({action:z.literal('complete'),...lease,result:workerResultSchema}).strict(),

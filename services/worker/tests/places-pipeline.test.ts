@@ -59,3 +59,12 @@ it('replays the identical completion after a response body is interrupted',async
   await expect(api.call({action:'complete',jobId:'job',leaseToken:'lease',result:{}})).resolves.toEqual({status:'SUCCEEDED'});
   expect(calls).toBe(2);expect(bodies[0]).toBe(bodies[1]);
 });
+
+it('preserves definitive evidence rejection codes without a transport retry',async()=>{
+ for(const code of ['PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE']){
+  let calls=0;
+  const request=(async()=>{calls++;return Response.json({error:{code}},{status:422});}) as typeof fetch;
+  await expect(new PlacesHttpApi('https://app.test','private',request).call({action:'complete'})).rejects.toThrow(code);
+  expect(calls).toBe(1);
+ }
+});

@@ -80,6 +80,24 @@ export async function heartbeatPlacesJob(ownerId:string,lease:Lease){
   if(updated.count!==1)throw Error('PLACES_LEASE_LOST');
   return {ok:true};
 }
+
+// Explicit recovery only: keep the original identity and attempt budget, and
+// never requeue successes, live claims, changed inputs or another owner's job.
+export async function retryPlacesJob(ownerId:string,options:{jobId:string;postId:string;inputHash:string}){
+  return prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT id FROM posts WHERE id=${options.postId} AND owner_id=${ownerId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${options.jobId} AND owner_id=${ownerId} FOR UPDATE`;
+    const job=await tx.placeAnalysisJob.findFirst({where:{id:options.jobId,postId:options.postId,ownerId,analysisVersion:PLACES_WORKER_VERSION}});
+    if(!job)throw Error('PLACES_JOB_NOT_FOUND');
+    const current=await inputs(ownerId,options.postId,tx);
+    if(current.inputHash!==options.inputHash||job.inputHash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
+    if(job.status!=='FAILED'||job.errorCode!=='INVALID_RESULT'||job.attemptCount>=job.maxAttempts)return {requeued:false};
+    await setAuditAction(tx,'places.worker.retry');
+    await tx.placeAnalysisJob.update({where:{id:job.id},data:{status:'PENDING',stage:'QUEUED',errorCode:null,errorMessage:null,
+      nextAttemptAt:null,completedAt:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
+    return {requeued:true};
+  },{timeout:30_000});
+}
 async function loadLease(ownerId:string,lease:Lease,client:Prisma.TransactionClient=prisma){
   const job=await client.placeAnalysisJob.findFirst({where:{id:lease.jobId,ownerId,analysisVersion:PLACES_WORKER_VERSION}});
   if(!job)throw Error('PLACES_JOB_NOT_FOUND');

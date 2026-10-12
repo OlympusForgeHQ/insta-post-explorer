@@ -17,6 +17,38 @@ const suite=url?describe:describe.skip;
 suite('Places worker ownership, leases and atomic completion',()=>{
  beforeAll(async()=>{process.env.DATABASE_URL=url;({prisma:db}=await import('@/server/db'));service=await import('@/server/places/worker');await clear();});
  beforeEach(async()=>{await clear();await seed();});afterAll(async()=>{await clear();await db.$disconnect();});
+ it('preserves unidentified evidence for review without making an empty geocoding request',async()=>{
+   const empty={...result.candidates[0],name:null,address:null,city:null,region:null,country:null};
+   const resolve=vi.fn(async()=>{throw Error('EMPTY_PROVIDER_QUERY');});
+   const deps={signMedia:signer,resolver:{resolve}};
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{postId:'worker-post'},deps))!;
+   const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[empty]}},deps);
+   expect(receipt).toMatchObject({status:'NEEDS_REVIEW',unknownCandidates:1,placesPersisted:0,evidencePersisted:1});
+   expect(resolve).not.toHaveBeenCalled();
+   expect(await db.placeEvidence.count({where:{ownerId:owner,placeId:null}})).toBe(1);
+   expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+ });
+
+ it('retries only the explicitly identified failed unchanged job within its original attempt budget',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{postId:'worker-post'},dependencies))!;
+   await service.failPlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,code:'INVALID_RESULT'});
+   const command={jobId:claim.jobId,postId:'worker-post',inputHash:claim.input.input_hash};
+   await expect(service.retryPlacesJob(other,command)).rejects.toThrow('PLACES_JOB_NOT_FOUND');
+   await expect(service.retryPlacesJob(owner,{...command,inputHash:'0'.repeat(64)})).rejects.toThrow('PLACES_INPUT_STALE');
+   expect(await service.retryPlacesJob(owner,command)).toEqual({requeued:true});
+   expect(await service.retryPlacesJob(owner,command)).toEqual({requeued:false});
+   expect((await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}})).attemptCount).toBe(1);
+   const retried=(await service.claimPlacesJob(owner,{postId:'worker-post'},dependencies))!;
+   await service.completePlacesJob(owner,{jobId:retried.jobId,leaseToken:retried.leaseToken,result},dependencies);
+   expect(await service.retryPlacesJob(owner,command)).toEqual({requeued:false});
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{status:'FAILED',errorCode:'INVALID_RESULT',attemptCount:3}});
+   expect(await service.retryPlacesJob(owner,command)).toEqual({requeued:false});
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{attemptCount:1}});
+   await db.post.update({where:{id:'worker-post'},data:{caption:'Changed by the owner'}});
+   await expect(service.retryPlacesJob(owner,command)).rejects.toThrow('PLACES_INPUT_STALE');
+ });
  it('previews without jobs and commits a claimed result exactly once with the post category',async()=>{
    const preview=await service.preparePlacesPost(owner,'worker-post',dependencies);
    expect(preview.input.main_theme).toBe('Restaurant');expect(await db.placeAnalysisJob.count({where:{ownerId:owner}})).toBe(0);
