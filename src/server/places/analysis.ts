@@ -15,6 +15,7 @@ import { computePlacesInputHash } from "@/server/places/hash";
 import { createMetadataAnalysisJob, PlacesJobError } from "@/server/places/jobs";
 import { loadAnalysisPostInputs } from "@/server/places/repository";
 import {enrichFromVerifiedMemory, loadVerifiedResolutionMemory, type VerifiedPlaceMemory} from './resolution-memory';
+import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 
 // Atomic metadata analysis persistence (design section 7). Candidates are
@@ -60,6 +61,7 @@ export type CandidatePlan = {
   candidate: PlaceCandidate;
   best: { resolved: ResolvedPlaceCandidate; scored: ScoredResolution } | null;
   reasons?: string[];
+  branches?: CandidatePlan[];
 };
 
 // Resolve one candidate and keep the best non-UNKNOWN resolution. Ordering is
@@ -93,6 +95,18 @@ async function planCandidate(
   // Nearby duplicate provider entries/entrances use the resolver's same 100 m
   // corroboration distance; sorting remains deterministic within one site.
   const specific = viable.filter(entry => entry.scored.precision !== 'APPROXIMATE');
+  if (recommendsCityBranches(candidate) && specific.length > 1) {
+    // Keep the source candidate immutable; each provider branch is a separate
+    // resolution of that recommendation, not an invented source address.
+    const sites:typeof specific=[];
+    for(const entry of specific){
+      if(!entry.scored.reasons.includes('city_match'))continue;
+      if(!sites.some(site=>site.resolved.providerPlaceId===entry.resolved.providerPlaceId ||
+        (site.resolved.address===entry.resolved.address && distanceMeters(site.resolved,entry.resolved)<=25)))sites.push(entry);
+    }
+    if(sites.length>1)return {candidate,best:sites[0],reasons:['explicit_city_branches'],
+      branches:sites.map(best=>({candidate,best,reasons:best.scored.reasons}))};
+  }
   if (specific.some((entry, index) =>
     specific.slice(index + 1).some(other => distanceMeters(entry.resolved, other.resolved) > 100))) {
     return { candidate, best: null, reasons: ['ambiguous_branches'] };
@@ -213,7 +227,7 @@ export async function persistMetadataAnalysis(
   const persistedLinks: PersistedLink[] = [];
   let evidencePersisted = 0;
 
-  for (const plan of plans) {
+  for (const plan of plans.flatMap(source => source.branches ?? [source])) {
     if (!plan.best) {
       evidencePersisted += await insertCandidateEvidence(tx, {
         ownerId,
@@ -266,6 +280,15 @@ export async function persistMetadataAnalysis(
   if(!preserveExisting)await supersedeAutomaticApproximatePrimary(tx, { ownerId, postId, persistedLinks });
   if(!preserveExisting||!await tx.postPlace.findFirst({where:{ownerId,postId,isPrimary:true}}))await assignPrimaryLink(tx, { ownerId, postId, persistedLinks });
 
+  for(const plan of plans){
+    if(!plan.branches)continue;
+    // One unresolved source candidate if any branch is blocked, even when other
+    // branches were added. This preserves the source evidence recovery contract.
+    if(plan.branches.some(branch=>!branch.best)){
+      plan.best=null;
+      plan.reasons=['partial_city_branches',...new Set(plan.branches.filter(branch=>!branch.best).flatMap(branch=>branch.reasons??[]))];
+    }
+  }
   const resolvedCount = plans.filter((plan) => plan.best).length;
   const status: AnalyzeRecordStatus =
     resolvedCount < plans.length ? "NEEDS_REVIEW" : "SUCCEEDED";
@@ -289,7 +312,9 @@ export async function persistMetadataAnalysis(
         resolutionPolicy: RESOLUTION_POLICY_VERSION,
         decisions: plans.map((plan, index) => ({index, precision: plan.best?.scored.precision ?? 'UNKNOWN', reasons: plan.reasons ?? [],
           candidate:{name:plan.candidate.name,address:plan.candidate.address,city:plan.candidate.city,region:plan.candidate.region,country:plan.candidate.country},
-          inferredFields: plan.candidate.inferredFields ?? []})),
+          inferredFields: plan.candidate.inferredFields ?? [],
+          ...(plan.branches?{branches:plan.branches.map(branch=>({providerPlaceId:branch.best?.resolved.providerPlaceId??null,
+            precision:branch.best?.scored.precision??'UNKNOWN',reasons:branch.reasons??[]}))}:{})})),
       },
     },
   });
@@ -584,6 +609,8 @@ async function insertProviderEvidence(
       normalizedValue: `${resolved.provider}:${resolved.providerPlaceId}`,
       confidence: scored.confidence,
       metadata: { providerResultType: resolved.providerResultType, resolutionPolicy: RESOLUTION_POLICY_VERSION,
+        providerSource:resolved.providerSource??null,providerRank:resolved.providerRank,
+        street:resolved.street??null,houseNumber:resolved.houseNumber??null,localityNames:resolved.localityNames??[],
         reasons: scored.reasons } satisfies Prisma.InputJsonValue,
     },
   });

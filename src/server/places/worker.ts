@@ -57,6 +57,12 @@ export async function recoverPlacesResult(ownerId:string,options:{postId:string;
     const saved=previous.result as {recoveryReceipt?:AnalyzeRecordResult}|null;
     if(saved?.recoveryReceipt)return saved.recoveryReceipt;
   }
+  const recoveryWhere={ownerId,postId:options.postId,analysisVersion:recoveryVersion};
+  const exhausted=(jobs:{result:Prisma.JsonValue}[])=>jobs.length>=4 || (jobs.length>=3&&jobs.some(job=>
+    job.result&&typeof job.result==='object'&&!Array.isArray(job.result)&&job.result.resolutionPolicy===RESOLUTION_POLICY_VERSION));
+  // One repair after a deployed policy change may follow three legacy attempts.
+  // Same-policy retries cannot consume this extra slot or spend provider quota.
+  if(exhausted(await prisma.placeAnalysisJob.findMany({where:recoveryWhere,select:{result:true}})))throw Error('PLACES_JOB_CONFLICT');
   const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates));
   if(!options.commit)return {postId:options.postId,committed:false,plans};
   return prisma.$transaction(async tx=>{
@@ -70,7 +76,7 @@ export async function recoverPlacesResult(ownerId:string,options:{postId:string;
       if(saved?.recoveryReceipt)return saved.recoveryReceipt;
       throw Error('PLACES_JOB_CONFLICT');
     }
-    if(await tx.placeAnalysisJob.count({where:{ownerId,postId:options.postId,analysisVersion:recoveryVersion}})>=3)throw Error('PLACES_JOB_CONFLICT');
+    if(exhausted(await tx.placeAnalysisJob.findMany({where:recoveryWhere,select:{result:true}})))throw Error('PLACES_JOB_CONFLICT');
     await setAuditAction(tx,'places.worker.contextual_recovery');
     const job=await tx.placeAnalysisJob.create({data:{...identity,sourceTheme:current.sourceTheme,depth:'METADATA_ONLY',status:'PROCESSING',stage:'RESOLVING',attemptCount:1,maxAttempts:1}});
     const receipt=await persistMetadataAnalysis(tx,{ownerId,postId:options.postId,jobId:job.id,plans,preserveExisting:true});

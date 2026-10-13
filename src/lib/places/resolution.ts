@@ -1,7 +1,7 @@
 import { scoreResolvedCandidate, type ScoringInput, type ScoredResolution } from '@/lib/places/scoring';
 import {foldForSearch} from '@/lib/import/normalize';
 
-export const RESOLUTION_POLICY_VERSION = 'contextual-identity-v2';
+export const RESOLUTION_POLICY_VERSION = 'structured-identity-v3';
 export const PLACE_CONTEXT_RULES = `Infer missing country, city or region from the combined post context and geographic knowledge when the identity is coherent. These fields need not appear literally in the post. Mark deduced fields in inferredFields and retain the original source excerpts unchanged. Do not override explicit contradictory context or invent a branch address. Split distinct branch addresses into separate candidates. A chain account alone does not identify a branch. Never output coordinates or provider IDs.`;
 
 // The legacy comparison layer provides normalized agreements and conflicts.
@@ -20,7 +20,7 @@ export function decidePlaceResolution(input: ScoringInput): ScoredResolution {
       : precision === 'PROBABLE' ? Math.max(.75,Math.min(.89,comparison.confidence))
       : precision === 'APPROXIMATE' ? Math.max(.5,comparison.confidence) : 0,
     precision, approximationRadiusMeters: precision === 'APPROXIMATE' ? comparison.approximationRadiusMeters : null,
-    reasons: [...reasons, reason, RESOLUTION_POLICY_VERSION],
+    reasons: [...new Set([...reasons, reason, RESOLUTION_POLICY_VERSION])],
   });
   if (reasons.some(reason => reason.endsWith('_contradiction') || [
     'provider_zero_confidence', 'provider_entity_name_unverified', 'city_candidate_requires_area',
@@ -29,7 +29,8 @@ export function decidePlaceResolution(input: ScoringInput): ScoredResolution {
 
   const {candidate, resolved} = input;
   if(candidate.address && resolved.address && !has('address_match'))return outcome('UNKNOWN','address_not_corroborated');
-  if(candidate.region && resolved.region && foldForSearch(candidate.region)!==foldForSearch(resolved.region))return outcome('UNKNOWN','region_not_corroborated');
+  if(candidate.region && resolved.region && !candidate.inferredFields?.includes('region') && foldForSearch(candidate.region)!==foldForSearch(resolved.region))return outcome('UNKNOWN','region_not_corroborated');
+  if(has('named_country_destination'))return outcome('APPROXIMATE','named_country_destination');
   const type = resolved.providerResultType ?? '';
   const poi = ['amenity', 'tourism', 'leisure', 'poi'].includes(type);
   const area = ['suburb','district','neighbourhood','quarter','city','town','village','municipality','locality','postcode','county','state','region','province'].includes(type);
@@ -38,6 +39,7 @@ export function decidePlaceResolution(input: ScoringInput): ScoredResolution {
     reasons.push('inferred_country_from_resolved_identity');
   }
   if (!candidate.city && resolved.city && has('address_match')) reasons.push('inferred_city_from_resolved_identity');
+  if(has('structured_identity_despite_query_confidence'))return outcome('PROBABLE','structured_identity_despite_query_confidence');
   if (has('address_provider_verified')) return outcome('EXACT', 'verified_street_address');
   if (poi && has('name_match') && locationAgreement) {
     return outcome(has('city_match') && has('country_match') && !candidate.inferredFields?.length ? 'EXACT' : 'PROBABLE', 'venue_identity_and_context');

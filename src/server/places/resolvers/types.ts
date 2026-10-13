@@ -17,6 +17,10 @@ export type ResolvedPlaceCandidate = {
   displayName: string;
   // Raw provider entity name, distinct from a formatted address fallback.
   providerName?: string | null;
+  street?: string | null;
+  houseNumber?: string | null;
+  // Locality labels explicitly present in the provider address, not nearby areas.
+  localityNames?: string[];
   category: string | null;
   address: string | null;
   city: string | null;
@@ -27,6 +31,10 @@ export type ResolvedPlaceCandidate = {
   longitude: number;
   providerResultType: string | null;
   providerRank: number | null;
+  providerSource?: 'geocoding' | 'places';
+  providerStreetConfidence?: number | null;
+  providerBuildingConfidence?: number | null;
+  providerBounds?: {lon1:number;lat1:number;lon2:number;lat2:number} | null;
   providerMatchType: string | null;
   attribution: string | null;
 };

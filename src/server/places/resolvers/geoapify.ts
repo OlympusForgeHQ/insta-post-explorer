@@ -5,6 +5,8 @@ import { z } from "zod";
 import { foldForSearch } from "@/lib/import/normalize";
 import { distanceMeters } from "@/lib/places/distance";
 import {decidePlaceResolution} from '@/lib/places/resolution';
+import {entityNamesAgree} from '@/lib/places/scoring';
+import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 
@@ -69,6 +71,10 @@ const geoapifyResultSchema = z
     name: z.string().nullish(),
     formatted: z.string().nullish(),
     address_line1: z.string().nullish(),
+    address_line2: z.string().nullish(),
+    street: z.string().nullish(),
+    housenumber: z.string().nullish(),
+    postcode: z.string().nullish(),
     city: z.string().nullish(),
     state: z.string().nullish(),
     country: z.string().nullish(),
@@ -76,9 +82,12 @@ const geoapifyResultSchema = z
     lat: z.number(),
     lon: z.number(),
     result_type: z.string().nullish(),
+    bbox: z.object({lon1:z.number().min(-180).max(180),lat1:z.number().min(-90).max(90),lon2:z.number().min(-180).max(180),lat2:z.number().min(-90).max(90)}).nullish(),
     rank: z
       .object({
         confidence: z.number().min(0).max(1).nullish(),
+        confidence_street_level: z.number().min(0).max(1).nullish(),
+        confidence_building_level: z.number().min(0).max(1).nullish(),
         match_type: z.string().trim().min(1).max(100).nullish(),
       })
       .passthrough()
@@ -157,29 +166,63 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
 
   async resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]> {
     const results=await this.resolveGeocoding(input);
-    if(!input.proximity||!input.candidate.name||results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))return results;
+    if(recommendsCityBranches(input.candidate)){
+      const areas=await this.search({...input.candidate,name:null,address:null,region:null});
+      const cities=areas.filter(area=>['city','town','municipality'].includes(area.providerResultType??'')&&
+        area.providerRank===1&&area.providerMatchType==='full_match'&&
+        decidePlaceResolution({candidate:{...input.candidate,name:input.candidate.city,category:'city',region:null},resolved:area}).precision==='APPROXIMATE');
+      if(cities.length===1){
+        const params=new URLSearchParams({apiKey:this.apiKey,lang:'en',name:input.candidate.name!,
+          categories:'catering,commercial,accommodation,tourism,entertainment,leisure',
+          filter:`place:${cities[0].providerPlaceId}`,limit:'100'});
+        const branches=await this.searchPois(params,100,true);
+        for(const branch of branches)this.mergePoi(results,branch,input);
+      }
+    }
+    if(!input.candidate.name||results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))return results;
     // Geocoding often returns an address or city without its business. Query
     // the independent POI catalog near the hint, keeping its own identity and
     // coordinates. The caller still checks identity, distance and ambiguity.
-    const {latitude,longitude}=input.proximity;
+    const anchors=input.proximity?[input.proximity]:results.filter(result=>
+      result.providerName&&entityNamesAgree(input.candidate.name!,result.providerName)&&
+      result.providerRank===0&&['amenity','poi','tourism'].includes(result.providerResultType??'')).slice(0,3);
+    for(const {latitude,longitude}of anchors){
     const params=new URLSearchParams({apiKey:this.apiKey,lang:'en',name:input.candidate.name,
       categories:'catering,commercial,accommodation,tourism,entertainment,leisure',
       filter:`circle:${longitude},${latitude},200`,limit:'20'});
+    let nearby=await this.searchPois(params,20);
+    if(!nearby.some(result=>decidePlaceResolution({candidate:input.candidate,resolved:result}).precision!=='UNKNOWN')){
+      params.delete('name');params.set('limit','100');
+      nearby=nearby.concat(await this.searchPois(params,100));
+    }
+    for(const match of nearby){
+      if(distanceMeters({latitude,longitude},match)>200)continue;
+      this.mergePoi(results,match,input);
+    }
+    }
+    return results;
+  }
+
+  private mergePoi(results:ResolvedPlaceCandidate[],match:ResolvedPlaceCandidate,input:PlaceResolutionInput){
+    const existing=results.findIndex(item=>item.providerPlaceId===match.providerPlaceId);
+    if(existing<0)results.push(match);
+    else if(decidePlaceResolution({candidate:input.candidate,resolved:results[existing]}).precision==='UNKNOWN'&&
+      decidePlaceResolution({candidate:input.candidate,resolved:match}).precision!=='UNKNOWN')results[existing]=match;
+  }
+
+  private async searchPois(params:URLSearchParams,limit:number,requireComplete=false):Promise<ResolvedPlaceCandidate[]>{
     const response=await this.fetchWithRetry(`${this.baseUrl}/v2/places?${params.toString()}`);
     let payload:unknown;
     try{payload=await response.json();}catch{throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');}
-    const parsed=z.object({features:z.array(z.object({properties:geoapifyResultSchema})).max(20)}).safeParse(payload);
-    if(!parsed.success)throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');
+    const parsed=z.object({features:z.array(z.object({properties:geoapifyResultSchema})).max(limit)}).safeParse(payload);
+    if(!parsed.success || (requireComplete && parsed.data.features.length===limit))throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');
+    const matches:ResolvedPlaceCandidate[]=[];
     for(const {properties} of parsed.data.features){
       if(!properties.name||!Number.isFinite(properties.lat)||!Number.isFinite(properties.lon)||Math.abs(properties.lat)>90||Math.abs(properties.lon)>180)continue;
-      const match=normalizeResult({...properties,result_type:'amenity'});
-      if(distanceMeters(input.proximity,match)>200)continue;
-      const existing=results.findIndex(item=>item.providerPlaceId===match.providerPlaceId);
-      if(existing<0)results.push(match);
-      else if(decidePlaceResolution({candidate:input.candidate,resolved:results[existing]}).precision==='UNKNOWN'&&
-        decidePlaceResolution({candidate:input.candidate,resolved:match}).precision!=='UNKNOWN')results[existing]=match;
+      const match=normalizeResult({...properties,result_type:'amenity'},'places');
+      matches.push(match);
     }
-    return results;
+    return matches;
   }
 
   private async resolveGeocoding(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {
@@ -302,12 +345,22 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   }
 }
 
-function normalizeResult(result: z.infer<typeof geoapifyResultSchema>): ResolvedPlaceCandidate {
+function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'geocoding'|'places'='geocoding'): ResolvedPlaceCandidate {
+  // The formatted postal locality may differ from the administrative city.
+  // Keep only separate address components after the street; never turn a street
+  // called Hackney Road or an unrelated district into a city alias.
+  const postalLocalities=result.street&&result.address_line2
+    ?result.address_line2.split(',').slice(1).map(value=>result.postcode?value.replace(result.postcode,'').trim():value.trim())
+      .filter(value=>value&& !/\d/u.test(value)&&![result.country,result.state].some(other=>other&&foldForSearch(other)===foldForSearch(value)))
+    :[];
   return {
     provider: "geoapify",
     providerPlaceId: result.place_id,
     displayName: result.name ?? result.formatted ?? result.address_line1 ?? result.place_id,
     providerName: result.name ?? null,
+    street: result.street ?? null,
+    houseNumber: result.housenumber ?? null,
+    localityNames: [...new Set([result.city,...postalLocalities].filter((value):value is string=>Boolean(value)))],
     category: result.category ?? null,
     address: result.formatted ?? null,
     city: result.city ?? null,
@@ -317,7 +370,11 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>): Resolved
     latitude: result.lat,
     longitude: result.lon,
     providerResultType: result.result_type ?? null,
+    providerBounds: result.bbox ?? null,
     providerRank: result.rank?.confidence ?? null,
+    providerSource: source,
+    providerStreetConfidence: result.rank?.confidence_street_level ?? null,
+    providerBuildingConfidence: result.rank?.confidence_building_level ?? null,
     providerMatchType: result.rank?.match_type ?? null,
     attribution: GEOAPIFY_ATTRIBUTION,
   };
