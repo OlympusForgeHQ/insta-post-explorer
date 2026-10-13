@@ -10,6 +10,8 @@ import {
   type PlaceReviewContext,
 } from "@/lib/places/review-actor";
 import { prisma } from "@/server/db";
+import { setAuditAction } from "@/server/audit-log";
+import { hasOwnerNoPlaceConfirmation, OWNER_NO_PLACE_REVIEW } from "./post-exclusion";
 
 // Internal Places review and merge services for a future admin UI or scoped MCP
 // command. They are never exposed through the read-only external API key. Every
@@ -26,6 +28,7 @@ type TxClient = Prisma.TransactionClient;
 type AuditTarget = { postId: string; jobId: string };
 
 export type PlaceReviewErrorCode =
+  | "POST_NOT_FOUND"
   | "PLACE_NOT_FOUND"
   | "POST_PLACE_NOT_FOUND"
   | "INVALID_MERGE"
@@ -351,4 +354,36 @@ export async function mergePlaces(ownerId: string, input: MergePlacesInput, cont
     },
     { timeout: 15_000 },
   );
+}
+
+// Post-level human exclusion. Lock order matches worker admission/persistence:
+// post first, then jobs. Preserve every source result, extracted proof and link.
+export async function confirmPostHasNoPlace(ownerId: string, postId: string, context: unknown) {
+  const reviewContext = validateContext(context);
+  if (reviewContext.actor.type !== 'USER' || reviewContext.actor.id !== ownerId) {
+    throw new PlaceReviewError('INVALID_REVIEW_CONTEXT');
+  }
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM posts WHERE id=${postId} AND owner_id=${ownerId} FOR UPDATE`;
+    if (!await tx.post.findFirst({ where: { id: postId, ownerId }, select: { id: true } })) {
+      throw new PlaceReviewError('POST_NOT_FOUND');
+    }
+    const jobId = await latestJobId(tx, ownerId, postId);
+    if (!jobId) throw new PlaceReviewError('PLACE_REVIEW_AUDIT_CONTEXT_MISSING');
+    await setAuditAction(tx, 'places.review.post_no_place');
+    if (!await hasOwnerNoPlaceConfirmation(ownerId, postId, tx)) {
+      await tx.placeEvidence.create({ data: {
+        ownerId, postId, placeId: null, analysisJobId: jobId,
+        evidenceType: 'USER_CORRECTION', excerpt: reviewContext.reason, confidence: 1,
+        metadata: buildAuditMetadata('POST_NO_PLACE_CONFIRMED', reviewContext.actor),
+      } });
+    }
+    await tx.placeAnalysisJob.updateMany({
+      where: { ownerId, postId, status: { in: ['PENDING', 'PROCESSING', 'NEEDS_REVIEW'] } },
+      data: { status: 'CANCELLED', stage: 'COMPLETE', errorCode: OWNER_NO_PLACE_REVIEW,
+        errorMessage: null, completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null,
+        heartbeatAt: null, nextAttemptAt: null },
+    });
+    return { postId, excluded: true };
+  });
 }

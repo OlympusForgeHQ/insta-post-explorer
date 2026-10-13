@@ -9,6 +9,7 @@ export type PlaceReviewActorType = (typeof PLACE_REVIEW_ACTOR_TYPES)[number];
 
 export const PLACE_REVIEW_ACTIONS = [
   "PLACE_CONFIRMED",
+  "POST_NO_PLACE_CONFIRMED",
   "PLACE_REJECTED",
   "POST_PLACE_CORRECTED",
   "PLACES_MERGED",

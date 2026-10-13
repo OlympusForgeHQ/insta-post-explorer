@@ -17,6 +17,7 @@ import {loadVerifiedResolutionMemory} from './resolution-memory';
 import {PLACE_CONTEXT_RULES,RESOLUTION_POLICY_VERSION} from '@/lib/places/resolution';
 import {foldForSearch} from '@/lib/import/normalize';
 import {isSupportedRecovery} from '@/lib/places/recovery';
+import {assertPostAllowsPlaceAnalysis, hasOwnerNoPlaceConfirmation, OWNER_NO_PLACE_REVIEW} from './post-exclusion';
 
 type Dependencies={resolver?:PlaceResolver;signMedia?:MediaSigner};
 type Lease={jobId:string;leaseToken:string};
@@ -55,7 +56,10 @@ export async function recoverPlacesResult(ownerId:string,options:{postId:string;
   const previous=await prisma.placeAnalysisJob.findFirst({where:identity});
   if(previous&&['SUCCEEDED','NEEDS_REVIEW'].includes(previous.status)){
     const saved=previous.result as {recoveryReceipt?:AnalyzeRecordResult}|null;
-    if(saved?.recoveryReceipt)return saved.recoveryReceipt;
+    if(saved?.recoveryReceipt){
+      await assertPostAllowsPlaceAnalysis(ownerId,options.postId);
+      return saved.recoveryReceipt;
+    }
   }
   const recoveryWhere={ownerId,postId:options.postId,analysisVersion:recoveryVersion};
   const exhausted=(jobs:{result:Prisma.JsonValue}[])=>jobs.length>=4 || (jobs.length>=3&&jobs.some(job=>
@@ -64,7 +68,10 @@ export async function recoverPlacesResult(ownerId:string,options:{postId:string;
   // Same-policy retries cannot consume this extra slot or spend provider quota.
   if(exhausted(await prisma.placeAnalysisJob.findMany({where:recoveryWhere,select:{result:true}})))throw Error('PLACES_JOB_CONFLICT');
   const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location});
-  if(!options.commit)return {postId:options.postId,committed:false,plans};
+  if(!options.commit){
+    await assertPostAllowsPlaceAnalysis(ownerId,options.postId);
+    return {postId:options.postId,committed:false,plans};
+  }
   return prisma.$transaction(async tx=>{
     await tx.$queryRaw`SELECT id FROM posts WHERE id=${options.postId} AND owner_id=${ownerId} FOR UPDATE`;
     const current=await inputs(ownerId,options.postId,tx);
@@ -90,6 +97,7 @@ const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value))
 async function inputs(ownerId:string,postId:string,client:Prisma.TransactionClient=prisma){
   const post=await loadAnalysisPostInputs(ownerId,postId,client);
   if(!post)throw Error('POST_NOT_FOUND');
+  await assertPostAllowsPlaceAnalysis(ownerId,postId,client);
   const sourceTheme=canonicalPlacesTheme(post.mainTheme);
   if(!sourceTheme)throw Error('POST_NOT_PLACES_ELIGIBLE');
   const inputHash=computePlacesInputHash({...post,postId:post.id,sourceTheme,analysisVersion:PLACES_WORKER_VERSION});
@@ -109,8 +117,11 @@ export async function enqueuePlacesPosts(ownerId:string,options:{postId?:string;
   for(const post of posts){
     if(!canonicalPlacesTheme(post.mainTheme)){if(options.postId)throw Error('POST_NOT_PLACES_ELIGIBLE');continue;}
     try{
-      const state=await inputs(ownerId,post.id);
-      const created=await prisma.placeAnalysisJob.createMany({data:[{ownerId,postId:post.id,inputHash:state.inputHash,analysisVersion:PLACES_WORKER_VERSION,sourceTheme:state.sourceTheme,depth:'DEEP',maxAttempts:3}],skipDuplicates:true});
+      const created=await prisma.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT id FROM posts WHERE id=${post.id} AND owner_id=${ownerId} FOR UPDATE`;
+        const state=await inputs(ownerId,post.id,tx);
+        return tx.placeAnalysisJob.createMany({data:[{ownerId,postId:post.id,inputHash:state.inputHash,analysisVersion:PLACES_WORKER_VERSION,sourceTheme:state.sourceTheme,depth:'DEEP',maxAttempts:3}],skipDuplicates:true});
+      });
       queued+=created.count;
     }catch(error){if(error instanceof Error&&['POST_NOT_FOUND','POST_NOT_PLACES_ELIGIBLE'].includes(error.message))continue;throw error;}
   }
@@ -122,11 +133,24 @@ export async function claimPlacesJob(ownerId:string,options:{postId?:string},dep
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`places-worker:${ownerId}`},0))::text`;
     const now=new Date();
     if(await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,status:'PROCESSING',leaseExpiresAt:{gt:now}}}))return null;
-    await tx.placeAnalysisJob.updateMany({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,attemptCount:{gte:3},OR:[{status:'PENDING'},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},data:{status:'FAILED',stage:'COMPLETE',errorCode:'ATTEMPTS_EXHAUSTED',completedAt:now,leaseOwner:null,leaseExpiresAt:null}});
     for(let scan=0;scan<100;scan++){
-      const job=await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,...(options.postId?{postId:options.postId}:{}),attemptCount:{lt:3},OR:[{status:'PENDING',OR:[{nextAttemptAt:null},{nextAttemptAt:{lte:now}}]},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},orderBy:[{priority:'desc'},{createdAt:'asc'},{id:'asc'}]});
+      const job=await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,...(options.postId?{postId:options.postId}:{}),OR:[{status:'PENDING',OR:[{nextAttemptAt:null},{nextAttemptAt:{lte:now}}]},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},orderBy:[{priority:'desc'},{createdAt:'asc'},{id:'asc'}]});
       if(!job)return null;
       await tx.$queryRaw`SELECT id FROM posts WHERE id=${job.postId} AND owner_id=${ownerId} FOR UPDATE`;
+      // Re-read after the post lock: a review may have cancelled this candidate
+      // while admission waited. Exhaustion also runs under post-before-job order.
+      const currentJob=await tx.placeAnalysisJob.findFirst({where:{id:job.id,ownerId}});
+      if(!currentJob||!['PENDING','PROCESSING'].includes(currentJob.status))continue;
+      if(currentJob.status==='PROCESSING'&&(!currentJob.leaseExpiresAt||currentJob.leaseExpiresAt>now))continue;
+      if(currentJob.status==='PENDING'&&currentJob.nextAttemptAt&&currentJob.nextAttemptAt>now)continue;
+      if(await hasOwnerNoPlaceConfirmation(ownerId,job.postId,tx)){
+        await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId},data:{status:'CANCELLED',stage:'COMPLETE',errorCode:OWNER_NO_PLACE_REVIEW,errorMessage:null,completedAt:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,nextAttemptAt:null}});
+        continue;
+      }
+      if(currentJob.attemptCount>=3){
+        await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId},data:{status:'FAILED',stage:'COMPLETE',errorCode:'ATTEMPTS_EXHAUSTED',completedAt:now,leaseOwner:null,leaseExpiresAt:null}});
+        continue;
+      }
       let prepared:Awaited<ReturnType<typeof preparePlacesPost>>;
       try{
         prepared=await preparePlacesPost(ownerId,job.postId,deps,tx);
@@ -197,11 +221,13 @@ export async function previewPlacesResult(ownerId:string,options:{postId:string;
   if(prepared.input.input_hash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
   validateCoverage(result,prepared.media,prepared.input.caption);
   const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location});
+  await assertPostAllowsPlaceAnalysis(ownerId,options.postId);
   return {postId:options.postId,committed:false,plans};
 }
 export async function completePlacesJob(ownerId:string,options:Lease&{result:unknown},deps:Dependencies={}):Promise<AnalyzeRecordResult>{
   const result=workerResultSchema.parse(options.result),requestHash=digest(result),leaseHash=digest(options.leaseToken);
   const existing=await prisma.placeAnalysisJob.findFirst({where:{id:options.jobId,ownerId,analysisVersion:PLACES_WORKER_VERSION}});
+  if(existing)await assertPostAllowsPlaceAnalysis(ownerId,existing.postId);
   if(existing&&['SUCCEEDED','NEEDS_REVIEW'].includes(existing.status)){
     const saved=existing.result as {completion?:{requestHash:string;leaseHash:string;receipt:AnalyzeRecordResult}}|null;
     if(saved?.completion?.requestHash===requestHash&&saved.completion.leaseHash===leaseHash)return saved.completion.receipt;
@@ -219,6 +245,7 @@ export async function completePlacesJob(ownerId:string,options:Lease&{result:unk
     // this gate or waits until the entire domain transaction has committed.
     await tx.$queryRaw`SELECT id FROM posts WHERE id=${job.postId} AND owner_id=${ownerId} FOR UPDATE`;
     await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${job.id} AND owner_id=${ownerId} FOR UPDATE`;
+    await assertPostAllowsPlaceAnalysis(ownerId,job.postId,tx);
     const locked=await tx.placeAnalysisJob.findFirst({where:{id:job.id,ownerId}});
     if(locked&&['SUCCEEDED','NEEDS_REVIEW'].includes(locked.status)){
       const saved=locked.result as {completion?:{requestHash:string;leaseHash:string;receipt:AnalyzeRecordResult}}|null;
