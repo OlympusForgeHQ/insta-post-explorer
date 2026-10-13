@@ -1,5 +1,15 @@
 # Operational Handoff
 
+## Structured Places evidence — 13 October 2026
+
+Policy `structured-identity-v3` uses complete provider street/number evidence,
+scoped locality labels, explicit multi-branch recommendations and owner-approved
+approximate country destinations. Manual decisions and existing associations stay
+protected; one new-policy recovery is available after three older-policy attempts.
+See [scope and review](changes/2026-10-13-places-structured-evidence.md).
+Private source inputs, live probes, owner decisions, backups and correction receipts
+are in `.tmp/places-resolution-20261013/`; check them for actual rollout progress.
+
 ## Contextual Places resolution — 13 October 2026
 
 Owner-authorized contextual identity rules replace weighted acceptance gates;
