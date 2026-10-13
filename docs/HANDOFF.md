@@ -1,5 +1,18 @@
 # Operational Handoff
 
+## Provider context recovery — 13 October 2026
+
+Policy `provider-context-v4` adds bounded bilingual retrieval and a POI lookup
+inside a uniquely verified city boundary. Current provider aliases and complete
+Belgian bilingual street labels can corroborate identity; explicit region/country
+conflicts, different occupants, directions and branches remain protected.
+Provider geographic areas require bounds and stay approximate. Transit homonyms
+cannot replace an attraction. See [scope and verification](changes/2026-10-13-places-provider-context.md).
+Private replay, research and maintenance receipts are under
+`.tmp/places-remainder-20261013/`; consult them for actual application progress.
+No new extraction, service, schedule, retry budget or schema is introduced.
+
+
 ## Structured Places evidence — 13 October 2026
 
 Policy `structured-identity-v3` uses complete provider street/number evidence,
