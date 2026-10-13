@@ -8,7 +8,8 @@ import type { ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 // precision class. The score never depends on provider coordinates or on the
 // non-deterministic order of provider results; the same input always yields the
 // same output. `EXACT` additionally requires a provider-verified specific result
-// type and no contradiction. A country-only match is always `UNKNOWN`.
+// type and no contradiction. Country destinations require explicit travel intent
+// and provider bounds, and are represented only as approximate zones.
 
 export type PlacePrecisionOutcome = "EXACT" | "PROBABLE" | "APPROXIMATE" | "UNKNOWN";
 
@@ -193,6 +194,35 @@ export function addressAgreement(candidateValue: string | null, resolvedValue: s
   };
 }
 
+function providerAddressAgreement(candidateValue: string | null, resolved: ResolvedPlaceCandidate): AddressAgreement {
+  const fallback = addressAgreement(candidateValue, resolved.address);
+  if (!candidateValue || !resolved.street || !resolved.houseNumber) return fallback;
+  const houseNumber = likelyHouseNumber(candidateValue);
+  if (!houseNumber) return fallback;
+  const segments = candidateValue.split(",").map(normalizeAddress);
+  const street = normalizeAddress(resolved.street);
+  const number = normalizeAddress(resolved.houseNumber);
+  const exactNumber = houseNumber === resolved.houseNumber.toLowerCase();
+  const streetAndNumber = [`${number} ${street}`, `${street} ${number}`]
+    .some(value => segments.includes(value));
+  return {match: exactNumber && streetAndNumber, houseNumberMatch: exactNumber,
+    contradiction: !exactNumber || !streetAndNumber};
+}
+
+// A conservative display radius around the provider's own representative point.
+// This is an approximate enclosing zone, not a political boundary or an address.
+function countryRadius(resolved:ResolvedPlaceCandidate):number|null {
+  const b=resolved.providerBounds;
+  if(!b || ![b.lon1,b.lon2,resolved.longitude].every(x=>Number.isFinite(x)&&Math.abs(x)<=180) ||
+    ![b.lat1,b.lat2,resolved.latitude].every(x=>Number.isFinite(x)&&Math.abs(x)<=90) || b.lat1>b.lat2)return null;
+  const latitudeSpan=Math.max(Math.abs(resolved.latitude-b.lat1),Math.abs(resolved.latitude-b.lat2));
+  const width=(b.lon2-b.lon1+360)%360 || (b.lon1===b.lon2?0:360);
+  const center=b.lon1+width/2;
+  const centerDistance=Math.abs(((resolved.longitude-center+540)%360)-180);
+  const longitudeSpan=Math.min(180,centerDistance+width/2);
+  return Math.max(1000,Math.ceil(Math.min(180,latitudeSpan+longitudeSpan)*Math.PI/180*6_371_000));
+}
+
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
@@ -220,18 +250,23 @@ export function entityNamesAgree(left: string, right: string): boolean {
   const a = normalizedEntityName(left), b = normalizedEntityName(right);
   if (!a || !b) return false;
   if (a === b) return true;
+  // Compact account spellings must preserve the entire name, not a fuzzy prefix.
+  if(!/\s/u.test(left)&&a.replace(/ /g,'').length>=8&&a.replace(/ /g,'')===b.replace(/ /g,''))return true;
   const descriptors:Record<string,string>={restaurant:'restaurant',hotel:'hotel',plage:'beach',
-    cafe:'cafe',coffee:'cafe',bakery:'bakery',boulangerie:'bakery',patisserie:'bakery'};
+    cafe:'cafe',coffee:'cafe',bakery:'bakery',bakehouse:'bakery',boulangerie:'bakery',patisserie:'bakery'};
+  const cuisines=new Set(['italian','french','japanese','korean','chinese','indian']);
   const parts=(name:string)=>{
-    const words=name.split(' '),types=new Set<string>();
+    const words=name.split(' '),types=new Set<string>(),modifiers=new Set<string>();
     if(words.length>1&&descriptors[words[0]])types.add(descriptors[words.shift()!]);
     if(words.length>1&&descriptors[words.at(-1)!])types.add(descriptors[words.pop()!]);
-    return {core:words.join(' '),types};
+    if(types.size&&words.length>1&&cuisines.has(words.at(-1)!))modifiers.add(words.pop()!);
+    return {core:words.join(' '),types,modifiers};
   };
   const x=parts(a),y=parts(b);
   // Only omit generic descriptors. Keep the full distinctive name and reject
   // incompatible explicit types, even at the same address or in the same city.
   if(x.types.size>1||y.types.size>1||[...x.types].some(type=>y.types.size&&!y.types.has(type)))return false;
+  if([...x.modifiers].some(value=>y.modifiers.size&&!y.modifiers.has(value)))return false;
   return x.core.length>=3&&x.core===y.core&&!descriptors[x.core];
 }
 
@@ -241,16 +276,24 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   // Match the entity itself, never a city embedded in its formatted address or
   // a different entity with a longer name (for example a park's motorway stop).
   const entityName = resolved.providerName ?? resolved.displayName.split(',')[0];
+  const address = providerAddressAgreement(candidate.address, resolved);
+  const city = resolved.localityNames?.some(value => cityAgreement(candidate.city,value,resolved.countryCode).match)
+    ? {match:1,contradiction:false} : cityAgreement(candidate.city, resolved.city, resolved.countryCode);
+  let contextualName = candidate.name;
+  if (contextualName && candidate.city && city.match && address.match) {
+    const suffix = ` ${normalizedEntityName(candidate.city)}`;
+    const normalized = normalizedEntityName(contextualName);
+    if (normalized.endsWith(suffix)) contextualName = normalized.slice(0,-suffix.length);
+  }
   const nameMatch =
-    candidate.name && entityName && entityNamesAgree(candidate.name, entityName)
+    candidate.name && entityName && (entityNamesAgree(candidate.name, entityName) ||
+      (contextualName && contextualName !== candidate.name && entityNamesAgree(contextualName, entityName)))
       ? 1
       : 0;
   if (nameMatch) reasons.push("name_match");
 
-  const city = cityAgreement(candidate.city, resolved.city, resolved.countryCode);
   const country = countryAgreement(candidate.country, resolved);
   const region = fieldAgreement(candidate.region, resolved.region);
-  const address = addressAgreement(candidate.address, resolved.address);
   if (city.match) reasons.push("city_match");
   if (country.match) reasons.push("country_match");
   if (address.match) reasons.push("address_match");
@@ -293,8 +336,15 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   // Text agreement cannot verify a POI/address that the provider itself gives
   // zero confidence, such as a homonymous street returned for a named park.
   if (resultKind.kind === 'specific' && resolved.providerRank === 0) {
-    reasons.push('provider_zero_confidence');
-    return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
+    const structuredIdentity=['amenity','poi','tourism'].includes(resolved.providerResultType??'')&&
+      candidate.name&&resolved.providerName&&normalizedEntityName(candidate.name)===normalizedEntityName(resolved.providerName)&&
+      resolved.street&&resolved.houseNumber&&address.match&&address.houseNumberMatch&&city.match&&country.match&&
+      providerMatchType==='full_match'&&resolved.providerStreetConfidence!==0&&resolved.providerBuildingConfidence!==0;
+    if(structuredIdentity)reasons.push('structured_identity_despite_query_confidence');
+    else{
+      reasons.push('provider_zero_confidence');
+      return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
+    }
   }
 
   // A verified street address does not establish that its named occupant is
@@ -312,6 +362,13 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   }
 
   if (resultKind.kind === "country") {
+    const radius=countryRadius(resolved);
+    if(candidate.category==='voyage'&&!candidate.address&&!candidate.city&&!candidate.region&&
+      (candidate.name||candidate.country)&&(!candidate.name||countryAgreement(candidate.name,resolved).match)&&
+      (!candidate.country||country.match)&&resolved.providerRank===1&&providerMatchType==='full_match'&&radius!==null){
+      reasons.push('named_country_destination');
+      return {confidence,precision:'APPROXIMATE',approximationRadiusMeters:radius,reasons};
+    }
     reasons.push("country_only");
     return { confidence, precision: "UNKNOWN", approximationRadiusMeters: null, reasons };
   }

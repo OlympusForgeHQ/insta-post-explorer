@@ -9,6 +9,7 @@ const contains=(source:string,value:string)=>tokens(value).length>=3&&` ${tokens
 // cannot rewrite an asserted identity merely by keeping the same source quote.
 export function isSupportedRecovery(before:PlaceCandidate,after:PlaceCandidate):boolean {
   for(const field of ['city','region','country'] as const){
+    if(before[field] && !before.inferredFields?.includes(field) && after.inferredFields?.includes(field))return false;
     if(before[field]&&foldForSearch(before[field])!==foldForSearch(after[field]??''))return false;
     if(!before[field]&&after[field]&&!after.inferredFields?.includes(field))return false;
   }

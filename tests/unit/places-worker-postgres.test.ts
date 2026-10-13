@@ -62,6 +62,27 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    await db.post.update({where:{id:'worker-post'},data:{caption:'Changed'}});
    await expect(service.recoverPlacesResult(owner,command,dependencies)).rejects.toThrow('PLACES_INPUT_STALE');
  });
+ it('allows one new-policy repair after the legacy recovery budget and preserves source-counted branches',async()=>{
+   const branchResult={...result,candidates:[{...result.candidates[0],evidence:[{type:'CAPTION',excerpt:'Example Cafe\nPlusieurs adresses à Paris'}]}]};
+   await db.post.update({where:{id:'worker-post'},data:{caption:'Example Cafe\nPlusieurs adresses à Paris'}});
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:branchResult},{...dependencies,resolver:{resolve:async()=>[]}});
+   for(let i=0;i<3;i++)await db.placeAnalysisJob.create({data:{ownerId:owner,postId:'worker-post',inputHash:'legacy-'+i,analysisVersion:'places-contextual-recovery-v1',sourceTheme:'Restaurant',status:'NEEDS_REVIEW',depth:'METADATA_ONLY',result:{resolutionPolicy:'contextual-identity-v2'}}});
+   const resolve=vi.fn(async(input:Parameters<PlaceResolver['resolve']>[0])=>{const [first]=await resolver.resolve(input);return [first,{...first,providerPlaceId:'second',latitude:48.85,address:'20 Other Street, Paris, France'}];});
+   const deps={...dependencies,resolver:{resolve}};
+   const command={postId:'worker-post',sourceJobId:claim.jobId,inputHash:claim.input.input_hash,originalResult:branchResult,sourceCandidateIndices:[0],result:branchResult,commit:true};
+   const receipt=await service.recoverPlacesResult(owner,command,deps);
+   expect(receipt).toMatchObject({status:'SUCCEEDED',placesPersisted:2,linksPersisted:2,unknownCandidates:0});
+   expect(await service.recoverPlacesResult(owner,command,deps)).toEqual(receipt);
+   expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(2);
+   if(!('jobId' in receipt)||!receipt.jobId)throw Error('MISSING_COMMITTED_RECEIPT');
+   const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:receipt.jobId}});
+   expect((job.result as {decisions:unknown[]}).decisions).toHaveLength(1);
+   resolve.mockClear();
+   await expect(service.recoverPlacesResult(owner,{...command,result:{...branchResult,candidates:[{...branchResult.candidates[0],region:'Ile-de-France',inferredFields:['region']}]}},deps)).rejects.toThrow('PLACES_JOB_CONFLICT');
+   expect(resolve).not.toHaveBeenCalled();
+ });
  it('cannot omit or substitute unresolved identities sharing the same excerpt',async()=>{
    const original={...result,candidates:[result.candidates[0],{...result.candidates[0],name:'Second Cafe'}]};
    await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
@@ -95,7 +116,7 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[result.candidates[0],unknown]}},dependencies);
    expect(receipt).toMatchObject({status:'NEEDS_REVIEW',unknownCandidates:1,linksPersisted:1});
    const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
-   expect(job.result).toMatchObject({resolutionPolicy:'contextual-identity-v2',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
+   expect(job.result).toMatchObject({resolutionPolicy:'structured-identity-v3',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
  });
 
  it('retries only the explicitly identified failed unchanged job within its original attempt budget',async()=>{
