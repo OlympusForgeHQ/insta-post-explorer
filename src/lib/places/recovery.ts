@@ -8,6 +8,10 @@ const contains=(source:string,value:string)=>tokens(value).length>=3&&` ${tokens
 // Recovery may fill missing geography or isolate an explicit address/alias. It
 // cannot rewrite an asserted identity merely by keeping the same source quote.
 export function isSupportedRecovery(before:PlaceCandidate,after:PlaceCandidate):boolean {
+  // Recovery preserves original extraction scope; only a new complete source
+  // analysis can establish generic city intent.
+  if(before.locationScope?.kind!==after.locationScope?.kind ||
+    before.locationScope?.evidenceIndex!==after.locationScope?.evidenceIndex)return false;
   for(const field of ['city','region','country'] as const){
     if(before[field] && !before.inferredFields?.includes(field) && after.inferredFields?.includes(field))return false;
     if(before[field]&&foldForSearch(before[field])!==foldForSearch(after[field]??''))return false;
