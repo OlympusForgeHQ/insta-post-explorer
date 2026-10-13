@@ -112,7 +112,13 @@ it('represents an explicitly named travel country as a provider-bounded approxim
 
 it('retains provider country bounds including an antimeridian crossing through the adapter',async()=>{
  const raw={place_id:'country-fj',name:'Fiji',country:'Fiji',country_code:'fj',lat:-18,lon:178,result_type:'country',bbox:{lon1:177,lat1:-21,lon2:-178,lat2:-12},rank:{confidence:1,match_type:'full_match'}};
- const resolver=new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://example.test',fetchImpl:async()=>new Response(JSON.stringify({results:[raw]}))});
+ const resolver=new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://example.test',fetchImpl:async(url)=>{
+  const params=new URL(String(url)).searchParams;
+  expect(params.get('type')).toBe('country');
+  expect(params.get('text')).toBe('Fidji');
+  expect(params.has('name')).toBe(false);
+  return new Response(JSON.stringify({results:[raw]}));
+ }});
  const c={...candidate,name:'Fidji',address:null,city:null,region:null,country:'Fidji',category:'voyage' as const};
  const [plan]=await planAll([c],'Voyages',resolver);
  expect(plan.best?.resolved.providerBounds).toEqual(raw.bbox);

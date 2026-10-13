@@ -323,7 +323,11 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   // string but is never logged, and the full caption is never included.
   private buildUrl(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"]): string {
     const params = new URLSearchParams();
-    if (candidate.address) {
+    if(candidate.category==='voyage'&&!candidate.address&&!candidate.city&&!candidate.region&&candidate.country&&
+      (!candidate.name||foldForSearch(candidate.name)===foldForSearch(candidate.country))){
+      // A country is the target entity, not a business named after that country.
+      params.set('text',candidate.country);params.set('type','country');
+    } else if (candidate.address) {
       const addressKey = foldForSearch(candidate.address);
       const context: string[] = [];
       for (const value of [candidate.city, candidate.region, candidate.country]) {
