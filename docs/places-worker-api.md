@@ -103,3 +103,24 @@ when country identity, provider bounds and a full country match agree. They neve
 substitute for an unidentified business or a more specific destination. The radius
 is a conservative display zone, not a political boundary. See
 [scope and verification](changes/2026-10-13-places-structured-evidence.md).
+
+
+## Generic city business scope (13 October 2026)
+
+The optional candidate field `locationScope` contains `kind` (`CITY`, `SPECIFIC`,
+`UNKNOWN`) and `evidenceIndex` (0–7, pointing to existing evidence). Existing
+results that omit it remain valid and conservative. CITY means a generic named
+business recommendation in an explicitly named city after checking the complete
+caption/OCR/audio/location context. An address, neighborhood, station, landmark
+or other branch qualifier means SPECIFIC even without a structured address.
+
+The server requires literal CAPTION evidence covering the entire original caption,
+a separately mentioned city (never just an account/hashtag suffix), compatible
+original Instagram location, and independently
+verified branch identity, city and country before generic expansion. Extra
+unaccounted wording stays conservative. The provider's bounded complete city
+lookup runs even after one geocode match; each supported branch remains separate.
+Contextual recovery cannot introduce or change locationScope. Source excerpts,
+manual protections, policy version and retry budgets remain unchanged.
+See [owner decision](decisions/2026-10-13-generic-city-business-branches.md) and
+[scope and verification](changes/2026-10-13-places-city-branch-scope.md).

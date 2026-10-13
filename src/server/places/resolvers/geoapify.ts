@@ -184,7 +184,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
       }
     }
     if(input.candidate.name && !input.candidate.name.startsWith('@') && input.candidate.city && input.candidate.country &&
-      (recommendsCityBranches(input.candidate) || !results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))){
+      (recommendsCityBranches(input.candidate,input.sourceContext) || !results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))){
       const areas=await this.search({...input.candidate,name:null,address:null});
       const cities=areas.filter(area=>['city','town','municipality'].includes(area.providerResultType??'')&&
         area.providerRank===1&&area.providerMatchType==='full_match'&&

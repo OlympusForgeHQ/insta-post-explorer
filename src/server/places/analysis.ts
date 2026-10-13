@@ -15,7 +15,7 @@ import { computePlacesInputHash } from "@/server/places/hash";
 import { createMetadataAnalysisJob, PlacesJobError } from "@/server/places/jobs";
 import { loadAnalysisPostInputs } from "@/server/places/repository";
 import {enrichFromVerifiedMemory, loadVerifiedResolutionMemory, type VerifiedPlaceMemory} from './resolution-memory';
-import {recommendsCityBranches} from '@/lib/places/branch-scope';
+import {cityBranchScope,type CityBranchSourceContext} from '@/lib/places/branch-scope';
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
 
 // Atomic metadata analysis persistence (design section 7). Candidates are
@@ -71,12 +71,13 @@ async function planCandidate(
   candidate: PlaceCandidate,
   sourceTheme: "Voyages" | "Restaurant",
   resolver: PlaceResolver,
+  sourceContext?:CityBranchSourceContext,
 ): Promise<CandidatePlan> {
   // Unidentified visual evidence still belongs in review. An empty provider
   // query is invalid and must never prevent other candidates from completing.
   if (![candidate.name, candidate.address, candidate.city, candidate.region, candidate.country]
     .some(value => Boolean(value?.trim()))) return { candidate, best: null, reasons: ['no_identity_context'] };
-  const input: PlaceResolutionInput = { candidate, sourceTheme };
+  const input: PlaceResolutionInput = { candidate, sourceTheme, sourceContext };
   const resolved = await resolver.resolve(input);
   const evaluated = resolved
     .map((candidateResolution) => ({
@@ -95,16 +96,18 @@ async function planCandidate(
   // Nearby duplicate provider entries/entrances use the resolver's same 100 m
   // corroboration distance; sorting remains deterministic within one site.
   const specific = viable.filter(entry => entry.scored.precision !== 'APPROXIMATE');
-  if (recommendsCityBranches(candidate) && specific.length > 1) {
+  const branchScope=cityBranchScope(candidate,sourceContext);
+  if (branchScope && specific.length > 1) {
     // Keep the source candidate immutable; each provider branch is a separate
     // resolution of that recommendation, not an invented source address.
     const sites:typeof specific=[];
     for(const entry of specific){
-      if(!entry.scored.reasons.includes('city_match'))continue;
+      if(!entry.scored.reasons.includes('city_match') ||
+        (branchScope==='generic'&&!entry.scored.reasons.includes('country_match')))continue;
       if(!sites.some(site=>site.resolved.providerPlaceId===entry.resolved.providerPlaceId ||
         (site.resolved.address===entry.resolved.address && distanceMeters(site.resolved,entry.resolved)<=25)))sites.push(entry);
     }
-    if(sites.length>1)return {candidate,best:sites[0],reasons:['explicit_city_branches'],
+    if(sites.length>1)return {candidate,best:sites[0],reasons:[branchScope==='generic'?'generic_city_branches':'explicit_city_branches'],
       branches:sites.map(best=>({candidate,best,reasons:best.scored.reasons}))};
   }
   if (specific.some((entry, index) =>
@@ -155,7 +158,7 @@ export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Pr
 
   // Dry-run previews the plan without writing anything and without a job.
   if (!commit) {
-    const plans = await planAll(input.record.candidates, sourceTheme, input.resolver, await loadVerifiedResolutionMemory(input.ownerId,input.record.candidates));
+    const plans = await planAll(input.record.candidates, sourceTheme, input.resolver, await loadVerifiedResolutionMemory(input.ownerId,input.record.candidates),{caption:post.caption,structuredLocation:post.structuredLocation});
     return summarize(post.id, null, "SKIPPED_DRY_RUN", plans);
   }
 
@@ -165,7 +168,7 @@ export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Pr
 
   let plans: CandidatePlan[];
   try {
-    plans = await planAll(input.record.candidates, sourceTheme, input.resolver, await loadVerifiedResolutionMemory(input.ownerId,input.record.candidates));
+    plans = await planAll(input.record.candidates, sourceTheme, input.resolver, await loadVerifiedResolutionMemory(input.ownerId,input.record.candidates),{caption:post.caption,structuredLocation:post.structuredLocation});
   } catch (error) {
     await markJobFailed(prisma, job.id, error);
     throw error;
@@ -186,11 +189,12 @@ export async function planAll(
   sourceTheme: "Voyages" | "Restaurant",
   resolver: PlaceResolver,
   memory: VerifiedPlaceMemory[] = [],
+  sourceContext?:CityBranchSourceContext,
 ): Promise<CandidatePlan[]> {
   const plans: CandidatePlan[] = [];
   for (const candidate of candidates) {
     const enriched=enrichFromVerifiedMemory(candidate,memory);
-    const plan=await planCandidate(enriched,sourceTheme,resolver);
+    const plan=await planCandidate(enriched,sourceTheme,resolver,sourceContext);
     if(enriched!==candidate)plan.reasons=['verified_memory_context',...(plan.reasons??[])];
     plans.push(plan);
   }

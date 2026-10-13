@@ -60,6 +60,10 @@ export const placeCandidateSchema = z
     city: boundedNullableName,
     region: boundedNullableName,
     country: boundedNullableName,
+    locationScope: z.object({
+      kind: z.enum(['CITY', 'SPECIFIC', 'UNKNOWN']).describe('CITY means a generic business recommendation in the explicitly named city, after checking ALL caption, OCR, audio and location context for any narrower branch discriminator. SPECIFIC includes neighborhoods, streets, stations, landmarks and branch qualifiers even without an address. Otherwise UNKNOWN.'),
+      evidenceIndex: z.number().int().min(0).max(MAX_EVIDENCE_PER_CANDIDATE - 1).describe('Index of the existing literal evidence establishing this scope; never manufacture a quote.'),
+    }).strict().optional(),
     inferredFields: z.array(z.enum(['country', 'city', 'region'])).max(3).optional(),
     category: z.enum(PLACE_CANDIDATE_CATEGORIES),
     categoryReason: z.string().trim().min(1).max(500).optional(),

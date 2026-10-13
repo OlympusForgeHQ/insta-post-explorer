@@ -63,7 +63,7 @@ export async function recoverPlacesResult(ownerId:string,options:{postId:string;
   // One repair after a deployed policy change may follow three legacy attempts.
   // Same-policy retries cannot consume this extra slot or spend provider quota.
   if(exhausted(await prisma.placeAnalysisJob.findMany({where:recoveryWhere,select:{result:true}})))throw Error('PLACES_JOB_CONFLICT');
-  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates));
+  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location});
   if(!options.commit)return {postId:options.postId,committed:false,plans};
   return prisma.$transaction(async tx=>{
     await tx.$queryRaw`SELECT id FROM posts WHERE id=${options.postId} AND owner_id=${ownerId} FOR UPDATE`;
@@ -196,7 +196,7 @@ export async function previewPlacesResult(ownerId:string,options:{postId:string;
   const prepared=await preparePlacesPost(ownerId,options.postId,deps);
   if(prepared.input.input_hash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
   validateCoverage(result,prepared.media,prepared.input.caption);
-  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates));
+  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location});
   return {postId:options.postId,committed:false,plans};
 }
 export async function completePlacesJob(ownerId:string,options:Lease&{result:unknown},deps:Dependencies={}):Promise<AnalyzeRecordResult>{
@@ -213,7 +213,7 @@ export async function completePlacesJob(ownerId:string,options:Lease&{result:unk
   const prepared=await preparePlacesPost(ownerId,job.postId,deps);
   if(prepared.input.input_hash!==job.inputHash)throw Error('PLACES_INPUT_STALE');
   validateCoverage(result,prepared.media,prepared.input.caption);
-  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates));
+  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location});
   return prisma.$transaction(async tx=>{
     // Same post lock as admission; a concurrent admin delete/update wins before
     // this gate or waits until the entire domain transaction has committed.
