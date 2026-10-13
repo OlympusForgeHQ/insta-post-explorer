@@ -1,6 +1,16 @@
 # Implementation Status
 
 
+## Owner no-place review — 13 October 2026 (reviewed)
+
+The existing Places review service now supports a durable owner-authored no-place
+confirmation. It preserves source results and existing links, cancels active/review
+jobs, and blocks worker/metadata admission and persistence under the post lock.
+No schema, public endpoint or UI change. See
+[scope, races and proof](changes/2026-10-13-owner-no-place-review.md).
+Independent review and 739 application tests passed. Rollout and owner
+corrections are tracked separately.
+
 ## Generic city business scope — 13 October 2026 (reviewed)
 
 Owner-approved generic brand/city recommendations can retain all independently

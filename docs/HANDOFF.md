@@ -1,5 +1,11 @@
 # Operational Handoff
 
+## Owner no-place review — 13 October 2026
+
+Owner-authored no-place evidence now prevents future Places admission and
+persistence, including concurrent work. Existing data and extraction results
+remain intact. See [contract and proof](changes/2026-10-13-owner-no-place-review.md).
+
 
 ## Generic city business scope — 13 October 2026 (reviewed)
 
