@@ -74,6 +74,20 @@ function candidate(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
   };
 }
 
+function anonymousBuilding(overrides: Partial<ResolvedPlaceCandidate> = {}): ResolvedPlaceCandidate {
+  return resolved({providerName: null, providerResultType: "building", providerRank: 1,
+    displayName: "10 Main Street, Dubai, United Arab Emirates", address: "10 Main Street, Dubai, United Arab Emirates",
+    street: "Main Street", houseNumber: "10", providerPlaceId: "geo-anonymous-building", ...overrides});
+}
+
+async function businessRecord(postId: string, name: string | null, ownerId = OWNER_A, category: PlaceCandidate['category'] = "patisserie") {
+  await seedPost(postId, ownerId, "Restaurant");
+  const excerpt = name ? `Pastries at ${name}` : "Pastries at this address";
+  await prisma.post.update({where: {id: postId}, data: {caption: excerpt}});
+  return freshRecord(ownerId, postId, [candidate({name, address: "10 Main Street", category,
+    evidence: [{type: "CAPTION", excerpt}]})]);
+}
+
 describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = databaseUrl;
@@ -112,6 +126,145 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     expect(receipt.unknownCandidates).toBe(1);
     expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(0);
     expect((await prisma.placeAnalysisJob.findFirstOrThrow({where:{postId:'raw-google-blocked'}})).result).toMatchObject({decisions:[{reasons:['provider_content_not_persistable']}]});
+  });
+
+  it("labels an anonymous verified building from its source business without rewriting provider identity", async () => {
+    const record = await businessRecord("address-labelled-post", "Maison Étoile");
+    const provider = anonymousBuilding();
+    const before = structuredClone(provider);
+    const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+      record,
+      resolver: new FakeResolver({"Maison Étoile": [provider]})});
+    expect(receipt).toMatchObject({status: "SUCCEEDED", placesPersisted: 1});
+    expect(provider).toEqual(before);
+    const place = await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+    expect(place).toMatchObject({displayName: "Maison Étoile", normalizedName: "maison etoile",
+      providerPlaceId: "geo-anonymous-building", latitude: provider.latitude, longitude: provider.longitude, precision: "EXACT"});
+    expect(place.metadata).toMatchObject({label: {source: "source_candidate_verified_address",
+      candidateName: "Maison Étoile", sourcePostId: "address-labelled-post", providerName: null,
+      providerDisplayName: "10 Main Street, Dubai, United Arab Emirates"}});
+    expect(await prisma.placeEvidence.findFirstOrThrow({where: {placeId: place.id, evidenceType: "PROVIDER_MATCH"}}))
+      .toMatchObject({normalizedValue: "geoapify:geo-anonymous-building", metadata: {reasons: expect.arrayContaining(["verified_street_address"])}});
+  });
+
+  it.each(["automatic", "confirmed", "legacy_category_review", "preserveExisting"])("refuses a different occupant before canonical early returns (%s)", async (protection) => {
+    const provider = anonymousBuilding();
+    const first = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+      record: await businessRecord("first-occupant", "Maison Étoile"),
+      resolver: new FakeResolver({"Maison Étoile": [provider]})});
+    const original = await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+    if (protection === "confirmed") await prisma.place.update({where: {id: original.id}, data: {isUserConfirmed: true, reviewStatus: "CONFIRMED"}});
+    if (protection === "legacy_category_review") await prisma.placeEvidence.create({data: {ownerId: OWNER_A,
+      postId: "first-occupant", placeId: original.id, analysisJobId: first.jobId!, evidenceType: "USER_CORRECTION",
+      excerpt: "Owner category", confidence: 1, metadata: {action: "PLACE_CATEGORY_CORRECTED"}}});
+    const before = await prisma.place.findUniqueOrThrow({where: {id: original.id}});
+    const record = await businessRecord("second-occupant", "Different Bakery");
+    const job = await jobs.createMetadataAnalysisJob({ownerId: OWNER_A, postId: record.post_id});
+    const plans = await analysis.planAll(record.candidates, "Restaurant", new FakeResolver({"Different Bakery": [provider]}));
+    const receipt = await prisma.$transaction(tx => analysis.persistMetadataAnalysis(tx, {
+      ownerId: OWNER_A, postId: record.post_id, jobId: job.id, plans, preserveExisting: protection === "preserveExisting"}));
+    expect(receipt).toMatchObject({status: "NEEDS_REVIEW", unknownCandidates: 1, linksPersisted: 0});
+    expect(await prisma.place.findUniqueOrThrow({where: {id: original.id}})).toEqual(before);
+    expect(await prisma.postPlace.count({where: {postId: record.post_id}})).toBe(0);
+    expect(await prisma.placeEvidence.findFirstOrThrow({where: {postId: record.post_id}})).toMatchObject({placeId: null});
+    expect((await prisma.placeAnalysisJob.findUniqueOrThrow({where: {id: job.id}})).result)
+      .toMatchObject({decisions: [{precision: "UNKNOWN", reasons: ["existing_identity_conflict"]}]});
+  });
+
+  it("reuses recognized business aliases without changing the source label or its original provenance", async () => {
+    const provider = anonymousBuilding();
+    for (const [postId, name] of [["source-label", "Maison Étoile"], ["source-alias", "Maison Etoile Bakery"], ["source-handle", "MaisonEtoile"]]) {
+      await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+        record: await businessRecord(postId, name), resolver: new FakeResolver({[name]: [{...provider, providerRank: postId === "source-label" ? 1 : 0.95}]})});
+    }
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(1);
+    expect(await prisma.postPlace.count({where: {ownerId: OWNER_A}})).toBe(3);
+    expect(await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}}))
+      .toMatchObject({displayName: "Maison Étoile", confidence: 1, metadata: {label: {candidateName: "Maison Étoile", sourcePostId: "source-label"}}});
+  });
+
+  it("keeps legacy address-only identities for review rather than assigning the next business to them", async () => {
+    const provider = anonymousBuilding();
+    await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+      record: await businessRecord("legacy-address", null), resolver: {resolve: async () => [provider]}});
+    const before = await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+    const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+      record: await businessRecord("legacy-incoming", "Maison Étoile"), resolver: {resolve: async () => [provider]}});
+    expect(receipt).toMatchObject({status: "NEEDS_REVIEW", linksPersisted: 0});
+    expect(await prisma.place.findUniqueOrThrow({where: {id: before.id}})).toEqual(before);
+    expect(await prisma.postPlace.count({where: {postId: "legacy-incoming"}})).toBe(0);
+  });
+
+  it("serializes competing occupants of one anonymous building and keeps owners independent", async () => {
+    const provider = anonymousBuilding();
+    const records = await Promise.all([businessRecord("racing-a", "Maison Étoile"), businessRecord("racing-b", "Different Bakery")]);
+    const receipts = await Promise.all(records.map(record => analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A,
+      commit: true, record, resolver: {resolve: async () => [provider]}})));
+    expect(receipts.map(receipt => receipt.status).sort()).toEqual(["NEEDS_REVIEW", "SUCCEEDED"]);
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(1);
+    expect(await prisma.postPlace.count({where: {ownerId: OWNER_A}})).toBe(1);
+    const other = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_B, commit: true,
+      record: await businessRecord("other-owner", "Other Owner Bakery", OWNER_B), resolver: {resolve: async () => [provider]}});
+    expect(other.status).toBe("SUCCEEDED");
+    expect(await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_B}})).toMatchObject({displayName: "Other Owner Bakery"});
+  });
+
+  it("reuses a manually confirmed same-site business across providers but never a neighboring branch", async () => {
+    const provider = anonymousBuilding();
+    await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+      record: await businessRecord("legacy-provider", "Maison Étoile"), resolver: {resolve: async () => [provider]}});
+    const known = await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+    await prisma.place.update({where: {id: known.id}, data: {provider: "legacy-provider", isUserConfirmed: true, reviewStatus: "CONFIRMED"}});
+    const before = await prisma.place.findUniqueOrThrow({where: {id: known.id}});
+    const matching = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+      record: await businessRecord("matching-provider", "Maison Etoile Bakery"), resolver: {resolve: async () => [provider]}});
+    expect(matching).toMatchObject({status: "SUCCEEDED", linksPersisted: 1});
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(1);
+    expect(await prisma.place.findUniqueOrThrow({where: {id: known.id}})).toEqual(before);
+    const neighbor = await businessRecord("neighbor-provider", "Maison Étoile");
+    neighbor.candidates[0].address = "12 Main Street";
+    const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true, record: neighbor,
+      resolver: {resolve: async () => [anonymousBuilding({providerPlaceId: "neighbor-building", houseNumber: "12",
+        address: "12 Main Street, Dubai, United Arab Emirates", displayName: "12 Main Street, Dubai, United Arab Emirates", latitude: 25.1301})]}});
+    expect(receipt.status).toBe("NEEDS_REVIEW");
+    expect(await prisma.postPlace.count({where: {postId: "neighbor-provider"}})).toBe(0);
+  });
+
+  it.each(["same_provider", "different_provider"])("holds an inconsistent source label after a manual canonical rename (%s)", async (identity) => {
+    const provider = anonymousBuilding();
+    await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+      record: await businessRecord("before-manual-rename", "Maison Étoile"), resolver: {resolve: async () => [provider]}});
+    const known = await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+    await prisma.place.update({where: {id: known.id}, data: {displayName: "Different Bakery", normalizedName: "different bakery",
+      isUserConfirmed: true, reviewStatus: "CONFIRMED", ...(identity === "different_provider" ? {provider: "legacy-provider"} : {})}});
+    const before = await prisma.place.findUniqueOrThrow({where: {id: known.id}});
+    for (const [index, name] of ["Maison Étoile", "Different Bakery"].entries()) {
+      const postId = `after-manual-rename-${index}`;
+      const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+        record: await businessRecord(postId, name), resolver: {resolve: async () => [provider]}});
+      expect(receipt).toMatchObject({status: "NEEDS_REVIEW", linksPersisted: 0, unknownCandidates: 1});
+      expect(await prisma.postPlace.count({where: {postId}})).toBe(0);
+    }
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(1);
+    expect(await prisma.place.findUniqueOrThrow({where: {id: known.id}})).toEqual(before);
+  });
+
+  it("preserves named provider labels and excludes non-business or unasserted anonymous results", async () => {
+    const examples: Array<{name: string; category: PlaceCandidate['category']; provider: ResolvedPlaceCandidate}> = [
+      {name: "Maison Étoile", category: "patisserie", provider: anonymousBuilding({providerName: "Maison Étoile", providerResultType: "amenity", displayName: "Maison Étoile, Dubai"})},
+      {name: "Some Destination", category: "voyage", provider: anonymousBuilding()},
+      {name: "Some Shop", category: "divers", provider: anonymousBuilding()},
+      {name: "Maison Étoile", category: "patisserie", provider: anonymousBuilding({providerName: undefined})},
+    ];
+    for (const [index, example] of examples.entries()) {
+      const provider = {...example.provider, providerPlaceId: `excluded-label-${index}`};
+      const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+        record: await businessRecord(`excluded-label-${index}`, example.name, OWNER_A, example.category), resolver: {resolve: async () => [provider]}});
+      expect(receipt.status).toBe("SUCCEEDED");
+      const place = await prisma.place.findUniqueOrThrow({where: {ownerId_provider_providerPlaceId: {ownerId: OWNER_A, provider: "geoapify", providerPlaceId: provider.providerPlaceId}}});
+      expect(place.displayName).toBe(provider.displayName);
+      expect(place.metadata).not.toHaveProperty("label");
+    }
   });
 
   it("persists a resolved EXACT place with one primary link and evidence", async () => {
