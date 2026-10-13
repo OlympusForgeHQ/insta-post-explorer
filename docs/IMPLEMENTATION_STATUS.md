@@ -1,5 +1,16 @@
 # Implementation Status
 
+## Verified business identity and address presentation — 13 October 2026
+
+Anonymous provider buildings retain the verified source business label with explicit
+provenance. Distinct occupants and stale manual-rename provenance remain in review.
+A bounded GB ground-floor address comparison also preserves full street-number checks.
+No schema, service, API, provider payload or automatic historical backfill changes.
+The integrated correction follows the Critical route for persistent identity safety;
+verification and rollback are described in [business identity](changes/2026-10-13-source-business-labels.md)
+and [address presentation](changes/2026-10-13-places-ground-floor-address.md).
+
+
 
 ## Owner no-place review — 13 October 2026 (reviewed)
 

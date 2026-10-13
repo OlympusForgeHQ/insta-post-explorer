@@ -11,6 +11,31 @@ const venue:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'example
 // Structured provider fields must resolve presentation differences without
 // making another street/number or another occupant interchangeable.
 describe('structured place evidence',()=>{
+ it('compares explicitly matching GB ground floors without losing the complete street number',()=>{
+  const c={...candidate,address:'Ground Floor, 24 Example Street, London'};
+  const p={...venue,address:'Example Bakery, Ground Floor 24 Example Street, London, United Kingdom',street:'Example Street',houseNumber:'Ground Floor 24',localityNames:['London']};
+  const saved=structuredClone(p);
+  for(const address of ['Ground Floor, 24 Example Street, London','Ground Floor 24 Example Street, London','GF, 24 Example Street, London','GF 24 Example Street, London']){
+   for(const houseNumber of ['Ground Floor 24','GF 24']){
+    const decision=decidePlaceResolution({candidate:{...c,address},resolved:{...p,houseNumber}});
+    expect(decision.precision).toBe('EXACT');
+    expect(decision.reasons).toContain('address_provider_verified');
+   }
+  }
+  expect(p).toEqual(saved);
+  for(const address of ['Ground Floor, 23 Example Street, London','Ground Floor, 24A Example Street, London','Ground Floor, 24-26 Example Street, London',
+   'Ground Floor, 24 Other Street, London','24 Example Street, London','First Floor, 24 Example Street, London',
+   'Ground Floor, Flat 2, 24 Example Street, London','Ground Floor, 24 Example Street, Flat 2, London',
+   'Ground Floor, 24 Example Street, Block A, London','Ground Floor, 24 Example Street, Basement, London']){
+   expect(decidePlaceResolution({candidate:{...c,address},resolved:p}).precision).toBe('UNKNOWN');
+  }
+  for(const bad of [{...p,houseNumber:'Ground Floor 23'},{...p,houseNumber:'Ground Floor 24A'},
+   {...p,houseNumber:'Ground Floor 24-26'},{...p,houseNumber:'First Floor 24'},
+   {...p,houseNumber:'Flat 2 24'},{...p,houseNumber:'GF'},{...p,providerName:'Different Bakery'},
+   {...p,countryCode:'IE'},{...p,countryCode:'BE'},{...p,countryCode:null}]){
+   expect(decidePlaceResolution({candidate:c,resolved:bad}).precision).toBe('UNKNOWN');
+  }
+ });
  it('uses provider-asserted city and exact street/number despite surrounding address context',()=>{
   const resolved={...venue,street:'Example Street',houseNumber:'12',localityNames:['City of Westminster','London']};
   expect(decidePlaceResolution({candidate,resolved}).precision).toBe('EXACT');

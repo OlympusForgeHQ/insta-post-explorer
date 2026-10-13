@@ -339,6 +339,32 @@ export async function persistMetadataAnalysis(
   };
 }
 
+// A verified address can locate a source-named business without the provider
+// claiming to know its occupant. Keep that distinction in the label provenance.
+function sourceBusinessLabel(candidate: PlaceCandidate, resolved: ResolvedPlaceCandidate, scored: ScoredResolution, postId: string) {
+  if (resolved.providerName !== null || !['building', 'house', 'housenumber'].includes(resolved.providerResultType ?? '') ||
+    scored.precision !== 'EXACT' || !scored.reasons.includes('verified_street_address') ||
+    !['restaurant', 'cafe', 'patisserie', 'lodging'].includes(candidate.category) || !candidate.name?.trim()) return null;
+  return { source: 'source_candidate_verified_address' as const, candidateName: candidate.name.trim(),
+    sourcePostId: postId, providerName: null, providerDisplayName: resolved.displayName };
+}
+
+// Compact source handles may appear on either side of a persisted identity.
+// Reuse the existing complete-name rules; never infer a commercial alias.
+function sameSourceBusiness(left: string, right: string): boolean {
+  return entityNamesAgree(left, right) || entityNamesAgree(right, left);
+}
+
+function readSourceBusinessLabel(metadata: Prisma.JsonValue) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const label = metadata.label;
+  if (!label || typeof label !== 'object' || Array.isArray(label) || label.source !== 'source_candidate_verified_address' ||
+    typeof label.candidateName !== 'string' || !label.candidateName.trim() || typeof label.sourcePostId !== 'string' ||
+    label.providerName !== null || typeof label.providerDisplayName !== 'string') return null;
+  return { source: 'source_candidate_verified_address' as const, candidateName: label.candidateName,
+    sourcePostId: label.sourcePostId, providerName: null, providerDisplayName: label.providerDisplayName };
+}
+
 async function upsertCanonicalPlace(
   tx: TxClient,
   { ownerId, postId, resolved, scored, candidate, preserveExisting }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution; candidate: PlaceCandidate; preserveExisting:boolean },
@@ -368,9 +394,26 @@ async function upsertCanonicalPlace(
   });
 
   // scored.precision is never UNKNOWN here (UNKNOWN plans have best === null).
+  const proposedLabel = sourceBusinessLabel(candidate, resolved, scored, postId);
+  const existingLabel = existing ? readSourceBusinessLabel(existing.metadata) : null;
+  // A manual rename can leave older automatic provenance behind. Neither name
+  // may authorize reuse until that identity conflict is explicitly reconciled.
+  if (existing && existingLabel && !sameSourceBusiness(existing.displayName, existingLabel.candidateName)) return null;
+  // A provider address ID identifies a building, not all of its occupants. Check
+  // identity before every early return, including manual/preserveExisting paths.
+  // An old address-only label cannot establish an occupant for a new source.
+  if (existing && (proposedLabel || existingLabel)) {
+    const incomingName = proposedLabel?.candidateName ?? resolved.providerName ?? candidate.name;
+    if (!incomingName || !sameSourceBusiness(existingLabel?.candidateName ?? existing.displayName, incomingName)) return null;
+  }
+  // Repeated aliases or a later unspecified category must not replace the first
+  // source label with an address, change its spelling, or rewrite its provenance.
+  const retainedLabel = existingLabel && resolved.providerName == null ? existingLabel : null;
+  const sourceLabel = retainedLabel ?? proposedLabel;
+  const displayName = retainedLabel && existing ? existing.displayName : sourceLabel?.candidateName ?? resolved.displayName;
   const descriptive = {
-    displayName: resolved.displayName,
-    normalizedName: foldForSearch(resolved.displayName),
+    displayName,
+    normalizedName: foldForSearch(displayName),
     category: categoryFromProposal(candidate.category),
     address: resolved.address,
     city: resolved.city,
@@ -390,6 +433,7 @@ async function upsertCanonicalPlace(
       providerRank: resolved.providerRank,
       providerMatchType: resolved.providerMatchType,
       attribution: resolved.attribution,
+      ...(sourceLabel ? { label: sourceLabel } : {}),
       classification: { source: "post_analysis", category: categoryFromProposal(candidate.category),
         reason: candidate.categoryReason ?? null, evidenceTypes: [...new Set(candidate.evidence.map(item => item.type))] } as Prisma.InputJsonValue,
     } satisfies Prisma.InputJsonValue,
@@ -403,7 +447,19 @@ async function upsertCanonicalPlace(
         city:{equals:resolved.city,mode:'insensitive'},countryCode:resolved.countryCode,provider:{not:resolved.provider},
         latitude:{gte:resolved.latitude-.002,lte:resolved.latitude+.002},
         precision:{in:['EXACT','PROBABLE']}},take:201});
-      const nearby=alternatives.filter(place=>entityNamesAgree(place.displayName,resolved.providerName??resolved.displayName)&&distanceMeters(place,resolved)<=100);
+      const nearby=alternatives.filter(place=>{
+        const priorLabel=readSourceBusinessLabel(place.metadata);
+        const incomingName=sourceLabel?.candidateName??resolved.providerName??resolved.displayName;
+        const matches=sourceLabel||priorLabel
+          ?sameSourceBusiness(priorLabel?.candidateName??place.displayName,incomingName)||
+            Boolean(priorLabel&&sameSourceBusiness(place.displayName,incomingName))
+          :entityNamesAgree(place.displayName,incomingName);
+        return matches&&distanceMeters(place,resolved)<=100;
+      });
+      if(nearby.some(place=>{
+        const label=readSourceBusinessLabel(place.metadata);
+        return label&&!sameSourceBusiness(place.displayName,label.candidateName);
+      }))return null;
       const sameSite=nearby.filter(place=>addressAgreement(place.address,resolved.address).match);
       if(alternatives.length<=200&&sameSite.length===1)return sameSite[0];
       if(nearby.length||alternatives.length>200)return null;
