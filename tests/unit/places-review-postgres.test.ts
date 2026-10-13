@@ -147,7 +147,7 @@ describeWithDatabase("Places review and merge services on PostgreSQL", () => {
     await expect(review.confirmPlace(OWNER_B, place.id, CTX)).rejects.toMatchObject({ code: "PLACE_NOT_FOUND" });
     await expect(review.rejectPlaceResult(OWNER_B, place.id, CTX)).rejects.toMatchObject({ code: "PLACE_NOT_FOUND" });
     await expect(review.correctPostPlace(OWNER_B, { postId: "nope", placeId: place.id }, CTX)).rejects.toMatchObject({ code: "POST_PLACE_NOT_FOUND" });
-    expect(await prisma.placeEvidence.count({ where: { evidenceType: "USER_CORRECTION" } })).toBe(0);
+    expect(await prisma.placeEvidence.count({ where: { ownerId: { in: [OWNER_A, OWNER_B] }, evidenceType: "USER_CORRECTION" } })).toBe(0);
   });
 
   it("merges a place into another, deduplicating links, keeping one primary, and auditing", async () => {

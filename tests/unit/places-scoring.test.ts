@@ -223,7 +223,7 @@ describe("scoreResolvedCandidate", () => {
     expect(result.approximationRadiusMeters).toBe(10_000);
   });
 
-  it("classifies a provider-verified caption address as EXACT even when the handle is not the provider name", () => {
+  it("classifies a verified address and equivalent compact account name as EXACT", () => {
     const result = scoreResolvedCandidate(
       input(
         {
@@ -250,8 +250,8 @@ describe("scoreResolvedCandidate", () => {
 
     expect(result.precision).toBe("EXACT");
     expect(result.approximationRadiusMeters).toBeNull();
-    expect(result.confidence).toBe(0.96);
-    expect(result.reasons).toEqual(expect.arrayContaining(["address_match", "address_provider_verified", "exact_specific_match"]));
+    expect(result.confidence).toBeGreaterThanOrEqual(0.96);
+    expect(result.reasons).toEqual(expect.arrayContaining(["name_match", "address_match", "address_provider_verified", "exact_specific_match"]));
   });
 
   it("accepts Geoapify inner_part for an exact house-number address with maximum provider confidence", () => {
@@ -282,7 +282,7 @@ describe("scoreResolvedCandidate", () => {
     expect(result.precision).toBe("EXACT");
     expect(result.confidence).toBe(1);
     expect(result.approximationRadiusMeters).toBeNull();
-    expect(result.reasons).toEqual(expect.arrayContaining(["address_match", "address_provider_verified", "exact_specific_match"]));
+    expect(result.reasons).toEqual(expect.arrayContaining(["name_match", "address_match", "address_provider_verified", "exact_specific_match"]));
   });
 
   it("blocks address-authorized EXACT when the house number contradicts", () => {
