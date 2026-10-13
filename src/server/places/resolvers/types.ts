@@ -17,10 +17,13 @@ export type ResolvedPlaceCandidate = {
   displayName: string;
   // Raw provider entity name, distinct from a formatted address fallback.
   providerName?: string | null;
+  // Current names returned for this entity; never aliases for its parent city.
+  providerNameAliases?: string[];
   street?: string | null;
   houseNumber?: string | null;
   // Locality labels explicitly present in the provider address, not nearby areas.
   localityNames?: string[];
+  providerLocalityBoundary?: {placeId:string;name:string};
   category: string | null;
   address: string | null;
   city: string | null;

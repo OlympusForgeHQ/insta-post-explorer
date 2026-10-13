@@ -1,7 +1,7 @@
 import { scoreResolvedCandidate, type ScoringInput, type ScoredResolution } from '@/lib/places/scoring';
 import {foldForSearch} from '@/lib/import/normalize';
 
-export const RESOLUTION_POLICY_VERSION = 'structured-identity-v3';
+export const RESOLUTION_POLICY_VERSION = 'provider-context-v4';
 export const PLACE_CONTEXT_RULES = `Infer missing country, city or region from the combined post context and geographic knowledge when the identity is coherent. These fields need not appear literally in the post. Mark deduced fields in inferredFields and retain the original source excerpts unchanged. Do not override explicit contradictory context or invent a branch address. Split distinct branch addresses into separate candidates. A chain account alone does not identify a branch. Never output coordinates or provider IDs.`;
 
 // The legacy comparison layer provides normalized agreements and conflicts.
@@ -24,13 +24,14 @@ export function decidePlaceResolution(input: ScoringInput): ScoredResolution {
   });
   if (reasons.some(reason => reason.endsWith('_contradiction') || [
     'provider_zero_confidence', 'provider_entity_name_unverified', 'city_candidate_requires_area',
-    'country_only', 'unresolvable_result_type', 'specific_candidate_area_unverified', 'area_identity_unverified',
+    'provider_area_bounds_missing', 'country_only', 'unresolvable_result_type', 'specific_candidate_area_unverified', 'area_identity_unverified',
   ].includes(reason))) return outcome('UNKNOWN', 'identity_conflict_or_unverified');
 
   const {candidate, resolved} = input;
   if(candidate.address && resolved.address && !has('address_match'))return outcome('UNKNOWN','address_not_corroborated');
   if(candidate.region && resolved.region && !candidate.inferredFields?.includes('region') && foldForSearch(candidate.region)!==foldForSearch(resolved.region))return outcome('UNKNOWN','region_not_corroborated');
   if(has('named_country_destination'))return outcome('APPROXIMATE','named_country_destination');
+  if(has('provider_geographic_area'))return outcome('APPROXIMATE','provider_geographic_area');
   const type = resolved.providerResultType ?? '';
   const poi = ['amenity', 'tourism', 'leisure', 'poi'].includes(type);
   const area = ['suburb','district','neighbourhood','quarter','city','town','village','municipality','locality','postcode','county','state','region','province'].includes(type);

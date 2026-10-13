@@ -610,6 +610,8 @@ async function insertProviderEvidence(
       confidence: scored.confidence,
       metadata: { providerResultType: resolved.providerResultType, resolutionPolicy: RESOLUTION_POLICY_VERSION,
         providerSource:resolved.providerSource??null,providerRank:resolved.providerRank,
+        providerNameAliases:resolved.providerNameAliases??[],
+        providerBounds:resolved.providerBounds??null,providerLocalityBoundary:resolved.providerLocalityBoundary??null,
         street:resolved.street??null,houseNumber:resolved.houseNumber??null,localityNames:resolved.localityNames??[],
         reasons: scored.reasons } satisfies Prisma.InputJsonValue,
     },
