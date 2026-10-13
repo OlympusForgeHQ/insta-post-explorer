@@ -1,6 +1,6 @@
 import type { PlacesMapItem } from "@/server/places/map-view";
 export type MapPreviewPoint = { place: PlacesMapItem; x: number; y: number };
-export const MAP_PREVIEW_MIN_ZOOM = 13;
+export const MAP_PREVIEW_MIN_ZOOM = 10;
 export const MAP_PREVIEW_SIZE = 48;
 const GAP = 12;
 const MAX_PREVIEWS = 40;

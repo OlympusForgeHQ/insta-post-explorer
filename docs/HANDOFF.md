@@ -1,5 +1,13 @@
 # Operational Handoff
 
+## Map-specific post sheet — 13 October 2026
+
+The map stage now contains its own stacking context so controls cannot paint over
+portaled post dialogs. Places uses a dedicated responsive sheet with a fixed close
+header, shared carousel/video, descriptions and associated places. Isolated pins
+can show thumbnails from city zoom (10). See
+[diagnosis and proof](changes/2026-10-13-map-preview-sheet.md).
+
 ## Places post previews — 13 October 2026
 
 The map shows bounded 48px post thumbnails from zoom 13 for visible unclustered
