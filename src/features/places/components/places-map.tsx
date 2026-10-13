@@ -287,7 +287,7 @@ export function PlacesMap({
       if (!vector) map.touchZoomRotate.disableRotation();
       // The compass is only useful once the map can actually be rotated; it is
       // also the way back to north, so it ships with rotation or not at all.
-      map.addControl(new maplibre.NavigationControl({ showCompass: vector }), "top-left");
+      map.addControl(new maplibre.NavigationControl({ showCompass: vector }), "top-right");
       if (typeof ResizeObserver !== "undefined") {
         resizeObserver = new ResizeObserver(() => map.resize());
         resizeObserver.observe(container);

@@ -92,14 +92,13 @@ export default async function PlacesPage({ searchParams }: PageProps) {
   return (
     <main className="places-page">
       <header className="places-page-head">
-        <Link className="places-back-link" href="/">
-          <ArrowLeft size={15} aria-hidden="true" /> Retour aux posts
+        <Link className="places-back-link" href="/" aria-label="Retour aux posts">
+          <ArrowLeft size={18} aria-hidden="true" /><span>Retour aux posts</span>
         </Link>
-        <h1>Places</h1>
-        <p>
-          {view.items.length} lieu{view.items.length > 1 ? "x" : ""} identifié
-          {view.items.length > 1 ? "s" : ""} dans vos publications sauvegardées.
-        </p>
+        <div className="places-page-title">
+          <h1>Places</h1>
+          <p>Vos adresses à explorer</p>
+        </div>
       </header>
       <PlacesExplorer
         places={view.items}

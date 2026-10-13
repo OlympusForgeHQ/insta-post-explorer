@@ -228,6 +228,37 @@ export function PlacesExplorer({
 
   return (
     <section className="places-shell" aria-label="Lieux sauvegardés">
+        {/* Top control bar: search + a single filters button. */}
+        <div className="places-topbar">
+          <div className="places-search">
+            <Search aria-hidden="true" size={15} />
+            <input
+              ref={searchRef}
+              type="search"
+              value={filters.q}
+              placeholder="Rechercher un lieu, une ville, un pays…"
+              aria-label="Rechercher un lieu"
+              onChange={(event) => patch({ q: event.target.value })}
+            />
+            {filters.q ? (
+              <button type="button" className="places-search-clear" aria-label="Effacer la recherche" onClick={() => patch({ q: "" })}>
+                <X size={14} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className={cn("places-button", activeFilterCount > 0 && "is-active")}
+            aria-expanded={filtersOpen}
+            aria-controls="places-filters"
+            onClick={toggleFilters}
+          >
+            <SlidersHorizontal size={15} aria-hidden="true" />
+            Filtres
+            {activeFilterCount > 0 ? <span className="places-count-badge">{activeFilterCount}</span> : null}
+          </button>
+        </div>
+
       <div className="places-stage">
         {/* Only the canvas depends on the active view; everything below — search,
             filters, statistics, list, detail and summary — is shared. */}
@@ -280,37 +311,6 @@ export function PlacesExplorer({
             </div>
           </div>
         ) : null}
-
-        {/* Top control bar: search + a single filters button. */}
-        <div className="places-topbar">
-          <div className="places-search">
-            <Search aria-hidden="true" size={15} />
-            <input
-              ref={searchRef}
-              type="search"
-              value={filters.q}
-              placeholder="Rechercher un lieu, une ville, un pays…"
-              aria-label="Rechercher un lieu"
-              onChange={(event) => patch({ q: event.target.value })}
-            />
-            {filters.q ? (
-              <button type="button" className="places-search-clear" aria-label="Effacer la recherche" onClick={() => patch({ q: "" })}>
-                <X size={14} aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className={cn("places-button", activeFilterCount > 0 && "is-active")}
-            aria-expanded={filtersOpen}
-            aria-controls="places-filters"
-            onClick={toggleFilters}
-          >
-            <SlidersHorizontal size={15} aria-hidden="true" />
-            Filtres
-            {activeFilterCount > 0 ? <span className="places-count-badge">{activeFilterCount}</span> : null}
-          </button>
-        </div>
 
         <PlacesMapA11yList places={renderedPoints} selectedId={selectedId} onSelect={handleSelect} />
 
@@ -423,6 +423,10 @@ export function PlacesExplorer({
                 <X size={15} aria-hidden="true" />
               </button>
             </header>
+            <div className="places-stats-overview">
+              <span><strong>{stats.totals.postsWithPlaces}</strong> posts associés</span>
+              {stats.totals.needsReview > 0 ? <span>{stats.totals.needsReview} lieux à vérifier</span> : null}
+            </div>
             <StatBars label="Par thème" rows={stats.byTheme.map((row) => ({ key: row.theme, label: row.theme, value: row.placeCount }))} />
             <StatBars
               label="Par pays"
@@ -495,35 +499,24 @@ export function PlacesExplorer({
           handleSelect(placeId);
         }} /> : null}
 
-        <div className="places-summary" role="status">
-          <span>
-            <strong>{visible.length}</strong> lieu{visible.length > 1 ? "x" : ""}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>
-            <strong>{stats.totals.postsWithPlaces}</strong> posts
-          </span>
-          {stats.totals.needsReview > 0 ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="places-summary-review">{stats.totals.needsReview} à vérifier</span>
-            </>
-          ) : null}
-          <span aria-hidden="true">·</span>
-          <button type="button" className="places-link" aria-expanded={statsOpen} onClick={() => setStatsOpen((open) => !open)}>
-            <BarChart3 size={13} aria-hidden="true" /> Statistiques
+      </div>
+      <div className="places-summary">
+        <div className="places-summary-count" role="status">
+          <span><strong>{visible.length}</strong> lieu{visible.length > 1 ? "x" : ""}</span>
+          {truncated ? <span className="places-truncated">Parmi les 1 000 plus récents</span> : <span className="places-summary-caption">À explorer sur la carte</span>}
+        </div>
+        <div className="places-summary-actions">
+          <button type="button" className="places-footer-button" aria-label="Statistiques" aria-expanded={statsOpen} onClick={() => {
+            setStatsOpen(open => !open);
+            setFiltersOpen(false);
+            setListOpen(false);
+          }}>
+            <BarChart3 size={18} aria-hidden="true" /><span className="places-stats-label">Statistiques</span>
           </button>
-          <span aria-hidden="true">·</span>
-          <button type="button" className="places-link" aria-expanded={listOpen} onClick={toggleList}>
-            <ListFilter size={13} aria-hidden="true" /> Liste
+          <button type="button" className={cn("places-footer-button places-list-button", listOpen && "is-active")} aria-expanded={listOpen} onClick={toggleList}>
+            <ListFilter size={18} aria-hidden="true" /> Liste
           </button>
         </div>
-
-        {truncated ? (
-          <p className="places-truncated" role="status">
-            Seuls les 1000 lieux les plus récents sont affichés.
-          </p>
-        ) : null}
       </div>
     </section>
   );

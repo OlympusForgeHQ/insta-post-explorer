@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { PlacesRendererProps } from "@/features/places/renderer-contract";
-import { layoutMapPreviews, MAP_PREVIEW_MIN_ZOOM, type MapPreviewPoint } from "@/features/places/map-previews";
+import { layoutMapPreviews, type MapPreviewPoint } from "@/features/places/map-previews";
 
 type Props = PlacesRendererProps & { map: MapLibreMap };
 
@@ -22,7 +22,7 @@ export function PlacesMapPreviews({ map, places, selectedId, onSelect, onOpenPos
       if (disposed) return;
       const container = map.getContainer();
       const renderedIds = new Set<string>();
-      if (map.getZoom() >= MAP_PREVIEW_MIN_ZOOM && map.getLayer("places-pins")) {
+      if (map.getLayer("places-pins")) {
         for (const feature of map.queryRenderedFeatures({ layers: ["places-pins"] })) {
           if (typeof feature.properties?.id === "string") renderedIds.add(feature.properties.id);
         }

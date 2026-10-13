@@ -118,14 +118,13 @@ async function pointFor(page: Page, placeId: string) {
 }
 
 test.describe("globe Places continu", () => {
-  test("ouvre une miniature de post au zoom rapproché sans déplacer la carte @mobile", async ({ page }, testInfo) => {
+  test("ouvre une miniature dès qu’un point individuel est affiché sans déplacer la carte @mobile", async ({ page }, testInfo) => {
     await prepareMapCapture(page);
     await page.goto("/places");
     await waitForMap(page);
     await waitForInitialViewport(page);
     await moveTo(page, [2.3522, 48.8566], 9);
-    await expect(page.locator(".places-map-preview")).toHaveCount(0);
-    await moveTo(page, [2.3522, 48.8566], 11);
+    await pointFor(page, "places-visual-paris");
     const preview = page.locator('[data-map-preview-id="places-visual-paris"]');
     await expect(preview).toBeVisible();
     await expect.poll(() => preview.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
@@ -172,7 +171,7 @@ test.describe("globe Places continu", () => {
     await expect(page).toHaveURL(/placeId=places-visual-paris/);
     await expect(page.getByRole("dialog", { name: "Détail de Café du Globe Paris" })).toBeVisible();
     await moveTo(page, [2.3522, 48.8566], 9);
-    await expect(page.locator(".places-map-preview")).toHaveCount(0);
+    await expect(preview).toBeVisible();
   });
 
   test("garde un globe unique pour les anciens paramètres de vue avec un style vectoriel sans projection", async ({ page }) => {
