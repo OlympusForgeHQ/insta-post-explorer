@@ -11,6 +11,7 @@ import { distanceMeters } from "@/lib/places/distance";
 import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
 import { prisma } from "@/server/db";
+import { assertPostAllowsPlaceAnalysis } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
 import { createMetadataAnalysisJob, PlacesJobError } from "@/server/places/jobs";
 import { loadAnalysisPostInputs } from "@/server/places/repository";
@@ -129,6 +130,7 @@ export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Pr
   // Owner-scoped load and eligibility, reusing the F1 predicate and repository.
   const post = await loadAnalysisPostInputs(input.ownerId, input.record.post_id);
   if (!post) throw new PlacesJobError("POST_NOT_FOUND");
+  await assertPostAllowsPlaceAnalysis(input.ownerId, post.id);
 
   const sourceTheme = canonicalPlacesTheme(post.mainTheme);
   if (!sourceTheme) {
@@ -159,6 +161,7 @@ export async function analyzeCandidateBatchRecord(input: AnalyzeRecordInput): Pr
   // Dry-run previews the plan without writing anything and without a job.
   if (!commit) {
     const plans = await planAll(input.record.candidates, sourceTheme, input.resolver, await loadVerifiedResolutionMemory(input.ownerId,input.record.candidates),{caption:post.caption,structuredLocation:post.structuredLocation});
+    await assertPostAllowsPlaceAnalysis(input.ownerId, post.id);
     return summarize(post.id, null, "SKIPPED_DRY_RUN", plans);
   }
 
@@ -220,6 +223,8 @@ export async function persistMetadataAnalysis(
   tx: TxClient,
   { ownerId, postId, jobId, plans, preserveExisting=false }: PersistMetadataAnalysisInput,
 ): Promise<AnalyzeRecordResult> {
+  await tx.$queryRaw`SELECT id FROM posts WHERE id=${postId} AND owner_id=${ownerId} FOR UPDATE`;
+  await assertPostAllowsPlaceAnalysis(ownerId, postId, tx);
   await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${jobId} AND owner_id=${ownerId} FOR UPDATE`;
   // Re-runs are idempotent: drop the job's previous automatic evidence, never a
   // user correction, then rebuild it.
@@ -637,8 +642,8 @@ async function markJobFailed(client: PrismaClient, jobId: string, error: unknown
     error && typeof error === "object" && "code" in error && typeof (error as { code: unknown }).code === "string"
       ? ((error as { code: string }).code).slice(0, 64)
       : "ANALYSIS_FAILED";
-  await client.placeAnalysisJob.update({
-    where: { id: jobId },
+  await client.placeAnalysisJob.updateMany({
+    where: { id: jobId, status: { not: "CANCELLED" } },
     data: { status: "FAILED", stage: "COMPLETE", completedAt: new Date(), errorCode, errorMessage: errorCode },
   });
 }
