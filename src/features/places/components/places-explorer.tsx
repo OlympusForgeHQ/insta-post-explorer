@@ -489,7 +489,7 @@ export function PlacesExplorer({
           />
         ) : null}
 
-        {postPreview ? <PlacesPostPreviewDialog postId={postPreview.postId} isAdmin={isAdmin} onClose={closePostPreview} onSelectPlace={placeId => {
+        {postPreview ? <PlacesPostPreviewDialog postId={postPreview.postId} placeId={postPreview.placeId} onClose={closePostPreview} onSelectPlace={placeId => {
           setPostPreview(null);
           setFilters({ ...EMPTY_FILTERS });
           handleSelect(placeId);

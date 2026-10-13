@@ -123,9 +123,9 @@ test.describe("globe Places continu", () => {
     await page.goto("/places");
     await waitForMap(page);
     await waitForInitialViewport(page);
-    await moveTo(page, [2.3522, 48.8566], 12);
+    await moveTo(page, [2.3522, 48.8566], 9);
     await expect(page.locator(".places-map-preview")).toHaveCount(0);
-    await moveTo(page, [2.3522, 48.8566], 16);
+    await moveTo(page, [2.3522, 48.8566], 11);
     const preview = page.locator('[data-map-preview-id="places-visual-paris"]');
     await expect(preview).toBeVisible();
     await expect.poll(() => preview.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
@@ -143,6 +143,23 @@ test.describe("globe Places continu", () => {
     expect((await response.json()).id).toBe(postId);
     const dialog = page.getByRole("dialog", { name: "Publication de visual_harness" });
     await expect(dialog).toBeVisible();
+    // Compare the outer stacking contexts, including transformed map controls.
+    const layers = await page.evaluate(() => {
+      const rootLevel = (element: Element) => {
+        const ancestors = [];
+        for (let node: Element | null = element; node && node !== document.documentElement; node = node.parentElement) ancestors.unshift(node);
+        const context = ancestors.find(node => {
+          const style = getComputedStyle(node);
+          return style.isolation === "isolate" || style.transform !== "none" || Number(style.opacity) < 1 ||
+            (["fixed", "sticky"].includes(style.position)) || (style.position !== "static" && style.zIndex !== "auto");
+        });
+        return context ? Number.parseInt(getComputedStyle(context).zIndex) || 0 : 0;
+      };
+      return { dialog: rootLevel(document.querySelector('[role="dialog"]')!), controls: [...document.querySelectorAll(".places-topbar,.places-summary,.places-truncated")].map(rootLevel) };
+    });
+    expect(layers.controls.every(level => level < layers.dialog)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("post-sheet.png") });
+    await expect(dialog.getByRole("button", { name: "Fermer le détail" })).toBeInViewport();
     await expect(dialog.getByText("Café du Globe Paris — fixture locale pour le globe")).toBeVisible();
     await dialog.getByRole("button", { name: "Fermer le détail" }).click();
     await expect(dialog).toHaveCount(0);
@@ -154,7 +171,7 @@ test.describe("globe Places continu", () => {
     await expect(dialog).toHaveCount(0);
     await expect(page).toHaveURL(/placeId=places-visual-paris/);
     await expect(page.getByRole("dialog", { name: "Détail de Café du Globe Paris" })).toBeVisible();
-    await moveTo(page, [2.3522, 48.8566], 12);
+    await moveTo(page, [2.3522, 48.8566], 9);
     await expect(page.locator(".places-map-preview")).toHaveCount(0);
   });
 

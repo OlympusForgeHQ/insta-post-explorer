@@ -184,7 +184,7 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
   );
 }
 
-function RichPostMedia({ media, authorUsername }: { media: LibraryPostMedia[]; authorUsername: string }) {
+export function RichPostMedia({ media, authorUsername }: { media: LibraryPostMedia[]; authorUsername: string }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeMedia = media[activeIndex];
   const hasMultipleMedia = media.length > 1;

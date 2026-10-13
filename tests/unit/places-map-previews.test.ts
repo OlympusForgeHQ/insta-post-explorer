@@ -7,7 +7,8 @@ const point=(id:string,x:number,y:number,overrides:Partial<PlacesMapItem>={}):Ma
 const view={zoom:14,width:1000,height:800,selectedId:null};
 it('shows only usable in-viewport previews at close zoom and preserves selected overlapping places',()=>{
  const points=[point('a',100,100),point('selected',110,110),point('b',300,100),point('no-image',500,100,{previewThumbnailUrl:null}),point('approximate',600,100,{precision:'APPROXIMATE'}),point('outside',1100,100)];
- expect(layoutMapPreviews(points,{...view,zoom:12})).toEqual([]);
+ expect(layoutMapPreviews(points,{...view,zoom:9.99})).toEqual([]);
+ expect(layoutMapPreviews([point('isolated',300,200)],{...view,zoom:10})).toHaveLength(1);
  expect(layoutMapPreviews(points,{...view,selectedId:'selected'}).map(p=>p.place.id)).toEqual(['selected','b']);
 });
 it('bounds thumbnail loading even when many visible places do not overlap',()=>{
