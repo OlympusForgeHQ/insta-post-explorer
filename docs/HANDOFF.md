@@ -1,5 +1,13 @@
 # Operational Handoff
 
+## Places post previews — 13 October 2026
+
+The map shows bounded 48px post thumbnails from zoom 13 for visible unclustered
+places. A preview opens the full post without moving the camera; its associated
+place link opens the place sheet in the same map. Existing pins remain available.
+No schema, worker, provider or data changes. See
+[scope and verification](changes/2026-10-13-map-post-previews.md).
+
 ## Verified business identity and address presentation — 13 October 2026
 
 Anonymous provider buildings retain the verified source business label with explicit

@@ -21,9 +21,11 @@ type PostDetailDialogProps = {
   onPrevious: () => void;
   onNext: () => void;
   isAdmin: boolean;
+  loadDetail?: boolean;
+  onSelectPlace?: (placeId: string) => void;
 };
 
-export function PostDetailDialog({ post, position, total, onClose, onPrevious, onNext, isAdmin }: PostDetailDialogProps) {
+export function PostDetailDialog({ post, position, total, onClose, onPrevious, onNext, isAdmin, loadDetail = true, onSelectPlace }: PostDetailDialogProps) {
   const [copied, setCopied] = useState(false);
   const [detailPost, setDetailPost] = useState<LibraryPost | null>(null);
 
@@ -40,7 +42,7 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
   }, [onNext, onPrevious, post]);
 
   useEffect(() => {
-    if (!post) return;
+    if (!post || !loadDetail) return;
     const controller = new AbortController();
     void fetch(`/api/posts/${encodeURIComponent(post.id)}`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : null))
@@ -53,7 +55,7 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
         }
       });
     return () => controller.abort();
-  }, [post]);
+  }, [post, loadDetail]);
 
   if (!post) return null;
   const displayPost = detailPost?.id === post.id ? detailPost : post;
@@ -123,7 +125,8 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
                   {displayPost.places.map((place) => (
                     <li key={place.id}>
                       <div><strong>{place.displayName}</strong><PlaceAddressLink place={place} /></div>
-                      <Link className="button" href={`/places?${new URLSearchParams({ placeId: place.id })}`}>
+                      <Link className="button" href={`/places?${new URLSearchParams({ placeId: place.id })}`}
+                        onNavigate={onSelectPlace ? (event) => { event.preventDefault(); onSelectPlace(place.id); } : undefined}>
                         <MapPin className="size-4" aria-hidden="true" />Voir dans Places
                       </Link>
                     </li>
@@ -153,10 +156,10 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
 
           <footer className="detail-footer">
             <div className="detail-navigation">
-              <button className="button" type="button" onClick={onPrevious}>
+              <button className="button" type="button" onClick={onPrevious} disabled={total < 2}>
                 <ArrowLeft aria-hidden="true" className="size-4" /> Précédent
               </button>
-              <button className="button button-primary" type="button" onClick={onNext}>
+              <button className="button button-primary" type="button" onClick={onNext} disabled={total < 2}>
                 Suivant <ArrowRight aria-hidden="true" className="size-4" />
               </button>
             </div>

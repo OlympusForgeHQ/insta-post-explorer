@@ -112,6 +112,18 @@ describeWithDatabase("Places map view on PostgreSQL", () => {
 
     const view = await mapView.loadPlacesMapView(OWNER_A);
     expect(view.items[0].previewThumbnailUrl).toBe("https://example.com/primary.jpg");
+    expect(view.items[0].previewPostId).toBe(primary);
+  });
+
+  it("uses a linked post with an image when the primary post has no thumbnail", async () => {
+    const place = await seedPlace(OWNER_A, { providerPlaceId: "geo-mv-image-fallback" });
+    const noImage = await seedPost(OWNER_A, "Voyages", "");
+    const withImage = await seedPost(OWNER_A, "Voyages", "https://example.com/available.jpg");
+    await linkPostPlace(OWNER_A, noImage, place.id, { isPrimary: true });
+    await linkPostPlace(OWNER_A, withImage, place.id);
+    expect((await mapView.loadPlacesMapView(OWNER_A)).items[0]).toMatchObject({
+      previewThumbnailUrl: "https://example.com/available.jpg", previewPostId: withImage,
+    });
   });
 
   it("reports truncation instead of silently dropping places", async () => {

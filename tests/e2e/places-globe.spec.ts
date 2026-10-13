@@ -118,6 +118,46 @@ async function pointFor(page: Page, placeId: string) {
 }
 
 test.describe("globe Places continu", () => {
+  test("ouvre une miniature de post au zoom rapproché sans déplacer la carte @mobile", async ({ page }, testInfo) => {
+    await prepareMapCapture(page);
+    await page.goto("/places");
+    await waitForMap(page);
+    await waitForInitialViewport(page);
+    await moveTo(page, [2.3522, 48.8566], 12);
+    await expect(page.locator(".places-map-preview")).toHaveCount(0);
+    await moveTo(page, [2.3522, 48.8566], 16);
+    const preview = page.locator('[data-map-preview-id="places-visual-paris"]');
+    await expect(preview).toBeVisible();
+    await expect.poll(() => preview.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("map-preview.png") });
+    const camera = () => page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap!;
+      return { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+    });
+    const before = await camera();
+    const postId = await preview.getAttribute("data-post-id");
+    const responsePromise = page.waitForResponse(response => response.url().endsWith(`/api/posts/${postId}`));
+    await preview.click();
+    const response = await responsePromise;
+    expect(response.ok()).toBe(true);
+    expect((await response.json()).id).toBe(postId);
+    const dialog = page.getByRole("dialog", { name: "Publication de visual_harness" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Café du Globe Paris — fixture locale pour le globe")).toBeVisible();
+    await dialog.getByRole("button", { name: "Fermer le détail" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(await camera()).toEqual(before);
+    await expect(preview).toBeFocused();
+    await preview.click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("link", { name: "Voir dans Places" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(/placeId=places-visual-paris/);
+    await expect(page.getByRole("dialog", { name: "Détail de Café du Globe Paris" })).toBeVisible();
+    await moveTo(page, [2.3522, 48.8566], 12);
+    await expect(page.locator(".places-map-preview")).toHaveCount(0);
+  });
+
   test("garde un globe unique pour les anciens paramètres de vue avec un style vectoriel sans projection", async ({ page }) => {
     await prepareMapCapture(page);
     let checkedProjectionlessStyle = false;
