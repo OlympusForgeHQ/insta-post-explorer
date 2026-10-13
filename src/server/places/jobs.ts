@@ -4,6 +4,7 @@ import type { PlaceAnalysisJob } from "@prisma/client";
 
 import { canonicalPlacesTheme } from "@/lib/places/eligibility";
 import { prisma } from "@/server/db";
+import { hasOwnerNoPlaceConfirmation } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
 import { loadAnalysisPostInputs } from "@/server/places/repository";
 
@@ -34,27 +35,31 @@ export type CreateMetadataAnalysisJobInput = {
 
 // Create (or return the existing idempotent) METADATA_ONLY analysis job for an
 // eligible post. Eligibility is decided only by isPlacesEligibleTheme through
-// canonicalPlacesTheme; collections are never consulted. Owner-scoped end to end.
+// canonicalPlacesTheme plus durable owner review; collections are never consulted.
 export async function createMetadataAnalysisJob(
   input: CreateMetadataAnalysisJobInput,
 ): Promise<PlaceAnalysisJob> {
   const analysisVersion = input.analysisVersion?.trim() || PLACES_ANALYSIS_VERSION;
 
-  const post = await loadAnalysisPostInputs(input.ownerId, input.postId);
-  if (!post) throw new PlacesJobError("POST_NOT_FOUND");
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM posts WHERE id=${input.postId} AND owner_id=${input.ownerId} FOR UPDATE`;
+    const post = await loadAnalysisPostInputs(input.ownerId, input.postId, tx);
+    if (!post) throw new PlacesJobError("POST_NOT_FOUND");
 
-  const sourceTheme = canonicalPlacesTheme(post.mainTheme);
-  if (!sourceTheme) throw new PlacesJobError("POST_NOT_PLACES_ELIGIBLE");
+    const sourceTheme = canonicalPlacesTheme(post.mainTheme);
+    if (!sourceTheme || await hasOwnerNoPlaceConfirmation(input.ownerId, post.id, tx)) {
+      throw new PlacesJobError("POST_NOT_PLACES_ELIGIBLE");
+    }
 
-  const inputHash = computePlacesInputHash({
-    analysisVersion,
-    postId: post.id,
-    sourceTheme,
-    caption: post.caption,
-    authorUsername: post.authorUsername,
-    internalTags: post.internalTags,
-    structuredLocation: post.structuredLocation,
-    verifiedMedia: post.verifiedMedia,
+    const inputHash = computePlacesInputHash({
+      analysisVersion,
+      postId: post.id,
+      sourceTheme,
+      caption: post.caption,
+      authorUsername: post.authorUsername,
+      internalTags: post.internalTags,
+      structuredLocation: post.structuredLocation,
+      verifiedMedia: post.verifiedMedia,
   });
 
   const identity = {
@@ -71,13 +76,14 @@ export async function createMetadataAnalysisJob(
   // back: a fresh cuid id can only ever conflict on the idempotency key, so the
   // read must succeed. If it does not, an unexpected conflict occurred and we
   // surface a stable code instead of masking it.
-  await prisma.placeAnalysisJob.createMany({
+  await tx.placeAnalysisJob.createMany({
     data: [{ ...identity, sourceTheme, depth: "METADATA_ONLY" }],
     skipDuplicates: true,
   });
-  const job = await prisma.placeAnalysisJob.findUnique({
+  const job = await tx.placeAnalysisJob.findUnique({
     where: { ownerId_postId_inputHash_analysisVersion: identity },
   });
   if (!job) throw new PlacesJobError("PLACES_JOB_CONFLICT");
   return job;
+  });
 }

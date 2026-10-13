@@ -19,6 +19,144 @@ const suite=url?describe:describe.skip;
 suite('Places worker ownership, leases and atomic completion',()=>{
  beforeAll(async()=>{process.env.DATABASE_URL=url;({prisma:db}=await import('@/server/db'));service=await import('@/server/places/worker');await clear();});
  beforeEach(async()=>{await clear();await seed();});afterAll(async()=>{await clear();await db.$disconnect();});
+ it('honors only the owner-authored no-place correction before automatic preparation',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const job=await db.placeAnalysisJob.findFirstOrThrow({where:{ownerId:owner,postId:'worker-post'}});
+   const evidence=await db.placeEvidence.create({data:{ownerId:owner,postId:'worker-post',analysisJobId:job.id,
+     placeId:null,evidenceType:'USER_CORRECTION',excerpt:'Informational post without a place',confidence:1,
+     metadata:{action:'POST_NO_PLACE_CONFIRMED',actorType:'USER',actorId:owner}}});
+   await expect(service.preparePlacesPost(owner,'worker-post',dependencies)).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+   for(const metadata of [
+     {action:'POST_NO_PLACE_CONFIRMED',actorType:'MCP',actorId:owner},
+     {action:'POST_NO_PLACE_CONFIRMED',actorType:'SYSTEM',actorId:owner},
+     {action:'POST_NO_PLACE_CONFIRMED',actorType:'USER',actorId:other},
+     {action:'PLACE_REJECTED',actorType:'USER',actorId:owner},
+   ]){
+     await db.placeEvidence.update({where:{id:evidence.id},data:{metadata}});
+     expect((await service.preparePlacesPost(owner,'worker-post',dependencies)).input.post_id).toBe('worker-post');
+   }
+ });
+ it('confirms no place atomically and idempotently without changing source results, links or the post',async()=>{
+   const review=await import('@/server/places/review');
+   const context={actor:{type:'USER',id:owner},reason:'Owner confirms this is informational, without a place'};
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const unknown={...result.candidates[0],name:null,address:null,city:null,country:null};
+   const source={...result,candidates:[result.candidates[0],unknown]};
+   await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:source},dependencies);
+   const before={post:await db.post.findUniqueOrThrow({where:{id:'worker-post'}}),
+     job:await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}}),
+     links:await db.postPlace.findMany({where:{ownerId:owner}}),
+     evidence:await db.placeEvidence.findMany({where:{ownerId:owner},orderBy:{id:'asc'}})};
+   await expect(review.confirmPostHasNoPlace(other,'worker-post',{...context,actor:{type:'USER',id:other}})).rejects.toThrow('POST_NOT_FOUND');
+   for(const actor of [{type:'MCP',id:owner},{type:'SYSTEM',id:owner},{type:'USER',id:other}]){
+     await expect(review.confirmPostHasNoPlace(owner,'worker-post',{...context,actor})).rejects.toThrow('INVALID_REVIEW_CONTEXT');
+   }
+   const [first,second]=await Promise.all([review.confirmPostHasNoPlace(owner,'worker-post',context),review.confirmPostHasNoPlace(owner,'worker-post',context)]);
+   expect(first).toEqual(second);
+   expect(await db.post.findUniqueOrThrow({where:{id:'worker-post'}})).toEqual(before.post);
+   expect(await db.postPlace.findMany({where:{ownerId:owner}})).toEqual(before.links);
+   expect(await db.placeEvidence.findMany({where:{ownerId:owner,evidenceType:{not:'USER_CORRECTION'}},orderBy:{id:'asc'}})).toEqual(before.evidence);
+   const cancelled=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+   expect(cancelled).toMatchObject({status:'CANCELLED',errorCode:'OWNER_NO_PLACE_REVIEW',result:before.job.result});
+   const evidence=await db.placeEvidence.findMany({where:{ownerId:owner,evidenceType:'USER_CORRECTION'}});
+   expect(evidence).toHaveLength(1);
+   expect(evidence[0]).toMatchObject({postId:'worker-post',placeId:null,analysisJobId:claim.jobId,
+     metadata:{action:'POST_NO_PLACE_CONFIRMED',actorType:'USER',actorId:owner}});
+   await expect(service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:source},dependencies)).rejects.toThrow();
+   await db.post.update({where:{id:'worker-post'},data:{caption:'A newly changed input',mainTheme:'Voyages'}});
+   expect((await service.enqueuePlacesPosts(owner,{})).queued).toBe(0);
+   expect(await service.claimPlacesJob(owner,{},dependencies)).toBeNull();
+   const jobs=await import('@/server/places/jobs');
+   await expect(jobs.createMetadataAnalysisJob({ownerId:owner,postId:'worker-post',analysisVersion:'new-version'})).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+   const batch=await import('@/server/places/caption-batch');
+   const report=await batch.importCandidateBatch({ownerId:owner,resolver,continueOnError:true,
+     jsonl:JSON.stringify({post_id:'worker-post',analysis_version:claim.input.analysis_version,
+       input_hash:claim.input.input_hash,candidates:result.candidates})});
+   expect(report.errors).toEqual([{line:1,code:'POST_NOT_PLACES_ELIGIBLE'}]);
+   expect(await db.placeAnalysisJob.count({where:{ownerId:owner}})).toBe(1);
+ });
+ it('lets a correction during provider work win over completion, preview and metadata persistence',async()=>{
+   const review=await import('@/server/places/review');
+   const analysis=await import('@/server/places/analysis');
+   const context={actor:{type:'USER',id:owner},reason:'No place to analyze'};
+   for(const operation of ['complete','preview','metadata'] as const){
+     await clear();await seed();
+     await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+     const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+     const racingResolver:PlaceResolver={resolve:async(input)=>{
+       await review.confirmPostHasNoPlace(owner,'worker-post',context);
+       return resolver.resolve(input);
+     }};
+     const deps={...dependencies,resolver:racingResolver};
+     const attempt=operation==='complete'
+       ?service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},deps)
+       :operation==='preview'
+         ?service.previewPlacesResult(owner,{postId:'worker-post',inputHash:claim.input.input_hash,result},deps)
+         :analysis.analyzeCandidateBatchRecord({ownerId:owner,commit:true,resolver:racingResolver,
+           record:{post_id:'worker-post',analysis_version:claim.input.analysis_version,input_hash:claim.input.input_hash,
+             candidates:workerResultSchema.parse(result).candidates}});
+     await expect(attempt).rejects.toThrow();
+     expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+     expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(0);
+     expect(await db.placeAnalysisJob.count({where:{ownerId:owner,status:{not:'CANCELLED'}}})).toBe(0);
+     expect(await db.placeEvidence.count({where:{ownerId:owner,evidenceType:'USER_CORRECTION'}})).toBe(1);
+   }
+ });
+ it('keeps owner exclusion effective across a recovery race and cached success receipts',async()=>{
+   const review=await import('@/server/places/review');
+   const context={actor:{type:'USER',id:owner},reason:'No recommended place'};
+   for(const duringRecovery of [true,false]){
+     await clear();await seed();
+     await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+     const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+     await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},{...dependencies,resolver:{resolve:async()=>[]}});
+     const command={postId:'worker-post',sourceJobId:claim.jobId,inputHash:claim.input.input_hash,originalResult:result,sourceCandidateIndices:[0],result,commit:true};
+     if(duringRecovery){
+       const deps={...dependencies,resolver:{resolve:async(input:Parameters<PlaceResolver['resolve']>[0])=>{
+         await review.confirmPostHasNoPlace(owner,'worker-post',context);
+         return resolver.resolve(input);
+       }}};
+       await expect(service.recoverPlacesResult(owner,command,deps)).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+       expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(0);
+     }else{
+       await service.recoverPlacesResult(owner,command,dependencies);
+       const saved=await db.placeAnalysisJob.findMany({where:{ownerId:owner},orderBy:{id:'asc'}});
+       await review.confirmPostHasNoPlace(owner,'worker-post',context);
+       await expect(service.recoverPlacesResult(owner,command,dependencies)).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+       await expect(service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},dependencies)).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+       expect((await db.placeAnalysisJob.findMany({where:{ownerId:owner},orderBy:{id:'asc'}})).map(j=>j.result)).toEqual(saved.map(j=>j.result));
+       expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(1);
+     }
+   }
+ });
+ it('serializes concurrent owner confirmation with worker and metadata admission',async()=>{
+   const review=await import('@/server/places/review');
+   const jobs=await import('@/server/places/jobs');
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   await db.post.update({where:{id:'worker-post'},data:{caption:'Updated input before concurrent admission'}});
+   const outcomes=await Promise.allSettled([
+     review.confirmPostHasNoPlace(owner,'worker-post',{actor:{type:'USER',id:owner},reason:'No place'}),
+     service.enqueuePlacesPosts(owner,{postId:'worker-post'}),
+     jobs.createMetadataAnalysisJob({ownerId:owner,postId:'worker-post',analysisVersion:'concurrent-new-version'}),
+     service.claimPlacesJob(owner,{},dependencies),
+   ]);
+   expect(outcomes[0].status).toBe('fulfilled');
+   for(const outcome of outcomes.slice(1))if(outcome.status==='rejected')expect(outcome.reason.message).toBe('POST_NOT_PLACES_ELIGIBLE');
+   expect(await db.placeAnalysisJob.count({where:{ownerId:owner,status:{in:['PENDING','PROCESSING','NEEDS_REVIEW']}}})).toBe(0);
+   expect(await db.placeEvidence.count({where:{ownerId:owner,evidenceType:'USER_CORRECTION'}})).toBe(1);
+ });
+ it('blocks direct persistence and fresh claims for a saved owner exclusion',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const job=await db.placeAnalysisJob.findFirstOrThrow({where:{ownerId:owner}});
+   await db.placeEvidence.create({data:{ownerId:owner,postId:'worker-post',analysisJobId:job.id,placeId:null,
+     evidenceType:'USER_CORRECTION',excerpt:'No place',confidence:1,metadata:{action:'POST_NO_PLACE_CONFIRMED',actorType:'USER',actorId:owner}}});
+   expect(await service.claimPlacesJob(owner,{},dependencies)).toBeNull();
+   expect(await db.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id}})).toMatchObject({status:'CANCELLED',errorCode:'OWNER_NO_PLACE_REVIEW'});
+   const analysis=await import('@/server/places/analysis');
+   await expect(db.$transaction(tx=>analysis.persistMetadataAnalysis(tx,{ownerId:owner,postId:'worker-post',jobId:job.id,plans:[]}))).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+   expect(await db.placeEvidence.count({where:{ownerId:owner}})).toBe(1);
+ });
  it('binds generic branch scope to full persisted source in preview and completion',async()=>{
    const excerpt='Example Cafe in Paris';
    for(const [caption,evidence,expanded] of [
