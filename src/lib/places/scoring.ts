@@ -110,11 +110,16 @@ function fieldAgreement(candidateValue: string | null, resolvedValue: string | n
 
 // Compare source-language country labels against the provider's verified ISO
 // code. ICU supplies exact translations; no fuzzy match can erase a conflict.
-const countryNames = ['fr', 'en', 'nl'].map(locale => new Intl.DisplayNames([locale], { type: 'region' }));
+const countryNames = ['fr', 'en', 'nl', 'es', 'de', 'it'].map(locale => new Intl.DisplayNames([locale], { type: 'region' }));
+const countryAliases:Readonly<Record<string,readonly string[]>>={
+  US:['USA','United States of America',"États-Unis d’Amérique"],
+  GB:['UK','United Kingdom of Great Britain and Northern Ireland'],
+  CZ:['Czech Republic','République tchèque'],NL:['The Netherlands'],
+};
 function countryAgreement(candidateValue: string | null, resolved: ResolvedPlaceCandidate) {
   const code = resolved.countryCode?.trim().toUpperCase();
   if (candidateValue && code && continentCodeForCountry(code)) {
-    const aliases = [code, ...countryNames.map(names => names.of(code) ?? '')];
+    const aliases = [code,...(countryAliases[code]??[]), ...countryNames.map(names => names.of(code) ?? '')];
     if (aliases.some(alias => normalizedEquals(candidateValue, alias))) return { match: 1, contradiction: false };
   }
   return fieldAgreement(candidateValue, resolved.country);
@@ -200,10 +205,15 @@ function providerAddressAgreement(candidateValue: string | null, resolved: Resol
   const houseNumber = likelyHouseNumber(candidateValue);
   if (!houseNumber) return fallback;
   const segments = candidateValue.split(",").map(normalizeAddress);
-  const street = normalizeAddress(resolved.street);
+  const parts = resolved.street.split(/\s+[-–—/]\s+/u).map(normalizeAddress);
+  // Belgian bilingual labels each contain a complete street designation;
+  // a separator followed by a direction, extension or unit is not an alias.
+  const completeStreet = /(?:^(?:rue|avenue|chaussee|boulevard|place|square|quai|impasse|allee|route|chemin)\s+\S)|(?:\S(?:straat|laan|steenweg|plein|kaai|dreef|weg)$)/u;
+  const bilingual = resolved.countryCode==='BE' && parts.length===2 && parts.every(part=>completeStreet.test(part));
+  const streets = bilingual ? parts : [normalizeAddress(resolved.street)];
   const number = normalizeAddress(resolved.houseNumber);
   const exactNumber = houseNumber === resolved.houseNumber.toLowerCase();
-  const streetAndNumber = [`${number} ${street}`, `${street} ${number}`]
+  const streetAndNumber = streets.flatMap(street=>[`${number} ${street}`, `${street} ${number}`])
     .some(value => segments.includes(value));
   return {match: exactNumber && streetAndNumber, houseNumberMatch: exactNumber,
     contradiction: !exactNumber || !streetAndNumber};
@@ -272,12 +282,27 @@ export function entityNamesAgree(left: string, right: string): boolean {
 
 export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): ScoredResolution {
   const reasons: string[] = [];
+  if(resolved.category?.startsWith('public_transport')&&
+    (['restaurant','cafe','patisserie','lodging'].includes(candidate.category)||
+      !/\b(?:station|gare|metro|métro|bus|tram|pier|quai|ferry|terminal|airport|aéroport|aeroport)\b/iu.test(candidate.name??''))){
+    return {confidence:0,precision:'UNKNOWN',approximationRadiusMeters:null,reasons:['provider_entity_type_contradiction']};
+  }
+  const populatedArea=resolved.category==='populated_place'&&resolved.providerResultType!=='country';
+  const geographicRadius=populatedArea&&['voyage','city'].includes(candidate.category)&&!candidate.address
+    ?countryRadius(resolved):null;
+  if(populatedArea&&geographicRadius===null)return {confidence:0,precision:'UNKNOWN',approximationRadiusMeters:null,reasons:['provider_area_bounds_missing']};
+  const resultKind:ResultKind=geographicRadius!==null?{kind:'area',radius:geographicRadius}:classifyResultType(resolved.providerResultType);
 
   // Match the entity itself, never a city embedded in its formatted address or
   // a different entity with a longer name (for example a park's motorway stop).
   const entityName = resolved.providerName ?? resolved.displayName.split(',')[0];
+  const entityNames=[entityName,...(resolved.providerNameAliases??[])];
   const address = providerAddressAgreement(candidate.address, resolved);
-  const city = resolved.localityNames?.some(value => cityAgreement(candidate.city,value,resolved.countryCode).match)
+  // A destination's own translated name can establish its area identity even
+  // when the provider reports a containing municipality under `city`.
+  const namesDestinationArea=resultKind.kind==='area'&&explicitlyNamesCity(candidate)&&
+    entityNames.some(name=>normalizedEntityName(candidate.name!)===normalizedEntityName(name));
+  const city = namesDestinationArea||resolved.localityNames?.some(value => cityAgreement(candidate.city,value,resolved.countryCode).match)
     ? {match:1,contradiction:false} : cityAgreement(candidate.city, resolved.city, resolved.countryCode);
   let contextualName = candidate.name;
   if (contextualName && candidate.city && city.match && address.match) {
@@ -286,11 +311,12 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
     if (normalized.endsWith(suffix)) contextualName = normalized.slice(0,-suffix.length);
   }
   const nameMatch =
-    candidate.name && entityName && (entityNamesAgree(candidate.name, entityName) ||
-      (contextualName && contextualName !== candidate.name && entityNamesAgree(contextualName, entityName)))
+    candidate.name && entityNames.some(name=>entityNamesAgree(candidate.name!, name) ||
+      (contextualName && contextualName !== candidate.name && entityNamesAgree(contextualName, name)))
       ? 1
       : 0;
   if (nameMatch) reasons.push("name_match");
+  if(nameMatch&&candidate.name&&!entityNamesAgree(candidate.name,entityName))reasons.push('provider_name_alias');
 
   const country = countryAgreement(candidate.country, resolved);
   const region = fieldAgreement(candidate.region, resolved.region);
@@ -330,8 +356,6 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
     resolved.providerRank >= ADDRESS_PROVIDER_EXACT_THRESHOLD &&
     providerMatchTypeAccepted;
   if (strongAddressMatch) reasons.push("address_provider_verified");
-
-  const resultKind = classifyResultType(resolved.providerResultType);
 
   // Text agreement cannot verify a POI/address that the provider itself gives
   // zero confidence, such as a homonymous street returned for a named park.
@@ -397,8 +421,8 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   // An area can locate itself, but its city/region label cannot verify that a
   // named business or monument lies inside the area's fixed uncertainty radius.
   // In particular, unrelated businesses must not collapse into one city record.
-  const namesArea = (candidate.name && normalizedEntityName(candidate.name) === normalizedEntityName(entityName)) ||
-    (explicitlyNamesCity(candidate) && cityAgreement(candidate.city, entityName).match === 1);
+  const namesArea = (candidate.name && entityNames.some(name=>normalizedEntityName(candidate.name!) === normalizedEntityName(name))) ||
+    (explicitlyNamesCity(candidate) && cityAgreement(candidate.city, entityName, resolved.countryCode).match === 1);
   const businessCategory = ['restaurant', 'cafe', 'patisserie', 'lodging'].includes(candidate.category);
   if (candidate.address || (candidate.name && (!namesArea || businessCategory))) {
     reasons.push('specific_candidate_area_unverified');
@@ -406,10 +430,14 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   }
 
   // Area kind.
-  if (!nameMatch && !cityAgreement(candidate.city, entityName).match &&
+  if (!nameMatch && !cityAgreement(candidate.city, entityName, resolved.countryCode).match &&
     !fieldAgreement(candidate.region, entityName).match) {
     reasons.push('area_identity_unverified');
     return { confidence, precision: 'UNKNOWN', approximationRadiusMeters: null, reasons };
+  }
+  if(geographicRadius!==null&&namesArea){
+    reasons.push('provider_geographic_area');
+    return {confidence,precision:'APPROXIMATE',approximationRadiusMeters:geographicRadius,reasons};
   }
   if (confidence >= PRECISION_THRESHOLDS.APPROXIMATE) {
     reasons.push("approximate_area_match");
