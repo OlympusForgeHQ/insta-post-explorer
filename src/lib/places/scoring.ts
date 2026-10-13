@@ -202,6 +202,31 @@ export function addressAgreement(candidateValue: string | null, resolvedValue: s
 function providerAddressAgreement(candidateValue: string | null, resolved: ResolvedPlaceCandidate): AddressAgreement {
   const fallback = addressAgreement(candidateValue, resolved.address);
   if (!candidateValue || !resolved.street || !resolved.houseNumber) return fallback;
+  // Some GB records place an explicit ground-floor qualifier in housenumber.
+  // Compare it separately only when the source asserts that same floor. Keep
+  // the raw provider field intact and require the entire numbered street.
+  const groundFloorNumber = resolved.countryCode === 'GB'
+    ? resolved.houseNumber.trim().match(/^(?:ground\s+floor|gf)\s+(\d{1,6}[a-z]?)$/iu)?.[1].toLowerCase()
+    : undefined;
+  if (groundFloorNumber) {
+    const sourceAddress = candidateValue.trim().match(/^(?:ground\s+floor|gf)(?:\s*,\s*|\s+)(.+)$/iu)?.[1];
+    const segments = sourceAddress?.split(',').map(value => value.trim()) ?? [];
+    const sourceNumber = sourceAddress ? likelyHouseNumber(sourceAddress) : null;
+    const street = normalizeAddress(resolved.street);
+    const completeStreet = segments.length > 0 &&
+      [`${groundFloorNumber} ${street}`, `${street} ${groundFloorNumber}`].includes(normalizeAddress(segments[0]));
+    // Only independently asserted locality components may follow the street.
+    // A second floor, flat, block or unknown qualifier cannot be dropped.
+    const localities = [resolved.city, resolved.region, resolved.country, ...(resolved.localityNames ?? [])]
+      .filter((value): value is string => Boolean(value)).map(normalizeAddress);
+    const localityOnly = segments.slice(1).every(segment => {
+      const withoutPostcode = segment.replace(/\b[a-z]{1,2}\d[a-z\d]?\s*\d[a-z]{2}\b/giu, '').trim();
+      return !withoutPostcode || localities.includes(normalizeAddress(withoutPostcode));
+    });
+    const houseNumberMatch = sourceNumber === groundFloorNumber;
+    const match = houseNumberMatch && completeStreet && localityOnly;
+    return {match, houseNumberMatch, contradiction: !match};
+  }
   const houseNumber = likelyHouseNumber(candidateValue);
   if (!houseNumber) return fallback;
   const segments = candidateValue.split(",").map(normalizeAddress);
