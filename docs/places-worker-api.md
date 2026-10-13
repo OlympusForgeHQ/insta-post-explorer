@@ -62,7 +62,10 @@ distinctive name, but incompatible explicit business types remain conflicts.
 Provider reference: https://apidocs.geoapify.com/docs/places/.
 Recovery receipts include the resolution-policy version in their identity, so a
 new policy can revisit old refusals without replaying writes for the same policy.
-The existing limit of three contextual recovery jobs per post still applies.
+The normal limit is three contextual recovery jobs per post. Policy
+`structured-identity-v3` permits one additional recovery after three older-policy
+jobs, with an absolute maximum of four. Same-policy attempts cannot repeatedly
+claim that extra slot; exhausted requests are rejected before provider calls.
 Google-only results stay unresolved; Google payloads are never journaled. `PLACES_GOOGLE_MONTHLY_CAP` defaults
 to 4000 (maximum 4000). Migration of prior usage uses
 `PLACES_GOOGLE_BASELINE_MONTH=YYYY-MM` and `PLACES_GOOGLE_BASELINE_REQUESTS`.
@@ -82,7 +85,21 @@ omit an unresolved candidate or replace an asserted identity/geography/address.
 Explicitly separated complete branch addresses may be split; missing geography
 must be marked inferred. Evidence and categories remain unchanged.
 
-Committed recovery is additive, idempotent per payload and limited to three
-recovery jobs per post. Existing canonicals/links/primary associations are preserved;
+Committed recovery is additive, idempotent per policy and payload, and subject to
+the bounded recovery allowance above. Existing canonicals/links/primary associations are preserved;
 active leases and stale inputs block writes. Every recovery stores its source job,
 indices, decisions and receipt. Reports and original payloads remain private.
+
+Policy `structured-identity-v3` retains provider street/number and postal locality
+components for identity checks. Complete street segments must agree; different
+unit numbers, occupants or countries remain conflicts. A narrow exact structured
+identity can remain PROBABLE despite zero global query confidence, preserving the
+raw provider rank and decision reason. Explicit multi-address recommendations
+enumerate verified city branches internally without changing source evidence;
+saturated city-result pages are rejected before filtering.
+
+Owner-approved country-only travel recommendations resolve as APPROXIMATE zones
+when country identity, provider bounds and a full country match agree. They never
+substitute for an unidentified business or a more specific destination. The radius
+is a conservative display zone, not a political boundary. See
+[scope and verification](changes/2026-10-13-places-structured-evidence.md).
