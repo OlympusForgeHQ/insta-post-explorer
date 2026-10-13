@@ -38,6 +38,7 @@ export type PlacesMapItem = {
   postCount: number;
   sourceThemes: PlacesEligibleTheme[];
   previewThumbnailUrl: string | null;
+  previewPostId?: string | null;
 };
 
 export type PlacesMapView = {
@@ -48,17 +49,17 @@ export type PlacesMapView = {
 // One preview thumbnail per place in a single bounded query: PostgreSQL's
 // DISTINCT ON keeps the top-ranked link (primary first, then confidence) for each
 // place, so this never becomes an N+1 nor grows with the posts per place.
-async function loadPreviewThumbnails(ownerId: string, placeIds: string[]): Promise<Map<string, string>> {
+async function loadPreviewThumbnails(ownerId: string, placeIds: string[]): Promise<Map<string, { postId: string; thumbnailUrl: string }>> {
   if (placeIds.length === 0) return new Map();
   const links = await prisma.postPlace.findMany({
-    where: { ownerId, placeId: { in: placeIds } },
-    orderBy: [{ placeId: "asc" }, { isPrimary: "desc" }, { confidence: "desc" }],
+    where: { ownerId, placeId: { in: placeIds }, post: { ownerId, thumbnailUrl: { not: "" } } },
+    orderBy: [{ placeId: "asc" }, { isPrimary: "desc" }, { confidence: "desc" }, { postId: "asc" }],
     distinct: ["placeId"],
-    select: { placeId: true, post: { select: { thumbnailUrl: true } } },
+    select: { placeId: true, postId: true, post: { select: { thumbnailUrl: true } } },
   });
-  const thumbnails = new Map<string, string>();
+  const thumbnails = new Map<string, { postId: string; thumbnailUrl: string }>();
   for (const link of links) {
-    if (link.post.thumbnailUrl) thumbnails.set(link.placeId, link.post.thumbnailUrl);
+    if (link.post.thumbnailUrl) thumbnails.set(link.placeId, { postId: link.postId, thumbnailUrl: link.post.thumbnailUrl });
   }
   return thumbnails;
 }
@@ -104,7 +105,7 @@ export async function loadPlacesMapView(ownerId: string, max: number = PLACES_MA
       const theme = canonicalPlacesTheme(link.post.mainTheme);
       if (theme && !themes.includes(theme)) themes.push(theme);
     }
-    const previewThumbnailUrl = thumbnails.get(row.id) ?? null;
+    const preview = thumbnails.get(row.id);
     return {
       id: row.id,
       displayName: row.displayName,
@@ -124,7 +125,8 @@ export async function loadPlacesMapView(ownerId: string, max: number = PLACES_MA
       isUserConfirmed: row.isUserConfirmed,
       postCount: row._count.postLinks,
       sourceThemes: themes,
-      previewThumbnailUrl,
+      previewThumbnailUrl: preview?.thumbnailUrl ?? null,
+      previewPostId: preview?.postId ?? null,
     } satisfies PlacesMapItem;
   });
 

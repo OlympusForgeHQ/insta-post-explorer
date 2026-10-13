@@ -7,6 +7,7 @@ import type { GeoJSONSource, Map as MapLibreMap, MapLayerMouseEvent, StyleSpecif
 import { PLACE_CATEGORY_GROUPS } from "@/lib/places/categories";
 import type { PlacesRendererProps } from "@/features/places/renderer-contract";
 import type { PlacesMapItem } from "@/server/places/map-view";
+import { PlacesMapPreviews } from "@/features/places/components/places-map-previews";
 
 // MapLibre is loaded lazily on the client only. Everything engine-specific stays
 // in this component; the rest of Places talks to it through the shared renderer
@@ -180,6 +181,7 @@ export function PlacesMap({
   places,
   selectedId,
   onSelect,
+  onOpenPost,
   onHover,
   tileUrl,
   styleUrl,
@@ -202,7 +204,7 @@ export function PlacesMap({
   const reducedMotionRef = useRef(reducedMotion);
   const hoveredPlaceIdRef = useRef<string | null>(null);
   const renderRef = useRef<() => void>(() => undefined);
-  const [mapReadyVersion, setMapReadyVersion] = useState(0);
+  const [readyMap, setReadyMap] = useState<MapLibreMap | null>(null);
 
   useEffect(() => {
     placesRef.current = places;
@@ -417,7 +419,7 @@ export function PlacesMap({
         map.resize();
         readyRef.current = true;
         renderRef.current();
-        setMapReadyVersion((version) => version + 1);
+        setReadyMap(map);
       });
     })().catch((error: unknown) => {
       if (!cancelled) console.error("Places map failed to initialize", error);
@@ -429,6 +431,7 @@ export function PlacesMap({
       if (benchmarkRenderHandler && mapInstance) mapInstance.off("render", benchmarkRenderHandler);
       mapInstance?.remove();
       mapRef.current = null;
+      setReadyMap(null);
       readyRef.current = false;
     };
   }, [tileAttribution, tileUrl, styleUrl, vector, textureUrl]);
@@ -475,7 +478,7 @@ export function PlacesMap({
     return () => {
       cancelled = true;
     };
-  }, [mapReadyVersion, places, reducedMotion, selectedId]);
+  }, [readyMap, places, reducedMotion, selectedId]);
 
   return (
     <>
@@ -485,6 +488,9 @@ export function PlacesMap({
         role="application"
         aria-label="Carte des lieux"
       />
+      {readyMap ? (
+        <PlacesMapPreviews map={readyMap} places={places} selectedId={selectedId} onSelect={onSelect} onOpenPost={onOpenPost} onHover={onHover} />
+      ) : null}
       {!vector && !tileUrl && textureAttribution ? (
         <p className="places-globe-attribution">{textureAttribution}</p>
       ) : null}
