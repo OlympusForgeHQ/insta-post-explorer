@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { PrismaClient } from '@prisma/client';
 import type { PlaceResolver } from '@/server/places/resolvers/types';
 import {createHash} from 'node:crypto';
+import {workerResultSchema} from '@/lib/places/worker-contract';
 vi.mock('server-only',()=>({}));
 const url=process.env.TEST_DATABASE_URL?.trim();
 const owner='places-worker-test', other='places-worker-other';
@@ -18,6 +19,35 @@ const suite=url?describe:describe.skip;
 suite('Places worker ownership, leases and atomic completion',()=>{
  beforeAll(async()=>{process.env.DATABASE_URL=url;({prisma:db}=await import('@/server/db'));service=await import('@/server/places/worker');await clear();});
  beforeEach(async()=>{await clear();await seed();});afterAll(async()=>{await clear();await db.$disconnect();});
+ it('binds generic branch scope to full persisted source in preview and completion',async()=>{
+   const excerpt='Example Cafe in Paris';
+   for(const [caption,evidence,expanded] of [
+     [excerpt,[{type:'CAPTION',excerpt}],true],
+     [excerpt+'\nSpecific neighborhood branch',[{type:'CAPTION',excerpt}],false],
+     ['@examplecafeparis',[{type:'AUTHOR_TEXT',excerpt:'@examplecafeparis'}],false],
+   ] as const){
+     await clear();await seed();
+     await db.post.update({where:{id:'worker-post'},data:{caption}});
+     const scoped={...result,candidates:[{...result.candidates[0],evidence,locationScope:{kind:'CITY',evidenceIndex:0}}]};
+     const resolve=vi.fn(async(input:Parameters<PlaceResolver['resolve']>[0])=>{
+       expect(input.sourceContext).toEqual({caption,structuredLocation:null});
+       const [first]=await resolver.resolve(input);
+       return [first,{...first,providerPlaceId:'second',latitude:48.85,address:'20 Other Street, Paris, France'}];
+     });
+     const deps={...dependencies,resolver:{resolve}};
+     const prepared=await service.preparePlacesPost(owner,'worker-post',deps);
+     const preview=await service.previewPlacesResult(owner,{postId:'worker-post',inputHash:prepared.input.input_hash,result:scoped},deps);
+     expect(preview.plans[0].branches?.length??0).toBe(expanded?2:0);
+     if(!expanded)expect(preview.plans[0].best).toBeNull();
+     await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+     const claim=(await service.claimPlacesJob(owner,{postId:'worker-post'},deps))!;
+     const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:scoped},deps);
+     expect(receipt).toMatchObject({linksPersisted:expanded?2:0,unknownCandidates:expanded?0:1});
+     expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(expanded?2:0);
+     const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+     expect(job.result).toMatchObject({completion:{requestHash:createHash('sha256').update(JSON.stringify(workerResultSchema.parse(scoped))).digest('hex')}});
+   }
+ });
  it('learns only owner-confirmed geographic identities, excluding automatic and foreign examples',async()=>{
    const {loadVerifiedResolutionMemory}=await import('@/server/places/resolution-memory');
    await service.enqueuePlacesPosts(owner,{postId:'worker-post'});

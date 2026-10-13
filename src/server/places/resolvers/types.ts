@@ -1,3 +1,4 @@
+import type {CityBranchSourceContext} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 
 // Resolver contract. The concrete Geoapify adapter lands in Phase F2. Only a
@@ -7,6 +8,8 @@ import type { PlaceCandidate } from "@/lib/places/candidates";
 export type PlaceResolutionInput = {
   candidate: PlaceCandidate;
   sourceTheme: "Voyages" | "Restaurant";
+  // Trusted original input for scope validation; never sent to the provider.
+  sourceContext?:CityBranchSourceContext;
   // Transient retrieval bias; never persisted or substituted as result coordinates.
   proximity?: {latitude:number;longitude:number};
 };

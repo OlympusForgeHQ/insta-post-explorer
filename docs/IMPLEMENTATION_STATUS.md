@@ -1,5 +1,15 @@
 # Implementation Status
 
+
+## Generic city business scope — 13 October 2026 (reviewed)
+
+Owner-approved generic brand/city recommendations can retain all independently
+verified city branches through optional grounded extraction scope. Specific
+neighborhoods, addresses and uncertain or absent scope remain conservative.
+The change passed independent review and 733 application tests; deployment and
+historical maintenance are tracked separately. See
+[scope, compatibility and evidence](changes/2026-10-13-places-city-branch-scope.md).
+
 ## Provider context recovery — 13 October 2026
 
 Policy `provider-context-v4` adds bounded bilingual retrieval and a POI lookup
