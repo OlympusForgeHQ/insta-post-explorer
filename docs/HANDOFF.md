@@ -1,5 +1,14 @@
 # Operational Handoff
 
+## Unobstructed map layout — 13 October 2026
+
+Places now fits the viewport with search/filter controls above the map and a compact
+footer below it. The recent-place limit is shown beside the count; statistics hold
+the additional totals. Every rendered individual pin with a usable thumbnail shows
+its preview without a zoom, collision or count threshold, including partial edge
+pins. This supersedes the zoom thresholds in the previous entries. The dedicated
+post sheet remains in use. See [scope and verification](changes/2026-10-13-places-map-layout.md).
+
 ## Map-specific post sheet — 13 October 2026
 
 The map stage now contains its own stacking context so controls cannot paint over

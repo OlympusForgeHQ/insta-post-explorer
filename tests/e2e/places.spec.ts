@@ -7,13 +7,26 @@ test.describe("page Places avec le harnais local", () => {
     await page.goto("/places");
   });
 
-  test("affiche les 182 lieux synthétiques et les accès de la page", async ({ page }) => {
+  test("présente une carte dégagée et des contrôles accessibles @mobile", async ({ page }, testInfo) => {
     await expect(page.getByRole("heading", { name: "Places", level: 1 })).toBeVisible();
-    await expect(page.getByText("182 lieux identifiés dans vos publications sauvegardées.")).toBeVisible();
+    await expect(page.locator(".places-summary").getByText("182 lieux", { exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Lieux sauvegardés" })).toBeVisible();
     await expect(page.locator(".places-globe-canvas canvas")).toBeVisible();
     await expect(page.getByText("Tuiles locales de démonstration")).toBeVisible();
     await expect(page.getByRole("link", { name: "Retour aux posts" })).toHaveAttribute("href", "/");
+    const bounds = await page.evaluate(() => {
+      const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().toJSON();
+      return { search: rect('.places-search'), filters: rect('.places-topbar .places-button'), map: rect('.places-stage'), footer: rect('.places-summary'), height: innerHeight, scrollHeight: document.documentElement.scrollHeight, width: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+    });
+    expect(Math.abs(bounds.search.top - bounds.filters.top)).toBeLessThan(2);
+    expect(bounds.search.bottom).toBeLessThanOrEqual(bounds.map.top);
+    expect(bounds.footer.top).toBeGreaterThanOrEqual(bounds.map.bottom);
+    expect(bounds.footer.bottom).toBeLessThanOrEqual(bounds.height);
+    expect(bounds.search.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.filters.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.scrollHeight).toBeLessThanOrEqual(bounds.height + 1);
+    expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width);
+    await page.screenshot({ path: testInfo.outputPath('places-layout.png') });
   });
 
   test("applique un filtre réel sans dupliquer les règles de parsing", async ({ page }) => {
