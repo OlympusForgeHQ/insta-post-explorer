@@ -93,6 +93,7 @@ const geoapifyResultSchema = z
       .passthrough()
       .nullish(),
     category: z.string().nullish(),
+    categories: z.array(z.string()).max(100).nullish(),
   })
   .passthrough();
 
@@ -166,17 +167,40 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
 
   async resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]> {
     const results=await this.resolveGeocoding(input);
-    if(recommendsCityBranches(input.candidate)){
-      const areas=await this.search({...input.candidate,name:null,address:null,region:null});
+    if(input.candidate.name&&!input.candidate.name.startsWith('@')&&!results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN')){
+      // Structured name fields can resolve only the city or reject a translated
+      // name. Bounded free-form retrieval preserves the full source context.
+      for(const language of ['en','fr']){
+        const text=[...new Set([input.candidate.name,input.candidate.address,input.candidate.city,input.candidate.region,input.candidate.country].filter(Boolean))].join(', ');
+        const params=new URLSearchParams({text,lang:language,format:'json',limit:String(this.maxResults),apiKey:this.apiKey});
+        if(input.proximity)params.set('bias',`proximity:${input.proximity.longitude},${input.proximity.latitude}`);
+        const response=await this.fetchWithRetry(`${this.baseUrl}/v1/geocode/search?${params}`);
+        let payload:unknown;
+        try{payload=await response.json();}catch{throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');}
+        const parsed=geoapifyResponseSchema.safeParse(payload);
+        if(!parsed.success)throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');
+        for(const row of parsed.data.results.slice(0,this.maxResults))this.mergePoi(results,normalizeResult(row),input);
+        if(results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))break;
+      }
+    }
+    if(input.candidate.name && !input.candidate.name.startsWith('@') && input.candidate.city && input.candidate.country &&
+      (recommendsCityBranches(input.candidate) || !results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))){
+      const areas=await this.search({...input.candidate,name:null,address:null});
       const cities=areas.filter(area=>['city','town','municipality'].includes(area.providerResultType??'')&&
         area.providerRank===1&&area.providerMatchType==='full_match'&&
-        decidePlaceResolution({candidate:{...input.candidate,name:input.candidate.city,category:'city',region:null},resolved:area}).precision==='APPROXIMATE');
+        decidePlaceResolution({candidate:{...input.candidate,name:input.candidate.city,address:null,category:'city'},resolved:area}).precision==='APPROXIMATE');
       if(cities.length===1){
         const params=new URLSearchParams({apiKey:this.apiKey,lang:'en',name:input.candidate.name!,
           categories:'catering,commercial,accommodation,tourism,entertainment,leisure',
           filter:`place:${cities[0].providerPlaceId}`,limit:'100'});
         const branches=await this.searchPois(params,100,true);
-        for(const branch of branches)this.mergePoi(results,branch,input);
+        for(const branch of branches){
+          // Membership comes from the provider's verified city boundary filter,
+          // not from the query text or a global borough/city alias.
+          branch.providerLocalityBoundary={placeId:cities[0].providerPlaceId,name:input.candidate.city};
+          branch.localityNames=[...new Set([...(branch.localityNames??[]),input.candidate.city])];
+          this.mergePoi(results,branch,input);
+        }
       }
     }
     if(!input.candidate.name||results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))return results;
@@ -362,10 +386,13 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'ge
     providerPlaceId: result.place_id,
     displayName: result.name ?? result.formatted ?? result.address_line1 ?? result.place_id,
     providerName: result.name ?? null,
+    providerNameAliases: Object.entries(result.other_names&&typeof result.other_names==='object'&&!Array.isArray(result.other_names)?result.other_names:{})
+      .filter(([key,value])=>/^(?:name|alt_name|short_name|official_name)(?::[\w-]+)?$/u.test(key)&&typeof value==='string'&&value.length<=200)
+      .slice(0,128).flatMap(([,value])=>(value as string).split(';').map(name=>name.trim()).filter(Boolean)),
     street: result.street ?? null,
     houseNumber: result.housenumber ?? null,
     localityNames: [...new Set([result.city,...postalLocalities].filter((value):value is string=>Boolean(value)))],
-    category: result.category ?? null,
+    category: result.category ?? result.categories?.slice().sort((a,b)=>b.length-a.length)[0] ?? null,
     address: result.formatted ?? null,
     city: result.city ?? null,
     region: result.state ?? null,

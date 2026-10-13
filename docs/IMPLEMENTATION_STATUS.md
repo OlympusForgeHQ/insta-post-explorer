@@ -1,5 +1,18 @@
 # Implementation Status
 
+## Provider context recovery — 13 October 2026
+
+Policy `provider-context-v4` adds bounded bilingual retrieval and a POI lookup
+inside a uniquely verified city boundary. Current provider aliases and complete
+Belgian bilingual street labels can corroborate identity; explicit region/country
+conflicts, different occupants, directions and branches remain protected.
+Provider geographic areas require bounds and stay approximate. Transit homonyms
+cannot replace an attraction. See [scope and verification](changes/2026-10-13-places-provider-context.md).
+Private replay, research and maintenance receipts are under
+`.tmp/places-remainder-20261013/`; consult them for actual application progress.
+No new extraction, service, schedule, retry budget or schema is introduced.
+
+
 ## Places evidence recovery — 12 October 2026
 
 The owner authorized fixing and resuming the interrupted incremental refresh.
