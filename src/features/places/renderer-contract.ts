@@ -21,5 +21,6 @@ export type PlacesRendererProps = {
   places: readonly PlacesMapItem[];
   selectedId: string | null;
   onSelect: (placeId: string) => void;
+  onOpenPost?: (placeId: string, postId: string) => void;
   onHover: (place: PlacesMapItem | null, point: ScreenPoint | null) => void;
 };

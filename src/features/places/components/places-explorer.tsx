@@ -30,6 +30,12 @@ import { PlaceDetailSheet } from "@/features/places/components/place-detail-shee
 import { PlaceAddressLink } from "@/features/places/components/place-address-link";
 import { PlacesMapA11yList, PlacesRenderer, type ResolvedPlacesView } from "@/features/places/components/places-renderer";
 import type { ScreenPoint } from "@/features/places/renderer-contract";
+import dynamic from "next/dynamic";
+
+const PlacesPostPreviewDialog = dynamic(
+  () => import("@/features/places/components/places-post-preview-dialog").then(module => module.PlacesPostPreviewDialog),
+  { ssr: false },
+);
 
 const PRECISION_LABEL: Record<string, string> = {
   EXACT: "Exact",
@@ -70,6 +76,7 @@ export function PlacesExplorer({
 }: PlacesExplorerProps) {
   const [filters, setFilters] = useState<PlacesFilters>({ ...EMPTY_FILTERS, ...initialState });
   const [selectedId, setSelectedId] = useState<string | null>(initialState.placeId);
+  const [postPreview, setPostPreview] = useState<{ placeId: string; postId: string } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
@@ -162,6 +169,7 @@ export function PlacesExplorer({
       const nextFilters = { ...rest, view: undefined } as unknown as PlacesFilters;
       setFilters(nextFilters);
       setSelectedId(placeId);
+      setPostPreview(null);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -183,6 +191,20 @@ export function PlacesExplorer({
   const handleHover = useCallback((place: PlacesMapItem | null, point: ScreenPoint | null) => {
     setHover(place && point ? { place, x: point.x, y: point.y } : null);
   }, []);
+
+  const handleOpenPost = useCallback((placeId: string, postId: string) => {
+    setSelectedId(null);
+    setHover(null);
+    setPostPreview({ placeId, postId });
+  }, []);
+
+  const closePostPreview = () => {
+    const placeId = postPreview?.placeId;
+    setPostPreview(null);
+    requestAnimationFrame(() => {
+      if (placeId) document.querySelector<HTMLButtonElement>(`[data-map-preview-id="${CSS.escape(placeId)}"]`)?.focus({ preventScroll: true });
+    });
+  };
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((open) => {
@@ -214,6 +236,7 @@ export function PlacesExplorer({
           places={renderedPoints}
           selectedId={selectedId}
           onSelect={handleSelect}
+          onOpenPost={handleOpenPost}
           onHover={handleHover}
           tileUrl={tileUrl}
           styleUrl={styleUrl}
@@ -465,6 +488,12 @@ export function PlacesExplorer({
             onClose={() => setSelectedId(null)}
           />
         ) : null}
+
+        {postPreview ? <PlacesPostPreviewDialog postId={postPreview.postId} isAdmin={isAdmin} onClose={closePostPreview} onSelectPlace={placeId => {
+          setPostPreview(null);
+          setFilters({ ...EMPTY_FILTERS });
+          handleSelect(placeId);
+        }} /> : null}
 
         <div className="places-summary" role="status">
           <span>
