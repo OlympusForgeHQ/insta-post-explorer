@@ -142,6 +142,11 @@ test.describe("globe Places continu", () => {
     expect((await response.json()).id).toBe(postId);
     const dialog = page.getByRole("dialog", { name: "Publication de visual_harness" });
     await expect(dialog).toBeVisible();
+    // Motion must not override the translation anchoring the desktop sheet.
+    await expect.poll(() => dialog.evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      return Math.abs(rect.x + rect.width / 2 - innerWidth / 2);
+    })).toBeLessThan(2);
     // Compare the outer stacking contexts, including transformed map controls.
     const layers = await page.evaluate(() => {
       const rootLevel = (element: Element) => {
@@ -164,7 +169,9 @@ test.describe("globe Places continu", () => {
     await expect(dialog).toHaveCount(0);
     expect(await camera()).toEqual(before);
     await expect(preview).toBeFocused();
+    const reopenResponse = page.waitForResponse(response => response.url().endsWith(`/api/posts/${postId}`));
     await preview.click();
+    expect((await reopenResponse).ok()).toBe(true);
     await expect(dialog).toBeVisible();
     await dialog.getByRole("link", { name: "Voir dans Places" }).click();
     await expect(dialog).toHaveCount(0);

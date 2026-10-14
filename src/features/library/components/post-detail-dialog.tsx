@@ -57,8 +57,12 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
     return () => controller.abort();
   }, [post, loadDetail]);
 
-  if (!post) return null;
-  const displayPost = detailPost?.id === post.id ? detailPost : post;
+  // Keep the closing content available to Radix until its exit animation ends.
+  const [retainedPost, setRetainedPost] = useState(post);
+  if (post && post !== retainedPost) setRetainedPost(post);
+  const activePost = post ?? retainedPost;
+  if (!activePost) return null;
+  const displayPost = detailPost?.id === activePost.id ? detailPost : activePost;
   const media = displayPost.media.length
     ? [...displayPost.media].sort((left, right) => left.position - right.position)
     : [{ id: `${displayPost.id}-legacy`, type: "image" as const, url: displayPost.mediaUrl, sourcePath: null, thumbnailUrl: displayPost.thumbnailUrl, position: 0 }];
@@ -71,14 +75,14 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
   };
 
   return (
-    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog.Root open={Boolean(post)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content
           className="detail-dialog"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            const trigger = document.querySelector<HTMLButtonElement>(`[data-post-id="${CSS.escape(post.id)}"]`);
+            const trigger = document.querySelector<HTMLButtonElement>(`[data-post-id="${CSS.escape(activePost.id)}"]`);
             trigger?.focus();
           }}
         >
@@ -96,7 +100,7 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
             </Dialog.Close>
           </header>
 
-          <div className="detail-scroll">
+          <div className="detail-scroll motion-content" key={displayPost.id}>
             <RichPostMedia key={displayPost.id} media={media} authorUsername={displayPost.authorUsername} />
 
             <div className="detail-author-row">
@@ -194,11 +198,13 @@ export function RichPostMedia({ media, authorUsername }: { media: LibraryPostMed
   return (
     <section className="detail-media-shell" aria-label={`Médias de la publication de ${authorUsername}`}>
       <div className="detail-media">
+        <div className="motion-media" key={activeMedia.id}>
         <MediaItem
           key={activeMedia.id}
           media={activeMedia}
           alt={`Média ${activeIndex + 1} sur ${media.length} de la publication de ${authorUsername}`}
         />
+        </div>
         {hasMultipleMedia ? (
           <>
             <button className="media-nav media-nav-left" type="button" onClick={selectPrevious} aria-label="Média précédent" data-media-control>

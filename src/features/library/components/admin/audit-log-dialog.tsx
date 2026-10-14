@@ -8,12 +8,12 @@ import {
   type AuditLogItem, type AuditLogPage,
 } from "@/features/library/audit-types";
 
-export function AuditLogDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+export function AuditLogDialog({ open = true, onOpenChange }: { open?: boolean; onOpenChange: (open: boolean) => void }) {
   const [table, setTable] = useState("");
   const [operation, setOperation] = useState("");
   const [revision, setRevision] = useState(0);
   return (
-    <Dialog.Root open onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="stats-dialog">

@@ -1,5 +1,7 @@
 "use client";
 
+import { MotionPresence } from "@/components/motion-presence";
+
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { BarChart3, Check, ListFilter, MapPin, Search, SlidersHorizontal, X } from "lucide-react";
 
@@ -226,6 +228,11 @@ export function PlacesExplorer({
     });
   }, []);
 
+  // Keep the lazily loaded dialog mounted after its first opening so Radix can
+  // complete exits, without loading its media chunk on an ordinary map visit.
+  const [previewMounted, setPreviewMounted] = useState(false);
+  if (postPreview && !previewMounted) setPreviewMounted(true);
+
   return (
     <section className="places-shell" aria-label="Lieux sauvegardés">
         {/* Top control bar: search + a single filters button. */}
@@ -314,7 +321,7 @@ export function PlacesExplorer({
 
         <PlacesMapA11yList places={renderedPoints} selectedId={selectedId} onSelect={handleSelect} />
 
-        {filtersOpen ? (
+        <MotionPresence present={filtersOpen}>
           <div className="places-panel" id="places-filters" role="dialog" aria-label="Filtres">
             <header>
               <h2>Filtres</h2>
@@ -413,9 +420,9 @@ export function PlacesExplorer({
               </button>
             </footer>
           </div>
-        ) : null}
+        </MotionPresence>
 
-        {statsOpen ? (
+        <MotionPresence present={statsOpen}>
           <div className="places-stats" role="dialog" aria-label="Statistiques">
             <header>
               <h2>Statistiques</h2>
@@ -435,9 +442,9 @@ export function PlacesExplorer({
                 .map((row) => ({ key: row.countryCode ?? row.country ?? "?", label: row.country ?? row.countryCode ?? "Inconnu", value: row.placeCount }))}
             />
           </div>
-        ) : null}
+        </MotionPresence>
 
-        {listOpen ? (
+        <MotionPresence present={listOpen}>
           <aside className="places-drawer" aria-label="Liste des lieux">
             <header>
               <h2>
@@ -483,8 +490,9 @@ export function PlacesExplorer({
               {visible.length === 0 ? <li className="places-empty">Aucun lieu ne correspond à ces filtres.</li> : null}
             </ul>
           </aside>
-        ) : null}
+        </MotionPresence>
 
+        <MotionPresence present={Boolean(selected)}>
         {selected ? (
           <PlaceDetailSheet
             place={selected}
@@ -493,7 +501,9 @@ export function PlacesExplorer({
           />
         ) : null}
 
-        {postPreview ? <PlacesPostPreviewDialog postId={postPreview.postId} placeId={postPreview.placeId} onClose={closePostPreview} onSelectPlace={placeId => {
+        </MotionPresence>
+
+        {previewMounted ? <PlacesPostPreviewDialog postId={postPreview?.postId ?? null} placeId={postPreview?.placeId} onClose={closePostPreview} onSelectPlace={placeId => {
           setPostPreview(null);
           setFilters({ ...EMPTY_FILTERS });
           handleSelect(placeId);

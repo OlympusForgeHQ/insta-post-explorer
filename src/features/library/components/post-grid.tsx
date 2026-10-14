@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
 import type { ViewMode } from "@/features/library/types";
 import { cn } from "@/lib/utils";
 
@@ -8,6 +8,25 @@ import { cn } from "@/lib/utils";
 // visual reading order; cyclic placement preserves left-to-right batches.
 export function PostGrid({ children, view, count }: { children: ReactNode; view: ViewMode; count: number }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Animate result/order or view changes without remounting media or selection.
+  const signature = Array.isArray(children) ? children.map(child => child?.key).join("|") : "";
+  const previous = useRef(`${view}:${signature}`);
+  useEffect(() => {
+    const next = `${view}:${signature}`;
+    if (previous.current === next) return;
+    previous.current = next;
+    const grid = ref.current;
+    if (!grid?.animate || !window.matchMedia) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (reduced.matches) return;
+    const animation = grid.animate([{ opacity: .55 }, { opacity: 1 }], {
+      duration: Number.parseFloat(getComputedStyle(grid).getPropertyValue("--motion-content")) || 260,
+      easing: getComputedStyle(grid).getPropertyValue("--motion-ease").trim() || "ease-out",
+    });
+    const stop = () => { if (reduced.matches) animation.cancel(); };
+    reduced.addEventListener("change", stop);
+    return () => { animation.cancel(); reduced.removeEventListener("change", stop); };
+  }, [signature, view]);
   useLayoutEffect(() => {
     const grid = ref.current;
     if (!grid || view !== "masonry" || typeof ResizeObserver === "undefined") return;

@@ -29,6 +29,37 @@ test.describe("page Places avec le harnais local", () => {
     await page.screenshot({ path: testInfo.outputPath('places-layout.png') });
   });
 
+  test("anime les panneaux, annule une fermeture interrompue et respecte le mouvement réduit", async ({ page }) => {
+    await page.evaluate(() => {
+      (window as unknown as { motionEvents: string[] }).motionEvents = [];
+      document.addEventListener('animationstart', event => {
+        (window as unknown as { motionEvents: string[] }).motionEvents.push(event.animationName);
+      });
+    });
+    const trigger = page.getByRole('button', { name: 'Liste', exact: true });
+    await trigger.click();
+    const drawer = page.locator('.places-drawer');
+    await expect(drawer).toBeVisible();
+    expect(await drawer.getByRole('button', { name: 'Fermer la liste' }).evaluate(node => getComputedStyle(node).transitionDuration)).not.toBe('0s');
+    // Reopen during exit, before its cleanup can remove the new content.
+    await trigger.evaluate(node => (node as HTMLButtonElement).click());
+    await expect(page.locator('.motion-presence:has(> .places-drawer)')).toHaveAttribute('inert', '');
+    await trigger.evaluate(node => (node as HTMLButtonElement).click());
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(drawer).toBeVisible();
+    await expect(page.locator('.motion-presence:has(> .places-drawer)')).not.toHaveAttribute('inert');
+    await drawer.getByRole('button', { name: 'Fermer la liste' }).click();
+    await expect(drawer).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { motionEvents: string[] }).motionEvents)).toContain('motion-drawer-out');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.getByRole('button', { name: 'Filtres', exact: true }).click();
+    const filters = page.getByRole('dialog', { name: 'Filtres', exact: true });
+    await expect(filters).toHaveCSS('animation-name', 'none');
+    await expect(filters.getByRole('button', { name: 'Fermer les filtres' })).toHaveCSS('transition-duration', '0s');
+    await filters.getByRole('button', { name: 'Fermer les filtres' }).click();
+    await expect(page.locator('.places-panel')).toHaveCount(0);
+  });
+
   test("applique un filtre réel sans dupliquer les règles de parsing", async ({ page }) => {
     const mapList = page.getByRole("group", { name: MAP_LIST_NAME });
     await expect(mapList).toBeVisible();
