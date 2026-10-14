@@ -1,7 +1,7 @@
 "use client";
 
 import { Heart, Images, Play } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { BrokenImage } from "@/features/library/components/library-states";
 import type { LibraryPost, ViewMode } from "@/features/library/types";
@@ -11,6 +11,13 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
   const [imageFailed, setImageFailed] = useState(false);
   const [videoPreviewActive, setVideoPreviewActive] = useState(false);
   const [mediaRatio, setMediaRatio] = useState<number | null>(null);
+  const measureLoadedImage = useCallback((image: HTMLImageElement | null) => {
+    // SSR/cache images can finish before React attaches its load handler.
+    // Recover their real proportions instead of keeping the shared placeholder.
+    if (image?.complete && image.naturalWidth > 0) {
+      setMediaRatio(validMediaRatio(image.naturalWidth, image.naturalHeight));
+    }
+  }, []);
   const previewVideo = post.media.find((media) => media.type === "video" && media.url);
   const imageUrl = post.thumbnailUrl || post.mediaUrl || "";
   const TypeIcon = post.contentType === "reel" ? Play : post.contentType === "carousel" ? Images : null;
@@ -42,6 +49,7 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
             // forwarding the application URL to third-party image hosts.
             // eslint-disable-next-line @next/next/no-img-element
             <img
+              ref={measureLoadedImage}
               src={imageUrl}
               alt={`Média de la publication de ${post.authorUsername}`}
               loading="lazy"
