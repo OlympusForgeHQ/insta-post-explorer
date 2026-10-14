@@ -1,5 +1,14 @@
 # Operational Handoff
 
+## Mobile library and horizontal Pinterest — 14 October 2026
+
+The mobile library uses a compact header, translucent toolbar, rounded cards and
+short motion with reduced-motion support. Masonry keeps the sorted DOM list and
+places successive posts left-to-right across columns, resizing on media/content
+changes. Video previews preserve their poster target to avoid cancelled clicks;
+filter-sheet close controls stay visible while scrolling. No data/API/worker changes.
+See [requirements and verification](changes/2026-10-14-mobile-library-polish.md).
+
 ## Unobstructed map layout — 13 October 2026
 
 Places now fits the viewport with search/filter controls above the map and a compact

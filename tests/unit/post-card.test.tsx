@@ -33,15 +33,17 @@ const videoPost: LibraryPost = {
 
 describe("PostCard video preview", () => {
   it("ne charge la vidéo qu'au survol de la carte", () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("hover: hover") })));
     render(<PostCard post={videoPost} view="grid" onOpen={vi.fn()} isAdmin={false} onToggleFavorite={vi.fn()} />);
 
     const card = screen.getByRole("button", { name: /ouvrir la publication/i });
     expect(card.querySelector("video")).toBeNull();
+    const poster = card.querySelector('img');
 
     fireEvent.mouseEnter(card);
     const video = card.querySelector("video");
     expect(video).not.toBeNull();
+    expect(card.querySelector('img')).toBe(poster);
     expect(video).toHaveAttribute("src", "https://cdn.example.com/C-5muknob6x_1.mp4");
     expect((video as HTMLVideoElement).muted).toBe(true);
     expect(video).toHaveAttribute("loop");

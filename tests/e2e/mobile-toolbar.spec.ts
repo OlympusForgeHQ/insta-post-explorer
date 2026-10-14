@@ -1,14 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The five widths previously exercised here (360, 375, 390, 412, 420) all sit on
-// the same side of the same CSS breakpoint and produced identical assertions.
-// Only the boundaries carry information: the narrowest phone we support, and the
-// widest width before the desktop ribbon takes over.
-//
-// These scenarios set their own viewport with `test.use`, which overrides the
-// project device — so they run on the default project only. Running them on the
-// mobile project repeated byte-identical work.
-const mobileWidths = [360, 420];
+// Exercise the narrowest supported phone and the mobile layout breakpoint.
+// Explicit viewports run once on the default browser project.
+const mobileWidths = [320, 760];
 
 for (const width of mobileWidths) {
   test.describe(`toolbar mobile ${width}px`, () => {
@@ -24,6 +18,7 @@ for (const width of mobileWidths) {
       await expect(ribbon).toBeVisible();
       await expect(stickyToolbar).toBeVisible();
       await expect(firstPost).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Places', exact: true })).toBeVisible();
 
       const compactControls = [
         page.getByRole("button", { name: /Ouvrir les filtres/ }),
@@ -48,9 +43,9 @@ for (const width of mobileWidths) {
       const actionsBox = await page.locator(".header-actions").boundingBox();
       expect(brandBox).not.toBeNull();
       expect(actionsBox).not.toBeNull();
-      expect(Math.abs((brandBox!.x + brandBox!.width / 2) - width / 2)).toBeLessThan(3);
-      expect(actionsBox!.y).toBeGreaterThan(brandBox!.y);
-      expect(Math.abs((actionsBox!.x + actionsBox!.width) - (width - 12))).toBeLessThan(3);
+      expect(Math.abs(brandBox!.y - actionsBox!.y)).toBeLessThan(10);
+      expect(brandBox!.x + brandBox!.width).toBeLessThanOrEqual(actionsBox!.x);
+      expect((await page.locator('.app-header').boundingBox())!.height).toBeLessThan(140);
 
       await page.evaluate(() => window.scrollTo(0, 700));
       await expect.poll(() => page.locator(".app-header").evaluate((node) => node.getBoundingClientRect().bottom < 0)).toBe(true);
@@ -74,6 +69,8 @@ for (const width of mobileWidths) {
       await expect(drawer.getByLabel("Filtrer par année dans le drawer")).toBeVisible();
       await expect(drawer.getByLabel("Filtrer par collection dans le drawer")).toBeVisible();
 
+      await drawer.evaluate(node => { node.scrollTop = node.scrollHeight; });
+      await expect(drawer.getByRole('button', { name: 'Fermer les filtres' })).toBeInViewport();
       await page.keyboard.press("Escape");
       await expect(drawer).toBeHidden();
       await expect(trigger).toBeFocused();
@@ -83,6 +80,27 @@ for (const width of mobileWidths) {
 
 test.describe("retour visuel des filtres sur mobile", () => {
   test.use({ viewport: { width: 390, height: 800 } });
+
+  test("respecte la réduction des animations et conserve les commandes de la fiche", async ({ page }, testInfo) => {
+    await openLibrary(page);
+    await page.screenshot({ path: testInfo.outputPath('mobile-library-light.png') });
+    await page.getByRole('button', { name: 'Changer le thème' }).click();
+    await page.getByRole('menuitemradio', { name: 'Sombre' }).click();
+    await expect(page.getByRole('menu')).toBeHidden();
+    await page.screenshot({ path: testInfo.outputPath('mobile-library-dark.png') });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(page.locator('.post-card').first()).toHaveCSS('animation-name', 'none');
+    await expect(page.locator('.post-card-button').first()).toHaveCSS('transition-duration', '0s');
+    const card = page.locator('[data-post-id]').first();
+    await card.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toHaveCSS('animation-name', 'none');
+    await dialog.locator('.detail-scroll').evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await expect(dialog.getByRole('button', { name: 'Fermer le détail' })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath('mobile-detail.png') });
+    await dialog.getByRole('button', { name: 'Fermer le détail' }).click();
+    await expect(card).toBeFocused();
+  });
 
   test("affiche les filtres actifs et permet de les retirer rapidement", async ({ page }) => {
     await openLibrary(page);
@@ -132,4 +150,5 @@ test("préserve la structure du ruban desktop à 1280px", async ({ page }) => {
 async function openLibrary(page: Page) {
   await page.goto("/");
   await expect(page.getByRole("region", { name: "Publications sauvegardées" })).toBeVisible();
+  await expect(page.locator('.posts-masonry')).toHaveAttribute('data-masonry-ready', 'true');
 }
