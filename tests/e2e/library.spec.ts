@@ -4,6 +4,7 @@ test.describe("bibliotheque Mosaïque", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Publications sauvegardées" })).toBeVisible();
+    await expect(page.locator(".posts-masonry")).toHaveAttribute("data-masonry-ready", "true");
   });
 
   test("charge les 18 publications du fallback local", async ({ page }) => {
@@ -293,6 +294,87 @@ test.describe("bibliotheque Mosaïque", () => {
     await expect.poll(async () => { const b = await geometry(); return Math.abs(b[0].y - b[1].y) < 1 && b[2].y >= b[0].bottom; }).toBe(true);
     await page.getByRole('button', { name: 'Grille masonry' }).click();
     await expect.poll(checkColumns).toBe(true);
+  });
+
+  for (const width of [390, 1140]) test(`anime la géométrie, les interruptions et les images tardives à ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 700 });
+    const payload = await (await page.request.get('/api/posts?limit=1')).json();
+    const items = [600, 480, 700, 520, 600, 500].map((height, index) => ({ ...payload.items[0], id: `motion-${index}`, thumbnailUrl: 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="${height}"><rect width="400" height="${height}" fill="#7c3aed"/></svg>`), media: [] }));
+    await page.route('**/api/posts?**', route => route.fulfill({ json: { items, nextCursor: null, total: items.length, totalFiltered: items.length, totalLibrary: 18 } }));
+    await page.getByRole('searchbox', { name: 'Rechercher dans la bibliothèque' }).fill('motion-probe');
+    await expect(page.locator('[data-post-id]')).toHaveCount(items.length);
+    await expect.poll(() => page.locator('.post-media img').evaluateAll(nodes => nodes.every(node => (node as HTMLImageElement).naturalWidth > 0))).toBe(true);
+    await expect(page.locator('.posts-masonry')).toHaveAttribute('data-masonry-ready', 'true');
+    const grid = page.locator('.posts-grid');
+    await grid.evaluate(async node => { await Promise.all(node.getAnimations({ subtree: true }).map(a => a.finished.catch(() => {}))); });
+    const read = () => page.locator('.post-card').evaluateAll(nodes => nodes.slice(0, 4).map(node => {
+      const r = node.getBoundingClientRect(), m = node.querySelector('.post-media')!.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height, mediaHeight: m.height };
+    }));
+    await expect.poll(() => grid.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
+    // Freeze newly-created geometry animations before their first paint. This
+    // makes frame assertions independent of CI scheduling and CPU speed.
+    await page.evaluate(() => {
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (...args) {
+        const animation = animate.apply(this, args);
+        if (this.closest('.posts-grid')) { animation.pause(); animation.currentTime = 0; }
+        return animation;
+      };
+    });
+    const before = await read();
+    await page.locator('.post-card').first().evaluate(node => { (window as unknown as { originalCard: Element }).originalCard = node; });
+    await page.getByRole('button', { name: 'Grille régulière' }).evaluate(node => (node as HTMLButtonElement).click());
+    await expect(page.locator('.posts-regular')).toBeVisible();
+    // Freeze the browser's own animations to inspect their real rendered frames.
+    const seek = (fraction: number) => grid.evaluate((node, fraction) => {
+      const animations = node.getAnimations({ subtree: true }).filter(a => a instanceof Animation && !(a instanceof CSSAnimation));
+      for (const animation of animations) { animation.pause(); animation.currentTime = Number(animation.effect!.getTiming().duration) * fraction; }
+      return animations.length;
+    }, fraction);
+    expect(await seek(0)).toBeGreaterThan(0);
+    const start = await read();
+    expect(Math.abs(start[0].mediaHeight - before[0].mediaHeight)).toBeLessThan(2);
+    expect(Math.abs(start[2].y - before[2].y)).toBeLessThan(2);
+    await seek(.25);
+    const middle = await read();
+    expect(Math.abs(middle[0].mediaHeight - before[0].mediaHeight)).toBeGreaterThan(2);
+    if (width > 760) expect(Math.abs(middle[0].width - before[0].width)).toBeGreaterThan(2);
+    // A reversal must start from the visible intermediate frame, not an endpoint.
+    await page.getByRole('button', { name: 'Grille masonry' }).evaluate(node => (node as HTMLButtonElement).click());
+    await expect(page.locator('.posts-masonry')).toBeVisible();
+    expect(await seek(0)).toBeGreaterThan(0);
+    const reverse = await read();
+    expect(Math.abs(reverse[0].mediaHeight - middle[0].mediaHeight)).toBeLessThan(2);
+    expect(Math.abs(reverse[2].y - middle[2].y)).toBeLessThan(2);
+    await grid.evaluate(node => node.getAnimations({ subtree: true }).forEach(a => a.finish()));
+    await expect.poll(async () => Math.abs((await read())[0].mediaHeight - before[0].mediaHeight)).toBeLessThan(2);
+    expect(await page.locator('.post-card').first().evaluate(node => node === (window as unknown as { originalCard: Element }).originalCard)).toBe(true);
+    await expect.poll(() => grid.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
+    // Loading a new intrinsic ratio is a child-only React update. Its first
+    // animated frame must retain the previous crop and move subsequent cards.
+    const oldMedia = (await read())[0].mediaHeight;
+    await page.locator('.post-media img').first().evaluate(node => {
+      (node as HTMLImageElement).src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="800"><rect width="400" height="800" fill="#0891b2"/></svg>');
+    });
+    await expect.poll(() => grid.evaluate(node => node.getAnimations({ subtree: true }).length)).toBeGreaterThan(0);
+    expect(Math.abs((await read())[0].mediaHeight - oldMedia)).toBeLessThan(2);
+    await seek(.25);
+    expect((await read())[0].mediaHeight).toBeGreaterThan(oldMedia + 2);
+    await grid.evaluate(node => node.getAnimations({ subtree: true }).forEach(a => a.finish()));
+    await expect.poll(() => grid.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
+    // Measuring the shorter layout must not synchronously clamp the scroll
+    // position to the new page bottom before its animation even starts.
+    await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }));
+    const bottom = await page.evaluate(() => scrollY);
+    expect(bottom).toBeGreaterThan(0);
+    await page.getByRole('button', { name: 'Grille régulière' }).evaluate(node => (node as HTMLButtonElement).click());
+    await expect(page.locator('.posts-regular')).toBeVisible();
+    expect(Math.abs(await page.evaluate(() => scrollY) - bottom)).toBeLessThan(2);
+    expect(await seek(0)).toBeGreaterThan(0);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.getByRole('button', { name: 'Grille régulière' }).click();
+    expect(await grid.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0);
   });
 
   test("conserve l'ordre DOM au clavier dans le Masonry", async ({ page }) => {

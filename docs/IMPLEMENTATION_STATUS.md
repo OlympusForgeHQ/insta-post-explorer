@@ -1,5 +1,17 @@
 # Implementation Status
 
+## Continuous grid / Pinterest motion — 14 October 2026
+
+Switching views now animates each visible card’s position, dimensions and media
+crop over 520ms, retaining its DOM/media identity and left-to-right reading order.
+Reversals start from the current frame; intrinsic image updates and responsive
+column changes retarget the same layout. The selector has a sliding indicator.
+Container measurement preserves scroll at transition start, and reduced motion
+cancels running animation. Shared duration parsing also fixes premature non-modal
+panel removal when production CSS expresses milliseconds as seconds. No data,
+API, dependency or worker changes. See
+[requirements and verification](changes/2026-10-14-grid-layout-motion.md).
+
 ## Interface motion — 14 October 2026
 
 Shared motion tokens now cover controls (including portals), dialogs, Places panels,
