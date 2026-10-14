@@ -27,27 +27,15 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
         disabled={selection?.disabled}
         aria-pressed={selection?.checked}
         onMouseEnter={() => {
-          if (!selection && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) setVideoPreviewActive(true);
+          if (!selection && window.matchMedia("(hover: hover) and (pointer: fine)").matches && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) setVideoPreviewActive(true);
         }}
         onMouseLeave={() => setVideoPreviewActive(false)}
-        onFocus={() => { if (!selection) setVideoPreviewActive(true); }}
+        onFocus={(event) => { if (!selection && event.currentTarget.matches(":focus-visible") && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) setVideoPreviewActive(true); }}
         onBlur={() => setVideoPreviewActive(false)}
         aria-label={`${selection ? "Sélectionner" : "Ouvrir"} la publication de ${post.authorUsername}`}
       >
         <div className="post-media" style={{ aspectRatio: view === "masonry" ? mediaRatio ?? "4 / 5" : "1" }}>
-          {videoPreviewActive && previewVideo?.url ? (
-            <video
-              src={previewVideo.url}
-              poster={(previewVideo.thumbnailUrl ?? imageUrl) || undefined}
-              muted
-              loop
-              autoPlay
-              playsInline
-              preload="metadata"
-              aria-hidden="true"
-              onLoadedMetadata={(event) => setMediaRatio(validMediaRatio(event.currentTarget.videoWidth, event.currentTarget.videoHeight))}
-            />
-          ) : imageFailed || !imageUrl ? (
+          {imageFailed || !imageUrl ? (
             <BrokenImage />
           ) : (
             // Media URLs are validated as public HTTPS URLs during import. We avoid
@@ -65,6 +53,16 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
               onError={() => setImageFailed(true)}
             />
           )}
+          {/* Preserve the poster as the pointer target: replacing it between
+              pointerdown and pointerup can cancel the native click. */}
+          {videoPreviewActive && previewVideo?.url ? (
+            <video
+              className="post-preview-video"
+              src={previewVideo.url}
+              poster={(previewVideo.thumbnailUrl ?? imageUrl) || undefined}
+              muted loop autoPlay playsInline preload="metadata" aria-hidden="true"
+            />
+          ) : null}
           {!isAdmin && TypeIcon ? <span className="type-indicator" aria-label={`Type : ${post.contentType}`}><TypeIcon aria-hidden="true" className="size-3.5" /></span> : null}
         </div>
         <div className="post-card-copy">

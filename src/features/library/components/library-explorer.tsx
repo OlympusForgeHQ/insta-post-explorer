@@ -14,6 +14,7 @@ import { ImportDialog } from "@/features/library/components/import-dialog";
 import { EmptyLibrary, LibraryError, NoResults } from "@/features/library/components/library-states";
 import { LibraryStatsDialog } from "@/features/library/components/library-stats-dialog";
 import { MediaRepairDialog } from "@/features/library/components/media-repair-dialog";
+import { PostGrid } from "@/features/library/components/post-grid";
 import { PostCard } from "@/features/library/components/post-card";
 import { PostDetailDialog } from "@/features/library/components/post-detail-dialog";
 import { RefreshPostsControl, useRefreshPosts } from "@/features/library/components/refresh-posts-button";
@@ -397,7 +398,7 @@ export function LibraryExplorer({
         </label>
         <nav className="header-actions" aria-label="Actions principales">
           {/* Places is a permanent destination, on desktop and mobile alike. */}
-          <Link className="header-tab places-tab" href="/places">
+          <Link className="header-tab places-tab" href="/places" aria-label="Places">
             <MapPin aria-hidden="true" className="size-4" /> <span>Places</span>
           </Link>
           <button
@@ -459,7 +460,7 @@ export function LibraryExplorer({
 
       <section className="mobile-sticky-toolbar" aria-label="Filtres et tri rapides">
         <button className={cn("button mobile-filter-trigger", activeFilterCount > 0 && "is-active")} type="button" aria-label={`Ouvrir les filtres, ${activeFilterCount} actif${activeFilterCount === 1 ? "" : "s"}`} aria-haspopup="dialog" aria-expanded={mobileFiltersOpen} onClick={() => setMobileFiltersOpen(true)}>
-          <SlidersHorizontal aria-hidden="true" className="size-4 text-accent" /> Filtres
+          <SlidersHorizontal aria-hidden="true" className="size-4 text-accent" /><span className="filter-trigger-label">Filtres</span>
           {activeFilterCount ? <span className="count-badge" aria-hidden="true">{activeFilterCount}</span> : null}
         </button>
         <strong className="results-count tabular-nums" aria-live="polite">{totalFiltered.toLocaleString("fr-FR")}</strong>
@@ -489,7 +490,7 @@ export function LibraryExplorer({
           <SlidersHorizontal aria-hidden="true" className="size-4 text-accent" /> Filtres avancés
         </button>
         <button className="button mobile-only mobile-filter-trigger" type="button" aria-label={`Ouvrir les filtres, ${activeFilterCount} actif${activeFilterCount === 1 ? "" : "s"}`} aria-haspopup="dialog" aria-expanded={mobileFiltersOpen} onClick={() => setMobileFiltersOpen(true)}>
-          <SlidersHorizontal aria-hidden="true" className="size-4 text-accent" /> Filtres
+          <SlidersHorizontal aria-hidden="true" className="size-4 text-accent" /><span className="filter-trigger-label">Filtres</span>
           {activeFilterCount ? <span className="count-badge" aria-hidden="true">{activeFilterCount}</span> : null}
         </button>
 
@@ -582,9 +583,9 @@ export function LibraryExplorer({
             <div className="filter-loading" role="status"><span className="loading-spinner" aria-hidden="true" />Chargement des résultats…</div>
           ) : initialError ? <LibraryError message={initialError} /> : posts.length === 0 ? <EmptyLibrary onImport={isAdmin ? () => setImportOpen(true) : undefined} /> : filteredPosts.length === 0 ? <NoResults onReset={resetFilters} /> : (
             <>
-              <div className={cn("posts-grid", view === "masonry" ? "posts-masonry" : "posts-regular", view === "masonry" && filteredPosts.length <= 4 && "posts-masonry-sparse", view === "masonry" && filteredPosts.length === 1 && "posts-masonry-single")}>
+              <PostGrid view={view} count={filteredPosts.length}>
                 {filteredPosts.map((post) => <PostCard key={post.id} post={post} view={view} onOpen={() => setSelectedPostId(post.id)} isAdmin={isAdmin} onToggleFavorite={() => void toggleFavorite(post)} selection={isAdmin && selectionMode ? { checked: selectionIds.has(post.id), disabled: !selectionReady, onToggle: () => toggleSelection(post.id) } : undefined} />)}
-              </div>
+              </PostGrid>
               {nextCursor ? (
                 <div className="load-more-row" ref={loadMoreRef}>
                   <button className="button" type="button" disabled={loadingMore} onClick={() => void loadMore()}>

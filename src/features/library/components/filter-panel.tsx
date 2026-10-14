@@ -150,12 +150,14 @@ export function MobileFilterDrawer({ open, onOpenChange, mobileSecondaryControls
             document.querySelector<HTMLButtonElement>(".mobile-filter-trigger")?.focus();
           }}
         >
-          <Dialog.Title className="sr-only">Filtres avancés</Dialog.Title>
+          <header className="drawer-header">
+          <Dialog.Title>Filtres avancés</Dialog.Title>
           <Dialog.Close asChild>
             <button className="icon-button drawer-close" type="button" aria-label="Fermer les filtres">
               <X aria-hidden="true" className="size-4" />
             </button>
           </Dialog.Close>
+          </header>
           {mobileSecondaryControls ? <div className="drawer-mobile-secondary" aria-label="Filtres auteur, année et collection">{mobileSecondaryControls}</div> : null}
           <FilterContent {...props} />
         </Dialog.Content>

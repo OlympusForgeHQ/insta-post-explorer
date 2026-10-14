@@ -178,6 +178,20 @@ test.describe("bibliotheque Mosaïque", () => {
     await expect(dialog.getByText("2 / 2", { exact: true })).toBeVisible();
   });
 
+  test("ouvre un post vidéo au premier clic sans remplacer sa cible tactile @mobile", async ({ page, isMobile }) => {
+    const payload = await (await page.request.get('/api/posts?limit=1')).json();
+    const post = { ...payload.items[0], thumbnailUrl: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#7c3aed"/></svg>'), media: [{ id: 'preview', type: 'video', url: '/preview-probe.mp4', position: 0 }] };
+    await page.route('**/preview-probe.mp4', route => route.fulfill({ status: 204 }));
+    await page.route('**/api/posts?**', route => route.fulfill({ json: { items: [post], nextCursor: null, total: 1, totalFiltered: 1, totalLibrary: 18 } }));
+    await page.getByRole('searchbox', { name: 'Rechercher dans la bibliothèque' }).fill('preview-probe');
+    const card = page.locator('[data-post-id]');
+    await expect(card).toHaveCount(1);
+    await expect(page.locator('.posts-masonry')).toHaveAttribute('data-masonry-ready', 'true');
+    if (isMobile) await card.tap();
+    else { await card.hover(); await expect(card.locator('img')).toHaveCount(1); await card.click(); }
+    await expect(page.getByRole('dialog', { name: `Publication de ${post.authorUsername}` })).toBeVisible();
+  });
+
   test("prépare la lecture vidéo et le fallback source_path", async ({ page }) => {
     const response = await page.request.get("/api/posts?limit=1");
     const item = (await response.json() as { items: Array<Record<string, unknown>> }).items[0];
@@ -253,6 +267,34 @@ test.describe("bibliotheque Mosaïque", () => {
     expect(layout.cards.every((card) => card.width > 0 && card.height > 0)).toBe(true);
   });
 
+  test("remplit le Pinterest de gauche à droite et recalcule les hauteurs au redimensionnement", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('.posts-masonry')).toHaveAttribute('data-masonry-ready', 'true');
+    const cards = page.locator('.post-card');
+    const ids = await page.locator('[data-post-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-post-id')));
+    const geometry = () => cards.evaluateAll(nodes => nodes.map(node => {
+      const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, bottom: r.bottom };
+    }));
+    await expect.poll(async () => { const b = await geometry(); return b[1].x > b[0].x; }).toBe(true);
+    const checkColumns = async () => {
+      const b = await geometry();
+      return b.every((r, i) => Math.abs(r.x - b[i % 2].x) < 1 && (i < 2 || r.y >= b[i - 2].bottom + 5));
+    };
+    await expect.poll(checkColumns).toBe(true);
+    // A late media ratio change must move only subsequent rows, never overlap them.
+    await cards.first().locator('.post-media').evaluate(node => { (node as HTMLElement).style.aspectRatio = '1 / 2'; });
+    await expect.poll(checkColumns).toBe(true);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect.poll(async () => { const b = await geometry(); return b[2].x > b[1].x; }).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(checkColumns).toBe(true);
+    expect(await page.locator('[data-post-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-post-id')))).toEqual(ids);
+    await page.getByRole('button', { name: 'Grille régulière' }).click();
+    await expect.poll(async () => { const b = await geometry(); return Math.abs(b[0].y - b[1].y) < 1 && b[2].y >= b[0].bottom; }).toBe(true);
+    await page.getByRole('button', { name: 'Grille masonry' }).click();
+    await expect.poll(checkColumns).toBe(true);
+  });
+
   test("conserve l'ordre DOM au clavier dans le Masonry", async ({ page }) => {
     const expected = await page.locator("[data-post-id]").evaluateAll((cards) => cards.slice(0, 3).map((card) => card.getAttribute("data-post-id")));
     await page.locator("[data-post-id]").first().focus();
@@ -277,6 +319,10 @@ test.describe("bibliotheque Mosaïque", () => {
     await expect(sparseGrid).toBeVisible();
     await expect(page.locator(".results-count:visible")).toHaveText(/^2\b/);
     await expect(sparseGrid.locator("[data-post-id]")).toHaveCount(2);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => sparseGrid.locator('.post-card').first().evaluate(node => node.getBoundingClientRect().width)).toBeLessThan(200);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect.poll(() => sparseGrid.locator('.post-card').first().evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThan(240);
   });
 
   test("structure la toolbar et la grille sans débordement à 360 px", async ({ page }) => {
