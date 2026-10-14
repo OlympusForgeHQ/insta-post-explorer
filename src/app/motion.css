@@ -1,0 +1,88 @@
+/* Shared motion vocabulary; milliseconds keep CSS and presence cleanup aligned. */
+:root {
+  --motion-press: 120ms;
+  --motion-fast: 180ms;
+  --motion-exit: 180ms;
+  --motion-content: 260ms;
+  --motion-panel: 360ms;
+  --motion-ease: cubic-bezier(.2, .8, .2, 1);
+  --motion-arrive: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Portals live outside app-shell, so the control vocabulary must be global.
+   Scale is independent of transform/translate used to anchor map controls. */
+:where(button, a, select, input, textarea, summary, [role="button"], [role="menuitem"], [role="menuitemradio"], [role="option"], .global-search, .input-shell, .places-search) {
+  transition: scale var(--motion-press) var(--motion-ease),
+    background-color var(--motion-fast) ease, color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+}
+:is(button, [role="button"], .button, .header-tab, .places-back-link):not(:disabled):not([aria-disabled="true"]):active { scale: .96; }
+.post-card-button:not(:disabled):active { scale: .98; }
+:is(button, input, select, textarea):disabled { scale: none; }
+:is(.segmented, .view-switch, .places-segmented) button { transition-duration: var(--motion-content); }
+:is(.segmented, .view-switch, .places-segmented) button:active { transition-duration: var(--motion-press); }
+:is(.favorite-button.is-favorite, .favorite-button[aria-pressed="true"]) svg { animation: motion-check var(--motion-panel) var(--motion-arrive); }
+:is(.menu-item, .tag-option, .places-option) svg { transition: scale var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) ease; }
+:is(.menu-item [data-state="checked"], .tag-check svg, .places-checkbox svg) { animation: motion-check var(--motion-content) var(--motion-arrive); }
+
+.dialog-overlay[data-state="open"] { animation: motion-fade-in var(--motion-content) ease backwards; }
+.dialog-overlay[data-state="closed"] { animation: motion-fade-out var(--motion-exit) ease forwards; }
+:is(.detail-dialog, .filter-drawer, .stats-dialog, .import-dialog, .map-post-dialog)[data-state="open"] {
+  animation: motion-panel-in var(--motion-panel) var(--motion-arrive) backwards;
+}
+:is(.detail-dialog, .filter-drawer, .stats-dialog, .import-dialog, .map-post-dialog)[data-state="closed"] {
+  animation: motion-panel-out var(--motion-exit) ease forwards; pointer-events: none;
+}
+:is(.menu-content, .author-suggestions) {
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-popover-content-transform-origin, top right));
+}
+:is(.menu-content, .author-suggestions)[data-state="open"] { animation: motion-menu-in var(--motion-content) var(--motion-arrive) backwards; }
+:is(.menu-content, .author-suggestions)[data-state="closed"] { animation: motion-menu-out var(--motion-exit) ease forwards; pointer-events: none; }
+
+.motion-presence { display: contents; }
+@media (min-width: 761px) {
+  /* Keep the closing sidebar in its track until its exit completes. */
+  .library-layout:has(.desktop-filter-panel) { grid-template-columns: 288px minmax(0, 1fr); }
+}
+.motion-presence[data-motion-state="open"] > * { animation: motion-panel-in var(--motion-panel) var(--motion-arrive) backwards; }
+.motion-presence[data-motion-state="closed"] > * { animation: motion-panel-out var(--motion-exit) ease forwards; pointer-events: none; }
+.motion-presence[data-motion-state="open"] > .places-drawer { animation-name: motion-drawer-in; }
+.motion-presence[data-motion-state="closed"] > .places-drawer { animation-name: motion-drawer-out; }
+
+/* Entrance only for newly mounted rows; existing keyed items never replay on
+   selection. The small repeating stagger stays bounded even in long lists. */
+:is(.posts-grid > .post-card, .places-list > li, .tag-list > *, .author-suggestions [role="option"], .readonly-tags > li, .post-place-links > li) {
+  animation: motion-row-in var(--motion-panel) var(--motion-arrive) backwards;
+}
+:is(.posts-grid > .post-card, .places-list > li, .tag-list > *, .author-suggestions [role="option"]):nth-child(4n + 2) { animation-delay: 25ms; }
+:is(.posts-grid > .post-card, .places-list > li, .tag-list > *, .author-suggestions [role="option"]):nth-child(4n + 3) { animation-delay: 50ms; }
+:is(.posts-grid > .post-card, .places-list > li, .tag-list > *, .author-suggestions [role="option"]):nth-child(4n) { animation-delay: 75ms; }
+:is(.motion-content, .motion-media, .desktop-filter-panel, .selection-toolbar, .empty-state, .filter-loading, .request-error, .import-result, .sync-status, .sync-error, .active-tags > *, .mobile-active-filters > *) {
+  animation: motion-row-in var(--motion-content) var(--motion-arrive) backwards;
+}
+.motion-media { display: contents; }
+.motion-media > * { animation: motion-media-in var(--motion-content) var(--motion-ease) backwards; }
+.detail-progress > span:first-child { transition: width var(--motion-content) var(--motion-ease); }
+.media-page { transition: background-color var(--motion-fast) ease, scale var(--motion-fast) var(--motion-ease); }
+.media-page[data-active="true"] { scale: 1.15; }
+details[open] > :not(summary) { animation: motion-row-in var(--motion-content) var(--motion-arrive) backwards; }
+.places-stat-fill { transform-origin: left; animation: motion-bar-in var(--motion-panel) var(--motion-arrive) backwards; }
+
+@keyframes motion-panel-in { from { opacity: 0; transform: translateY(24px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes motion-panel-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(14px) scale(.985); } }
+@keyframes motion-menu-in { from { opacity: 0; transform: translateY(-6px) scale(.94); } to { opacity: 1; transform: none; } }
+@keyframes motion-menu-out { to { opacity: 0; transform: translateY(-4px) scale(.97); } }
+@keyframes motion-drawer-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes motion-drawer-out { to { opacity: 0; transform: translateX(24px); } }
+@keyframes motion-row-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes motion-media-in { from { opacity: .35; } to { opacity: 1; } }
+@keyframes motion-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes motion-fade-out { to { opacity: 0; } }
+@keyframes motion-check { 0% { scale: .75; } 60% { scale: 1.12; } 100% { scale: 1; } }
+@keyframes motion-bar-in { from { scale: 0 1; } to { scale: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  :is(button, [role="button"], .button, .header-tab, .places-back-link):active { scale: none !important; }
+}

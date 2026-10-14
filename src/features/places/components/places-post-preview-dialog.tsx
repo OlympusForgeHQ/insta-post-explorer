@@ -10,17 +10,21 @@ import { PlaceAddressLink } from "@/features/places/components/place-address-lin
 import type { LibraryPost, LibraryPostMedia } from "@/features/library/types";
 
 type Props = {
-  postId: string;
+  postId: string | null;
   placeId?: string;
   onClose: () => void;
   onSelectPlace?: (placeId: string) => void;
 };
 
 export function PlacesPostPreviewDialog(props: Props) {
-  return <PreviewContent key={props.postId} {...props} />;
+  const [retained, setRetained] = useState(props);
+  if (props.postId && (props.postId !== retained.postId || props.placeId !== retained.placeId)) setRetained(props);
+  const current = props.postId ? props : retained;
+  if (!current.postId) return null;
+  return <PreviewContent key={current.postId} {...current} postId={current.postId} open={Boolean(props.postId)} onExited={() => setRetained(props)} />;
 }
 
-function PreviewContent({ postId, placeId, onClose, onSelectPlace }: Props) {
+function PreviewContent({ postId, placeId, onClose, onSelectPlace, open, onExited }: Omit<Props, "postId"> & { postId: string; open: boolean; onExited: () => void }) {
   const [post, setPost] = useState<LibraryPost | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -46,11 +50,11 @@ function PreviewContent({ postId, placeId, onClose, onSelectPlace }: Props) {
   // Keep the same dialog mounted from loading through success, preserving focus
   // trapping and scroll locking while the content arrives.
   return (
-    <Dialog.Root open onOpenChange={open => { if (!open) onClose(); }}>
+    <Dialog.Root open={open} onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay map-post-overlay" />
         <Dialog.Content className="map-post-dialog" aria-labelledby={undefined} aria-label={post ? `Publication de ${post.authorUsername}` : "Publication"}
-          onCloseAutoFocus={event => event.preventDefault()}>
+          onCloseAutoFocus={event => { event.preventDefault(); if (!open) onExited(); }}>
           <header className="map-post-header">
             <div>
               <span className="map-post-eyebrow"><MapPin size={13} aria-hidden="true" /> Découvert sur la carte</span>
@@ -62,7 +66,7 @@ function PreviewContent({ postId, placeId, onClose, onSelectPlace }: Props) {
             </Dialog.Close>
           </header>
           {post ? (
-            <div className="map-post-body">
+            <div className="map-post-body motion-content">
               <div className="map-post-media"><RichPostMedia media={media} authorUsername={post.authorUsername} /></div>
               <div className="map-post-info">
                 {post.mainTheme ? <span className="map-post-theme">{post.mainTheme}</span> : null}

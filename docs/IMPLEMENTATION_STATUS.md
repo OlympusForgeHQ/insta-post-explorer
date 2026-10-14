@@ -1,5 +1,14 @@
 # Implementation Status
 
+## Interface motion — 14 October 2026
+
+Shared motion tokens now cover controls (including portals), dialogs, Places panels,
+list entrances and post/media navigation. Radix retains closing dialogs; non-modal
+panels exit briefly while inert and support immediate reopening. Reduced motion
+also disables press scaling and programmatic grid transitions. Places reloads post
+metadata after a completed close. No data/API/worker changes. See
+[scope and verification](changes/2026-10-14-interface-motion.md).
+
 ## Mobile library and horizontal Pinterest — 14 October 2026
 
 The mobile library uses a compact header, translucent toolbar, rounded cards and

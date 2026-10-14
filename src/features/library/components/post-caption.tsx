@@ -10,6 +10,6 @@ export function PostCaption({caption,translation}:{caption:string;translation?:s
    <span>{original?'Description originale':'Traduction française'}</span>
    <button className="button" type="button" onClick={()=>setOriginal(value=>!value)}>{original?'Voir la traduction':'Voir l’original'}</button>
   </div>:null}
-  <p className="detail-caption text-pretty" lang={translation&&!original?'fr':undefined}>{text||'Aucune légende disponible.'}</p>
+  <p key={original ? "original" : "translated"} className="detail-caption text-pretty motion-content" lang={translation&&!original?'fr':undefined}>{text||'Aucune légende disponible.'}</p>
  </section>;
 }
