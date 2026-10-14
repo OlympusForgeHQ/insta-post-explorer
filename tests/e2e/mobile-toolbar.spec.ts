@@ -92,7 +92,11 @@ test.describe("retour visuel des filtres sur mobile", () => {
     await expect(page.locator('.post-card').first()).toHaveCSS('animation-name', 'none');
     await expect(page.locator('.post-card-button').first()).toHaveCSS('transition-duration', '0s');
     const card = page.locator('[data-post-id]').first();
-    await card.click();
+    // Reduced motion must remove the press deformation, not only its duration.
+    await card.hover();
+    await page.mouse.down();
+    expect(await card.evaluate(node => getComputedStyle(node).scale)).toBe('none');
+    await page.mouse.up();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toHaveCSS('animation-name', 'none');
     await dialog.locator('.detail-scroll').evaluate(node => { node.scrollTop = node.scrollHeight; });
@@ -100,6 +104,33 @@ test.describe("retour visuel des filtres sur mobile", () => {
     await page.screenshot({ path: testInfo.outputPath('mobile-detail.png') });
     await dialog.getByRole('button', { name: 'Fermer le détail' }).click();
     await expect(card).toBeFocused();
+    await page.getByRole('button', { name: 'Grille régulière' }).click();
+    await expect.poll(() => page.locator('.posts-grid').evaluate(node => node.getAnimations().length)).toBe(0);
+  });
+
+  test("anime les commandes portales et la sortie de fiche sans perdre le focus", async ({ page }) => {
+    await openLibrary(page);
+    await page.evaluate(() => {
+      (window as unknown as { motionEvents: string[] }).motionEvents = [];
+      document.addEventListener('animationstart', event => {
+        (window as unknown as { motionEvents: string[] }).motionEvents.push(event.animationName);
+      });
+    });
+    const card = page.locator('[data-post-id]').first();
+    await card.click();
+    const dialog = page.locator('.detail-dialog');
+    const close = dialog.getByRole('button', { name: 'Fermer le détail' });
+    expect(await close.evaluate(node => getComputedStyle(node).transitionDuration)).not.toBe('0s');
+    await dialog.getByRole('button', { name: 'Suivant' }).click();
+    await expect(page.locator('.detail-scroll.motion-content')).toBeVisible();
+    await close.click();
+    await expect(dialog).toBeHidden();
+    expect(await page.evaluate(() => (window as unknown as { motionEvents: string[] }).motionEvents)).toContain('motion-panel-out');
+    await expect(page.locator('[data-post-id]:focus')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Changer le thème' }).click();
+    expect(await page.getByRole('menuitemradio').first().evaluate(node => getComputedStyle(node).transitionDuration)).not.toBe('0s');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
   });
 
   test("affiche les filtres actifs et permet de les retirer rapidement", async ({ page }) => {

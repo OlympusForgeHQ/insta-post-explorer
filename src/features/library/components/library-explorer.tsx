@@ -1,5 +1,7 @@
 "use client";
 
+import { MotionPresence } from "@/components/motion-presence";
+
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ArrowUp, Grid2X2, History, LayoutGrid, LogIn, LogOut, MapPin, Search, Settings2, SlidersHorizontal, Sparkles, SquareCheckBig, Upload, Wrench, X } from "lucide-react";
 import Link from "next/link";
@@ -557,7 +559,7 @@ export function LibraryExplorer({
       </section>
 
       <main className={cn("library-layout", filtersVisible && "has-filters")}>
-        {filtersVisible ? <aside className="desktop-filter-panel desktop-only"><FilterContent {...filterProps} />{isAdmin ? <CollectionManager initialCollections={initialCollections} /> : null}</aside> : null}
+        <MotionPresence present={filtersVisible}><aside className="desktop-filter-panel desktop-only"><FilterContent {...filterProps} />{isAdmin ? <CollectionManager initialCollections={initialCollections} /> : null}</aside></MotionPresence>
         <section className={cn("library-content", isAdmin && selectionMode && "is-selecting")} aria-label="Publications sauvegardées" aria-live="polite" aria-busy={isFiltering}>
           {isAdmin ? <div className="library-admin-tools">
             <button className="button" type="button" aria-label={selectionMode ? "Annuler la sélection" : "Sélectionner des publications"} aria-pressed={selectionMode}
@@ -566,7 +568,7 @@ export function LibraryExplorer({
               <SquareCheckBig aria-hidden="true" className="size-4" />{selectionMode ? "Annuler la sélection" : "Sélectionner"}
             </button>
           </div> : null}
-          {isAdmin && selectionMode ? <div className="selection-toolbar" role="region" aria-label="Sélection de publications">
+          <MotionPresence present={isAdmin && selectionMode}><div className="selection-toolbar" role="region" aria-label="Sélection de publications">
             <strong className="selection-summary" role="status">{selectedVisibleIds.length} publication{selectedVisibleIds.length > 1 ? "s" : ""} sélectionnée{selectedVisibleIds.length > 1 ? "s" : ""}</strong>
             <div className="selection-actions">
               <button className="button" type="button" disabled={!selectionReady || !filteredPosts.length}
@@ -577,7 +579,7 @@ export function LibraryExplorer({
               <BulkDeletePostsAlert key={selectionScope} postIds={selectedVisibleIds} disabled={!selectionReady} onDeleted={() => window.location.reload()} />
             </div>
             <button className="icon-button" type="button" aria-label="Quitter la sélection" onClick={exitSelection}><X aria-hidden="true" className="size-4" /></button>
-          </div> : null}
+          </div></MotionPresence>
           {requestError ? <p className="request-error" role="alert">{requestError}</p> : null}
           {isFiltering ? (
             <div className="filter-loading" role="status"><span className="loading-spinner" aria-hidden="true" />Chargement des résultats…</div>
@@ -616,10 +618,10 @@ export function LibraryExplorer({
         )}
         {...filterProps}
       />
-      {showBackToTop && !selectionMode ? <button className="back-to-top" type="button" aria-label="Retour en haut de la page" onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })}><ArrowUp aria-hidden="true" className="size-4" /><span>Retour en haut</span></button> : null}
+      <MotionPresence present={showBackToTop && !selectionMode}><button className="back-to-top" type="button" aria-label="Retour en haut de la page" onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })}><ArrowUp aria-hidden="true" className="size-4" /><span>Retour en haut</span></button></MotionPresence>
       {isAdmin ? (
         <>
-          {auditOpen ? <AuditLogDialog onOpenChange={setAuditOpen} /> : null}
+          <AuditLogDialog open={auditOpen} onOpenChange={setAuditOpen} />
           <ImportDialog
             open={importOpen}
             onOpenChange={setImportOpen}
