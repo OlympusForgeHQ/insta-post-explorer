@@ -268,6 +268,39 @@ test.describe("bibliotheque Mosaïque", () => {
     expect(layout.cards.every((card) => card.width > 0 && card.height > 0)).toBe(true);
   });
 
+  test("récupère les proportions Pinterest des images chargées avant hydratation", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const sources = await page.locator('.post-media img').evaluateAll(nodes => nodes.slice(0, 6).map(n => (n as HTMLImageElement).src));
+    const heights = [400, 720, 540, 800, 480, 600];
+    let release!: () => void;
+    const hydration = new Promise<void>(resolve => { release = resolve; });
+    await page.route('**/*', async route => {
+      const index = sources.indexOf(route.request().url());
+      if (index >= 0) return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="${heights[index]}"><rect width="400" height="${heights[index]}" fill="#7c3aed"/></svg>` });
+      if (route.request().resourceType() === 'script' && route.request().url().includes('/_next/')) await hydration;
+      await route.continue();
+    });
+    try {
+      await page.reload({ waitUntil: 'commit' });
+      await expect.poll(() => page.locator('.post-media img').evaluateAll(nodes => nodes.length >= 6 && nodes.slice(0, 6).every(n => (n as HTMLImageElement).complete && (n as HTMLImageElement).naturalWidth > 0))).toBe(true);
+      // The images must finish while the client bundles are still blocked.
+      await expect(page.locator('.posts-grid')).not.toHaveAttribute('data-layout-ready', 'true');
+    } finally { release(); }
+    const grid = page.locator('.posts-grid');
+    await expect(grid).toHaveAttribute('data-layout-ready', 'true');
+    const read = () => page.locator('.post-card').evaluateAll(nodes => nodes.slice(0, 6).map(n => {
+      const media = n.querySelector('.post-media')!.getBoundingClientRect(), card = n.getBoundingClientRect();
+      return { ratio: media.width / media.height, x: card.x, y: card.y, bottom: card.bottom };
+    }));
+    const hasNaturalRatios = async () => (await read()).every((box, i) => Math.abs(box.ratio - 400 / heights[i]) < .01);
+    await expect.poll(hasNaturalRatios).toBe(true);
+    await expect.poll(async () => { const b = await read(); return Math.abs(b[2].y - b[3].y) > 30 && b.every((box, i) => i < 2 || box.y >= b[i - 2].bottom + 5); }).toBe(true);
+    await page.getByRole('button', { name: 'Grille régulière' }).click();
+    await expect.poll(async () => (await read()).every(box => Math.abs(box.ratio - 1) < .01)).toBe(true);
+    await page.getByRole('button', { name: 'Grille masonry' }).click();
+    await expect.poll(hasNaturalRatios).toBe(true);
+  });
+
   test("remplit le Pinterest de gauche à droite et recalcule les hauteurs au redimensionnement", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('.posts-masonry')).toHaveAttribute('data-masonry-ready', 'true');
