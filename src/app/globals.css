@@ -311,10 +311,10 @@ select { min-height: 38px; border-radius: 9px; color: var(--text); padding: 0 30
 .load-more-row { display: grid; justify-items: center; gap: 14px; padding: 24px 0 8px; }
 .loading-card-skeletons { display: grid; width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .loading-card-skeletons span { aspect-ratio: 4 / 5; border-radius: 14px; background: var(--surface-subtle); }
-.posts-grid { display: grid; gap: 12px; }
+.posts-grid { position: relative; display: grid; align-items: start; gap: 12px; }
 .posts-regular { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .posts-masonry { position: relative; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); align-items: start; }
-.posts-masonry[data-masonry-ready] > .post-card { position: absolute; }
+.posts-grid[data-layout-ready] > .post-card { position: absolute; }
 .posts-masonry .post-card { width: 100%; margin: 0; }
 .posts-masonry.posts-masonry-sparse { display: grid; grid-template-columns: repeat(var(--post-count), minmax(0, 1fr)); }
 .posts-masonry.posts-masonry-sparse .post-card { display: block; margin: 0; }

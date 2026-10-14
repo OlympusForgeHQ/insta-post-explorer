@@ -1,5 +1,7 @@
 "use client";
 
+import { cssDurationMs } from "@/lib/motion";
+
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 // Retain only the last visible tree for the short exit of non-modal panels.
@@ -16,7 +18,7 @@ export function MotionPresence({ present, children }: { present: boolean; childr
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     // A fallback also releases the tree when CSS is unavailable or animations
     // are interrupted. Read the token so CSS remains the timing source of truth.
-    const duration = Number.parseFloat(getComputedStyle(ref.current!).getPropertyValue("--motion-exit")) || 180;
+    const duration = cssDurationMs(getComputedStyle(ref.current!).getPropertyValue("--motion-exit"), 180);
     const finish = () => setMounted(false);
     const timer = window.setTimeout(finish, reduced?.matches ? 0 : duration + 50);
     const onPreferenceChange = () => { if (reduced?.matches) finish(); };
