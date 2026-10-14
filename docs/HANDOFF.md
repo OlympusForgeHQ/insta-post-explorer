@@ -1,5 +1,13 @@
 # Operational Handoff
 
+## Pinterest proportions after early image loading — 14 October 2026
+
+Cards now recover natural image dimensions on DOM attachment when loading finished
+before hydration. This prevents the first visible posts from retaining the same
+4:5 placeholder and restores varied Pinterest heights and staggered columns.
+Square view, sorted DOM order and continuous motion remain unchanged. See
+[reproduction and verification](changes/2026-10-14-pinterest-intrinsic-ratios.md).
+
 ## Continuous grid / Pinterest motion — 14 October 2026
 
 Switching views now animates each visible card’s position, dimensions and media
