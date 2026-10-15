@@ -1,5 +1,19 @@
 # Operational Handoff
 
+## Desktop Places and library polish — 15 October 2026
+
+Places thumbnails expand in place; detail dialogs are centered and restore their
+actual opener without scrolling. Sidebar transitions preserve cards and capture
+interrupted geometry. Desktop chrome, compact widths, text enlargement and
+accessibility preferences follow Iris's Apple Design review. Early image failures,
+requestless filter loading, reset state and split-emoji hydration are corrected.
+
+Verification: 770 app tests with PostgreSQL, 38 generic browser scenarios,
+three desktop/touch Places scenarios, lint, types and production build. The same
+120-card CPU-4x fixture uses 48% less JavaScript and 9% less total task time; layout
+time remains a limitation. No worker, schema or dependency change. See
+[requirements, review and evidence](changes/2026-10-15-desktop-polish.md).
+
 ## Automatic Places after sync — 15 October 2026
 
 Implementation adds durable admission for new sync imports after successful

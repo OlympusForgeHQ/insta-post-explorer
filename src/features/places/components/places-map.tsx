@@ -400,6 +400,13 @@ export function PlacesMap({
           const place = id ? placesRef.current.find((candidate) => candidate.id === id) : undefined;
           if (!place) return;
           map.getCanvas().style.cursor = "pointer";
+          // The native thumbnail is the preview. Keep the callout only for pins
+          // with no rendered image (including failed image downloads).
+          if (id && map.getContainer().querySelector(`[data-map-preview-id="${CSS.escape(id)}"]`)) {
+            hoveredPlaceIdRef.current = null;
+            handlersRef.current.onHover(null, null);
+            return;
+          }
           if (id === hoveredPlaceIdRef.current) return;
           hoveredPlaceIdRef.current = id;
           const geometry = feature?.geometry;
@@ -407,9 +414,9 @@ export function PlacesMap({
           handlersRef.current.onHover(place, { x: point.x, y: point.y });
         };
         const clearHover = () => {
+          map.getCanvas().style.cursor = "";
           if (hoveredPlaceIdRef.current === null) return;
           hoveredPlaceIdRef.current = null;
-          map.getCanvas().style.cursor = "";
           handlersRef.current.onHover(null, null);
         };
 

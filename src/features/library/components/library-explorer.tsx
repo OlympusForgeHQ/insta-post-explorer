@@ -96,12 +96,29 @@ export function LibraryExplorer({
   const [selectionMode, setSelectionMode] = useState(false);
   const [selection, setSelection] = useState<{ scope: string; ids: string[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const postOpenerRef = useRef<HTMLElement | null>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const loadMoreController = useRef<AbortController | null>(null);
   const discoveryController = useRef<AbortController | null>(null);
   const initialRequest = useRef(true);
   const debouncedQuery = useDebouncedValue(query, 250);
   const debouncedAuthor = useDebouncedValue(selectedAuthor, 200);
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || typeof ResizeObserver === "undefined") return;
+    const header = shell.querySelector<HTMLElement>(".app-header")!;
+    const ribbon = shell.querySelector<HTMLElement>(".control-ribbon")!;
+    const measure = () => {
+      shell.style.setProperty("--library-header-height", `${header.offsetHeight}px`);
+      shell.style.setProperty("--library-chrome-height", `${header.offsetHeight + ribbon.offsetHeight + 16}px`);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    observer.observe(ribbon);
+    measure();
+    return () => observer.disconnect();
+  }, []);
   const [authorOptions, setAuthorOptions] = useState<AuthorOption[]>(() => [...new Set(initialPosts.map((post) => post.authorUsername))].sort((a, b) => a.localeCompare(b, "fr-FR")));
 
   useEffect(() => {
@@ -122,7 +139,7 @@ export function LibraryExplorer({
     return () => window.removeEventListener("scroll", updateVisibility);
   }, []);
 
-  const facets = initialTagFacets.filter((facet) => facet.name !== "Favoris");
+  const facets = useMemo(() => initialTagFacets.filter((facet) => facet.name !== "Favoris"), [initialTagFacets]);
   const regularSelectedTags = selectedTags.filter((tag) => tag !== "Favoris");
   const activeFilterCount = selectedTags.length
     + Number(Boolean(query.trim()))
@@ -153,7 +170,7 @@ export function LibraryExplorer({
   const selectedIndex = filteredPosts.findIndex((post) => post.id === selectedPostId);
   const selectedPost = selectedIndex >= 0 ? filteredPosts[selectedIndex] : null;
   const selectionScope = JSON.stringify([query, selectedTags, selectedTheme, selectedContentType, selectedAuthor, selectedYear, selectedCollection, tagMode, sort]);
-  const selectionIds = new Set(selection?.scope === selectionScope ? selection.ids : []);
+  const selectionIds = useMemo(() => new Set(selection?.scope === selectionScope ? selection.ids : []), [selection, selectionScope]);
   const selectedVisibleIds = filteredPosts.filter((post) => selectionIds.has(post.id)).map((post) => post.id);
   const selectionReady = resultsCurrent && !isFiltering && query === debouncedQuery && selectedAuthor === debouncedAuthor;
 
@@ -161,14 +178,14 @@ export function LibraryExplorer({
   if (selection && (selection.scope !== selectionScope || !isAdmin)) setSelection(null);
 
   const exitSelection = () => { setSelectionMode(false); setSelection(null); };
-  const toggleSelection = (id: string) => {
+  const toggleSelection = useCallback((id: string) => {
     if (!selectionReady) return;
     setSelection((current) => {
       const ids = new Set(current?.scope === selectionScope ? current.ids : []);
       if (ids.has(id)) ids.delete(id); else ids.add(id);
       return { scope: selectionScope, ids: [...ids] };
     });
-  };
+  }, [selectionReady, selectionScope]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -379,11 +396,20 @@ export function LibraryExplorer({
     setSelectedPostId(filteredPosts[nextIndex].id);
   }, [filteredPosts, selectedIndex]);
 
-  const filterProps = { facets, selectedTags, tagMode, onTagModeChange: setTagMode, onToggleTag: toggleTag, onReset: resetFilters, selectedContentType, onContentTypeChange: (type: ContentTypeFilter | null) => { setIsFiltering(true); setSelectedContentType(type); }, canReset: activeFilterCount > 0 };
+  const filterProps = { facets, selectedTags, tagMode, onTagModeChange: setTagMode, onToggleTag: toggleTag, onReset: resetFilters, selectedContentType, onContentTypeChange: setSelectedContentType, canReset: activeFilterCount > 0 };
+  // Preserve card instances and avoid measuring the entire grid for unrelated
+  // chrome updates. The grid snapshots sidebar changes; ResizeObserver handles
+  // window resizing and late media without rerendering these cards.
+  const postCards = useMemo(() => filteredPosts.map(post => (
+    <PostCard key={post.id} post={post} view={view}
+      onOpen={trigger => { postOpenerRef.current = trigger; setSelectedPostId(post.id); }}
+      isAdmin={isAdmin} onToggleFavorite={() => void toggleFavorite(post)}
+      selection={isAdmin && selectionMode ? { checked: selectionIds.has(post.id), disabled: !selectionReady, onToggle: () => toggleSelection(post.id) } : undefined} />
+  )), [filteredPosts, view, isAdmin, toggleFavorite, selectionMode, selectionIds, selectionReady, toggleSelection]);
   const selectedCollectionName = initialCollections.find((collection) => collection.slug === selectedCollection)?.name ?? selectedCollection;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" ref={shellRef}>
       <header className="app-header">
         <Link className="brand" href="/" aria-label="Insta Post Explorer, accueil"><Brand compact /></Link>
         <label className="global-search">
@@ -407,7 +433,7 @@ export function LibraryExplorer({
             className="header-tab desktop-only"
             type="button"
             disabled={discovering || totalFiltered === 0}
-            onClick={() => void discoverPost()}
+            onClick={event => { postOpenerRef.current = event.currentTarget; void discoverPost(); }}
           >
             <Sparkles aria-hidden="true" className="size-4" /> {discovering ? "Recherche…" : "Découverte"}
           </button>
@@ -539,6 +565,7 @@ export function LibraryExplorer({
           <label className="compact-control collection-control"><span className="compact-control-label">Collection</span><select aria-label="Filtrer par collection" value={selectedCollection ?? ""} onChange={(event) => setSelectedCollection(event.target.value || null)}>
             <option value="">Toutes les collections</option>{initialCollections.map((collection) => <option key={collection.id} value={collection.slug}>{collection.name} ({collection.count})</option>)}
           </select></label>
+          <div className="ribbon-results">
           <strong className="results-count tabular-nums" aria-live="polite">
             {totalFiltered.toLocaleString("fr-FR")} <span>résultats</span>
           </strong>
@@ -555,12 +582,15 @@ export function LibraryExplorer({
             <button type="button" aria-label="Grille régulière" aria-pressed={view === "grid"} className={cn(view === "grid" && "is-active")} onClick={() => setView("grid")}><Grid2X2 aria-hidden="true" className="size-4" /></button>
             <button type="button" aria-label="Grille masonry" aria-pressed={view === "masonry"} className={cn(view === "masonry" && "is-active")} onClick={() => setView("masonry")}><LayoutGrid aria-hidden="true" className="size-4" /></button>
           </div>
+          </div>
         </div>
       </section>
 
       <main className={cn("library-layout", filtersVisible && "has-filters")}>
-        <MotionPresence present={filtersVisible}><aside className="desktop-filter-panel desktop-only"><FilterContent {...filterProps} />{isAdmin ? <CollectionManager initialCollections={initialCollections} /> : null}</aside></MotionPresence>
-        <section className={cn("library-content", isAdmin && selectionMode && "is-selecting")} aria-label="Publications sauvegardées" aria-live="polite" aria-busy={isFiltering}>
+        <div className="desktop-filter-slot" inert={!filtersVisible} aria-hidden={!filtersVisible || undefined}>
+          <aside className="desktop-filter-panel desktop-only"><FilterContent {...filterProps} />{isAdmin ? <CollectionManager initialCollections={initialCollections} /> : null}</aside>
+        </div>
+        <section className={cn("library-content", isAdmin && selectionMode && "is-selecting")} aria-label="Publications sauvegardées" aria-busy={isFiltering}>
           {isAdmin ? <div className="library-admin-tools">
             <button className="button" type="button" aria-label={selectionMode ? "Annuler la sélection" : "Sélectionner des publications"} aria-pressed={selectionMode}
               disabled={!selectionMode && (!selectionReady || !filteredPosts.length)}
@@ -585,8 +615,8 @@ export function LibraryExplorer({
             <div className="filter-loading" role="status"><span className="loading-spinner" aria-hidden="true" />Chargement des résultats…</div>
           ) : initialError ? <LibraryError message={initialError} /> : posts.length === 0 ? <EmptyLibrary onImport={isAdmin ? () => setImportOpen(true) : undefined} /> : filteredPosts.length === 0 ? <NoResults onReset={resetFilters} /> : (
             <>
-              <PostGrid view={view} count={filteredPosts.length}>
-                {filteredPosts.map((post) => <PostCard key={post.id} post={post} view={view} onOpen={() => setSelectedPostId(post.id)} isAdmin={isAdmin} onToggleFavorite={() => void toggleFavorite(post)} selection={isAdmin && selectionMode ? { checked: selectionIds.has(post.id), disabled: !selectionReady, onToggle: () => toggleSelection(post.id) } : undefined} />)}
+              <PostGrid view={view} count={filteredPosts.length} sidebarVisible={filtersVisible}>
+                {postCards}
               </PostGrid>
               {nextCursor ? (
                 <div className="load-more-row" ref={loadMoreRef}>
@@ -635,6 +665,7 @@ export function LibraryExplorer({
         </>
       ) : null}
       <PostDetailDialog
+        returnFocusRef={postOpenerRef}
         post={selectedPost}
         position={selectedIndex}
         total={totalFiltered}

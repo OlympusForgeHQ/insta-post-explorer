@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, Image, Images, Search, SlidersHorizontal, Trash2, Video, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { TagMode } from "@/features/library/types";
@@ -23,7 +23,7 @@ type FilterContentProps = {
   canReset?: boolean;
 };
 
-export function FilterContent({
+export const FilterContent = memo(function FilterContent({
   facets,
   selectedTags,
   tagMode,
@@ -99,7 +99,7 @@ export function FilterContent({
 
       <div className="filter-row">
         <span className="field-label">Trier les tags</span>
-        <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
+        <select aria-label="Trier les tags" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
           <option value="frequency">Fréquence</option>
           <option value="alphabetical">A–Z</option>
         </select>
@@ -125,13 +125,13 @@ export function FilterContent({
         {visibleFacets.length === 0 ? <p className="p-3 text-pretty text-sm text-muted">Aucun tag trouvé.</p> : null}
       </div>
 
-      <button className="button w-full" type="button" onClick={onReset} disabled={canReset ?? (selectedTags.length === 0 && selectedContentType === null)}>
+      <button className="button w-full" type="button" onClick={onReset} disabled={canReset !== undefined ? !canReset : selectedTags.length === 0 && selectedContentType === null}>
         <Trash2 aria-hidden="true" className="size-4" />
         Effacer les filtres
       </button>
     </div>
   );
-}
+});
 
 export function MobileFilterDrawer({ open, onOpenChange, mobileSecondaryControls, ...props }: FilterContentProps & {
   open: boolean;

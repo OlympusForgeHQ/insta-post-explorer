@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { ArrowUpRight, ExternalLink, Loader2, MapPin, X } from "lucide-react";
 import Link from "next/link";
 import { RichPostMedia } from "@/features/library/components/post-detail-dialog";
@@ -13,6 +13,7 @@ type Props = {
   postId: string | null;
   placeId?: string;
   onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onSelectPlace?: (placeId: string) => void;
 };
 
@@ -24,10 +25,11 @@ export function PlacesPostPreviewDialog(props: Props) {
   return <PreviewContent key={current.postId} {...current} postId={current.postId} open={Boolean(props.postId)} onExited={() => setRetained(props)} />;
 }
 
-function PreviewContent({ postId, placeId, onClose, onSelectPlace, open, onExited }: Omit<Props, "postId"> & { postId: string; open: boolean; onExited: () => void }) {
+function PreviewContent({ postId, placeId, onClose, onSelectPlace, returnFocusRef, open, onExited }: Omit<Props, "postId"> & { postId: string; open: boolean; onExited: () => void }) {
   const [post, setPost] = useState<LibraryPost | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const opener = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     void fetch(`/api/posts/${encodeURIComponent(postId)}`, { signal: controller.signal })
@@ -54,7 +56,16 @@ function PreviewContent({ postId, placeId, onClose, onSelectPlace, open, onExite
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay map-post-overlay" />
         <Dialog.Content className="map-post-dialog" aria-labelledby={undefined} aria-label={post ? `Publication de ${post.authorUsername}` : "Publication"}
-          onCloseAutoFocus={event => { event.preventDefault(); if (!open) onExited(); }}>
+          onOpenAutoFocus={() => { opener.current = returnFocusRef ? returnFocusRef.current : document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
+          onCloseAutoFocus={event => {
+            event.preventDefault();
+            if (!open) {
+              const target = opener.current?.isConnected && opener.current !== document.body
+                ? opener.current : placeId ? document.querySelector<HTMLElement>(`[data-map-preview-id="${CSS.escape(placeId)}"]`) : null;
+              (target ?? document.querySelector<HTMLElement>(".places-search input"))?.focus({ preventScroll: true });
+              onExited();
+            }
+          }}>
           <header className="map-post-header">
             <div>
               <span className="map-post-eyebrow"><MapPin size={13} aria-hidden="true" /> Découvert sur la carte</span>

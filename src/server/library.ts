@@ -1,4 +1,5 @@
 import "server-only";
+import { compactCaption } from "@/lib/compact-caption";
 import {CAPTION_TRANSLATION_VERSION} from "@/lib/classification/translation";
 import {currentCaptionTranslation} from "@/server/classification/translation-inputs";
 
@@ -62,7 +63,7 @@ export async function queryLibraryPosts(
       ...page,
       items: page.items.map((post) => ({
         ...post,
-        caption: post.caption.slice(0, 500),
+        caption: compactCaption(post.caption),
         metadata: {},
       })),
     };
@@ -571,7 +572,7 @@ function toLibraryPost(row: PostWithTags, compact: boolean): LibraryPost {
     mediaUrl: resolvedMedia[0]?.url ?? row.mediaUrl,
     media: resolvedMedia,
     authorUsername: row.authorUsername,
-    caption: compact ? row.caption.slice(0, 500) : row.caption,
+    caption: compact ? compactCaption(row.caption) : row.caption,
     captionTranslation: currentCaptionTranslation(row, row.classificationJobs ?? [], compact),
     tags: tags.sort((a, b) => a.localeCompare(b, "fr")),
     savedAt: row.savedAt?.toISOString() ?? null,
