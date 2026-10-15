@@ -8,8 +8,10 @@ learning. Existing owner-confirmed identity memory and manual safeguards remain.
 No historical backfill or schema migration. `PLACES_AUTO_ENABLED` defaults off.
 Already opted-in posts can finish queueing during a pause; claims remain paused.
 
-Release/activation status: implementation under verification; do not infer that
-production is activated. See [decision](decisions/2026-10-15-automatic-places-after-sync.md)
+Release/activation status: implemented and reviewed locally; production is NOT
+activated. App Webpack build, worker build, lint/types and 29 focused tests pass.
+PostgreSQL tests await an accessible test database. GitHub publication was denied
+by the session approval policy; production service controls are also unavailable. See [decision](decisions/2026-10-15-automatic-places-after-sync.md)
 and [consumer runbook](../services/worker/places-consumer/README.md). The new service
 uses the existing scoped Places API and Hermes inference, with no DB/R2 credentials.
 

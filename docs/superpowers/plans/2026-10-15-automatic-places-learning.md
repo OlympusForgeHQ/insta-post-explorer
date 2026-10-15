@@ -75,3 +75,22 @@ leave a tested reviewable release and precise activation blocker.
   PostgreSQL regression explicitly covers that transition.
 - Remaining gates: CI with PostgreSQL and normal process/network capability,
   production installation/flag activation and a real new-sync receipt.
+
+## Final local evidence and activation blocker
+
+- Application production build succeeds with `npm run build -- --webpack`; the
+  default Turbopack build still cannot bind its internal local port in this session.
+- Five focused app contract/API tests and 24 focused worker tests pass. ASR's four
+  pretests pass separately. PostgreSQL suites are present but skipped locally.
+- Isolated release import smoke checks cover Places analyzer/loop/pipeline and
+  classifier analyzer/runner. `systemd-analyze verify` accepts the rendered unit.
+- No remaining important/critical findings from independent code review.
+- Code commit: `02ff966` on `feat/automatic-places-learning`, based on develop
+  `d1ce646`. Production remains unchanged and automation defaults off.
+- GitHub `create_tree` publication was rejected: “MCP tool call requires approval,
+  but approval policy is never”. No branch or PR was published. Network/service
+  restrictions also prevent production activation here. Do not claim deployment.
+- Resume with an environment allowing publication/service administration: push the
+  local branch, run PostgreSQL CI, merge via develop/main under standing owner
+  authorization, install the prepared consumer, enable admission, and verify one
+  genuinely new sync through its Places receipt. Follow the runbook; no backfill.
