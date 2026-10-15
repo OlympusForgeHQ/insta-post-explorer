@@ -94,3 +94,15 @@ leave a tested reviewable release and precise activation blocker.
   local branch, run PostgreSQL CI, merge via develop/main under standing owner
   authorization, install the prepared consumer, enable admission, and verify one
   genuinely new sync through its Places receipt. Follow the runbook; no backfill.
+
+## Access restored — 15 October 2026
+
+The owner enabled full VPS/network access and renewed the instruction to deploy.
+A dedicated ephemeral PostgreSQL container was created; all migrations and all
+764 application tests pass. Lint and the default Turbopack production build pass.
+Existing Places API credentials match the live scoped key hash. The separate
+classification and Hermes services are healthy and their PIDs are recorded for
+preservation. Publishing and staging can now proceed with existing credentials.
+
+All 191 worker tests also pass with PostgreSQL, plus 4 ASR pretests. Both
+consumer release packages and the systemd template passed their smoke checks.
