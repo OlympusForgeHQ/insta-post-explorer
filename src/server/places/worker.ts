@@ -18,6 +18,8 @@ import {PLACE_CONTEXT_RULES,RESOLUTION_POLICY_VERSION} from '@/lib/places/resolu
 import {foldForSearch} from '@/lib/import/normalize';
 import {isSupportedRecovery} from '@/lib/places/recovery';
 import {assertPostAllowsPlaceAnalysis, hasOwnerNoPlaceConfirmation, OWNER_NO_PLACE_REVIEW} from './post-exclusion';
+import {automaticPlacesEnabled} from './automation';
+import {loadPlacesLearning,placesJobMetadata,recordPlacesOutcome} from './learning';
 
 type Dependencies={resolver?:PlaceResolver;signMedia?:MediaSigner};
 type Lease={jobId:string;leaseToken:string};
@@ -127,14 +129,15 @@ export async function enqueuePlacesPosts(ownerId:string,options:{postId?:string;
   }
   return {queued,nextCursor:!options.postId&&posts.length===100?posts.at(-1)!.id:null};
 }
-export async function claimPlacesJob(ownerId:string,options:{postId?:string},deps:Dependencies={}){
+export async function claimPlacesJob(ownerId:string,options:{postId?:string;scope?:'automatic';learning?:boolean},deps:Dependencies={}){
+  if(options.scope==='automatic'&&!automaticPlacesEnabled())return null;
   return prisma.$transaction(async tx=>{
     // Serialize admission for this owner, including concurrent API requests.
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`places-worker:${ownerId}`},0))::text`;
     const now=new Date();
     if(await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,status:'PROCESSING',leaseExpiresAt:{gt:now}}}))return null;
     for(let scan=0;scan<100;scan++){
-      const job=await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,...(options.postId?{postId:options.postId}:{}),OR:[{status:'PENDING',OR:[{nextAttemptAt:null},{nextAttemptAt:{lte:now}}]},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},orderBy:[{priority:'desc'},{createdAt:'asc'},{id:'asc'}]});
+      const job=await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,...(options.scope==='automatic'?{result:{path:['automation','source'],equals:'sync'}}:{}),...(options.postId?{postId:options.postId}:{}),OR:[{status:'PENDING',OR:[{nextAttemptAt:null},{nextAttemptAt:{lte:now}}]},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},orderBy:[{priority:'desc'},{createdAt:'asc'},{id:'asc'}]});
       if(!job)return null;
       await tx.$queryRaw`SELECT id FROM posts WHERE id=${job.postId} AND owner_id=${ownerId} FOR UPDATE`;
       // Re-read after the post lock: a review may have cancelled this candidate
@@ -147,7 +150,7 @@ export async function claimPlacesJob(ownerId:string,options:{postId?:string},dep
         await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId},data:{status:'CANCELLED',stage:'COMPLETE',errorCode:OWNER_NO_PLACE_REVIEW,errorMessage:null,completedAt:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,nextAttemptAt:null}});
         continue;
       }
-      if(currentJob.attemptCount>=3){
+      if(currentJob.attemptCount>=currentJob.maxAttempts){
         await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId},data:{status:'FAILED',stage:'COMPLETE',errorCode:'ATTEMPTS_EXHAUSTED',completedAt:now,leaseOwner:null,leaseExpiresAt:null}});
         continue;
       }
@@ -161,9 +164,10 @@ export async function claimPlacesJob(ownerId:string,options:{postId?:string},dep
         await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId},data:{status:code==='PLACES_MEDIA_UNAVAILABLE'?'FAILED':'CANCELLED',stage:'COMPLETE',errorCode:code,completedAt:now,leaseOwner:null,leaseExpiresAt:null}});
         continue;
       }
+      const learning=options.learning?await loadPlacesLearning(tx,ownerId,currentJob,prepared.input.caption,prepared.media):undefined;
       const leaseToken=randomUUID();
-      await tx.placeAnalysisJob.update({where:{id:job.id},data:{status:'PROCESSING',stage:'EXTRACTING',leaseOwner:leaseToken,leaseExpiresAt:new Date(now.getTime()+PLACES_WORKER_LEASE_MS),heartbeatAt:now,claimedAt:now,startedAt:job.startedAt??now,attemptCount:{increment:1},nextAttemptAt:null,errorCode:null,errorMessage:null}});
-      return {jobId:job.id,leaseToken,heartbeatIntervalMs:30_000,...prepared};
+      await tx.placeAnalysisJob.update({where:{id:job.id},data:{result:{...placesJobMetadata(currentJob.result),learningClaim:learning?{shape:learning.shape,context:learning.context}:null},status:'PROCESSING',stage:'EXTRACTING',leaseOwner:leaseToken,leaseExpiresAt:new Date(now.getTime()+PLACES_WORKER_LEASE_MS),heartbeatAt:now,claimedAt:now,startedAt:job.startedAt??now,attemptCount:{increment:1},nextAttemptAt:null,errorCode:null,errorMessage:null}});
+      return {jobId:job.id,leaseToken,heartbeatIntervalMs:30_000,...prepared,...(learning?{learningContext:learning.context}:{})};
     }
     return null;
   },{timeout:30_000});
@@ -261,14 +265,21 @@ export async function completePlacesJob(ownerId:string,options:Lease&{result:unk
     const receipt=await persistMetadataAnalysis(tx,{ownerId,postId:job.postId,jobId:job.id,plans});
     const saved=await tx.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id},select:{result:true}});
     const decisions=saved.result && typeof saved.result==='object' && !Array.isArray(saved.result)?saved.result:{};
-    await tx.placeAnalysisJob.update({where:{id:job.id},data:{leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,result:{...decisions,...receipt,model:result.model,usage:result.usage,elapsedMs:result.elapsedMs,media:result.media,completion:{requestHash,leaseHash,receipt}} as Prisma.InputJsonValue}});
+    await tx.placeAnalysisJob.update({where:{id:job.id},data:{leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,result:{...recordPlacesOutcome({...placesJobMetadata(locked!.result),...decisions},{attempt:locked!.attemptCount,status:receipt.status==='SUCCEEDED'?'SUCCEEDED':'NEEDS_REVIEW'}),...receipt,model:result.model,usage:result.usage,elapsedMs:result.elapsedMs,media:result.media,completion:{requestHash,leaseHash,receipt}} as Prisma.InputJsonValue}});
     return receipt;
   },{timeout:30_000});
 }
 export async function failPlacesJob(ownerId:string,options:Lease&{code:string}){
-  const job=await loadLease(ownerId,options),now=new Date();
-  const retryable=['MEDIA_UNAVAILABLE','INFERENCE_FAILED','WORKER_STOPPING','WORKER_TIMEOUT'].includes(options.code)&&job.attemptCount<3;
-  const updated=await prisma.placeAnalysisJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:options.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',stage:retryable?'QUEUED':'COMPLETE',errorCode:options.code,errorMessage:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,nextAttemptAt:retryable?new Date(now.getTime()+60_000*job.attemptCount):null,completedAt:retryable?null:now}});
-  if(updated.count!==1)throw Error('PLACES_LEASE_LOST');
-  return {ok:true,retryable};
+  return prisma.$transaction(async tx=>{
+    // Serialize outcome writes with completion. Only the live lease may teach.
+    await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${options.jobId} AND owner_id=${ownerId} FOR UPDATE`;
+    const job=await loadLease(ownerId,options,tx),now=new Date();
+    const metadata=placesJobMetadata(job.result);
+    const adaptive=Boolean(metadata.learningClaim)||(metadata.automation as {source?:string}|undefined)?.source==='sync';
+    const retryable=(['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','WORKER_STOPPING','WORKER_TIMEOUT'].includes(options.code)||(adaptive&&['INVALID_RESULT','PLACES_EVIDENCE_INVALID'].includes(options.code)))&&job.attemptCount<job.maxAttempts;
+    await setAuditAction(tx,'places.worker.fail');
+    const updated=await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:options.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',stage:retryable?'QUEUED':'COMPLETE',errorCode:options.code,errorMessage:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,result:recordPlacesOutcome(job.result,{attempt:job.attemptCount,status:'FAILED',code:options.code})}});
+    if(updated.count!==1)throw Error('PLACES_LEASE_LOST');
+    return {ok:true,retryable};
+  });
 }

@@ -287,6 +287,28 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    expect(job.result).toMatchObject({resolutionPolicy:'provider-context-v4',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
  });
 
+ it('learns only from fenced failures, backs off, and retains the recovery outcome and sync provenance',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const pending=await db.placeAnalysisJob.findFirstOrThrow({where:{ownerId:owner}});
+   await db.placeAnalysisJob.update({where:{id:pending.id},data:{result:{automation:{version:1,source:'sync',syncJobId:'test-sync'}}}});
+   const claim=(await service.claimPlacesJob(owner,{learning:true},dependencies))!;
+   expect(claim.learningContext?.strategy).toBe('standard');
+   const wrong={jobId:claim.jobId,leaseToken:'00000000-0000-4000-8000-000000000000',code:'INVALID_RESULT'};
+   await expect(service.failPlacesJob(owner,wrong)).rejects.toThrow('PLACES_LEASE_LOST');
+   await expect(service.failPlacesJob(other,{...wrong,leaseToken:claim.leaseToken})).rejects.toThrow('PLACES_JOB_NOT_FOUND');
+   expect(await service.failPlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,code:'PLACES_EVIDENCE_INVALID'})).toEqual({ok:true,retryable:true});
+   const failed=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+   expect(failed).toMatchObject({status:'PENDING',attemptCount:1,result:{learning:{outcomes:[{code:'PLACES_EVIDENCE_INVALID',attempt:1,status:'FAILED'}]}}});
+   expect(failed.nextAttemptAt!.getTime()).toBeGreaterThan(Date.now()+50_000);
+   expect(await service.claimPlacesJob(owner,{learning:true},dependencies)).toBeNull();
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{nextAttemptAt:new Date(0)}});
+   const retry=(await service.claimPlacesJob(owner,{learning:true},dependencies))!;
+   expect(retry.learningContext?.strategy).toBe('evidence_guidance');
+   await expect(service.failPlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,code:'INVALID_RESULT'})).rejects.toThrow('PLACES_LEASE_LOST');
+   await service.completePlacesJob(owner,{jobId:retry.jobId,leaseToken:retry.leaseToken,result},dependencies);
+   const saved=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+   expect(saved.result).toMatchObject({automation:{source:'sync'},decisions:[{precision:'EXACT'}],learning:{outcomes:[{status:'FAILED'},{attempt:2,status:'SUCCEEDED',strategy:'evidence_guidance'}]}});
+ });
  it('retries only the explicitly identified failed unchanged job within its original attempt budget',async()=>{
    await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
    const claim=(await service.claimPlacesJob(owner,{postId:'worker-post'},dependencies))!;

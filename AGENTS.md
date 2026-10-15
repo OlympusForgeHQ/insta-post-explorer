@@ -46,6 +46,13 @@ Conséquences :
 
 ## 3. Architecture imposée
 
+Décision du propriétaire du 15 octobre 2026 : un consumer Places indépendant
+peut traiter automatiquement les nouveaux posts synchronisés après leur
+classification, via la file et l'API Places existantes. L'activation est contrôlée
+par `PLACES_AUTO_ENABLED`. Voir
+`docs/decisions/2026-10-15-automatic-places-after-sync.md`. Aucun réexamen global
+ni accès direct du consumer à PostgreSQL/R2 n'est autorisé par cette activation.
+
 Décision du propriétaire du 5 octobre 2026 : un consumer de classification
 indépendant est appelé par la synchronisation pour les nouveaux posts. Voir
 `docs/decisions/2026-10-05-independent-classification-worker.md`. Cette exception
@@ -78,8 +85,9 @@ plusieurs domaines et handlers internes
 - `insta-explorer-places.service` exécute Hermes avec son état, ses secrets et ses
   limites de ressources propres ; son API est privée et locale.
 - Le runtime Places est configuré. Le client multimodal de `services/worker/src/places`
-  consomme les jobs via `/api/v1/places/worker` sur invocation explicite ; aucune
-  planification ni analyse globale n'est activée par un déploiement.
+  consomme les jobs via `/api/v1/places/worker` sur invocation explicite ou via le
+  consumer automatique réservé aux nouveaux imports optés en synchro. Aucune
+  analyse globale n'est activée par un déploiement.
 - Les catégories Places sont exclusivement restaurant, cafe, patisserie, voyage,
   divers (critères du propriétaire). Geoapify vérifie les lieux et coordonnées,
   jamais leur classification. Le pilote mesuré reste la gate de généralisation.
