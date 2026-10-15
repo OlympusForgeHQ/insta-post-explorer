@@ -1,17 +1,17 @@
 "use client";
 
-import { Component, createRef, type CSSProperties, type ReactNode } from "react";
+import { PureComponent, createRef, type CSSProperties, type ReactNode } from "react";
 import type { ViewMode } from "@/features/library/types";
 import { cssDurationMs } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
-type Props = { children: ReactNode; view: ViewMode; count: number };
+type Props = { children: ReactNode; view: ViewMode; count: number; sidebarVisible?: boolean };
 type Box = { x: number; y: number; width: number; height: number; mediaHeight: number };
-type Snapshot = { height: number; cards: Map<HTMLElement, Box> };
+type Snapshot = { height: number; x: number; y: number; cards: Map<HTMLElement, Box> };
 
 // getSnapshotBeforeUpdate reads the visible geometry BEFORE React changes media
 // ratios/classes. This also captures an interrupted animation's current frame.
-export class PostGrid extends Component<Props, Record<string, never>, Snapshot | null> {
+export class PostGrid extends PureComponent<Props, Record<string, never>, Snapshot | null> {
   private root = createRef<HTMLDivElement>();
   private observer: ResizeObserver | null = null;
   private reduced: MediaQueryList | null = null;
@@ -72,7 +72,7 @@ export class PostGrid extends Component<Props, Record<string, never>, Snapshot |
     const grid = this.root.current;
     if (!grid) return null;
     const origin = grid.getBoundingClientRect();
-    return { height: origin.height, cards: new Map(Array.from(grid.children, element => {
+    return { height: origin.height, x: origin.left + scrollX, y: origin.top + scrollY, cards: new Map(Array.from(grid.children, element => {
       const card = element as HTMLElement, rect = card.getBoundingClientRect();
       return [card, { x: rect.left - origin.left, y: rect.top - origin.top, width: rect.width,
         height: rect.height, mediaHeight: card.querySelector(".post-media")?.getBoundingClientRect().height ?? 0 }];
@@ -140,7 +140,8 @@ export class PostGrid extends Component<Props, Record<string, never>, Snapshot |
     };
     if (animate) {
       for (const [card, next] of after.cards) {
-        const old = before?.cards.get(card);
+        const previous = before?.cards.get(card);
+        const old = previous && before ? { ...previous, x: previous.x + before.x - after.x, y: previous.y + before.y - after.y } : undefined;
         const nearby = (box: Box) => origin.top + box.y < innerHeight + 100 && origin.top + box.y + box.height > -100;
         if (!nearby(next) && (!old || !nearby(old))) continue;
         if (!old) {
@@ -171,7 +172,7 @@ export class PostGrid extends Component<Props, Record<string, never>, Snapshot |
       void Promise.allSettled(this.animations.map(animation => animation.finished)).then(() => {
         if (generation !== this.generation) return;
         this.animations = [];
-        this.schedule(true);
+        this.schedule();
       });
     }
   }

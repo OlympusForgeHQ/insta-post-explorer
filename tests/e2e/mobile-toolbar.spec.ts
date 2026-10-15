@@ -162,7 +162,7 @@ test.describe("retour visuel des filtres sur mobile", () => {
   });
 });
 
-test("préserve la structure du ruban desktop à 1280px", async ({ page }) => {
+test("garde les commandes desktop visibles et regroupées à 1280px", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openLibrary(page);
 
@@ -173,8 +173,15 @@ test("préserve la structure du ruban desktop à 1280px", async ({ page }) => {
   await expect(page.locator(".ribbon-end .author-control")).toBeVisible();
   await expect(page.locator(".ribbon-end .year-control")).toBeVisible();
   await expect(page.locator(".ribbon-end .collection-control")).toBeVisible();
-  await expect(page.locator(".control-ribbon")).toHaveCSS("display", "flex");
-  await expect(page.locator(".ribbon-end")).toHaveCSS("display", "flex");
+  // Verify the intended visual grouping rather than requiring the old flex
+  // implementation: secondary controls now occupy their own readable row.
+  const themes = (await page.locator(".main-theme-filters").boundingBox())!;
+  const controls = (await page.locator(".ribbon-end").boundingBox())!;
+  expect(controls.y).toBeGreaterThanOrEqual(themes.y + themes.height);
+  const sort = (await page.locator('.ribbon-end [aria-label="Trier les résultats"]').boundingBox())!;
+  const view = (await page.locator(".ribbon-end .view-switch").boundingBox())!;
+  expect(view.x).toBeGreaterThanOrEqual(sort.x + sort.width);
+  expect(Math.abs(view.y + view.height / 2 - sort.y - sort.height / 2)).toBeLessThan(2);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 

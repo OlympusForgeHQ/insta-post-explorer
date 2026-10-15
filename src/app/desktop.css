@@ -1,0 +1,74 @@
+/* Calm desktop chrome; photographs keep the visual emphasis. The measured
+   sticky offsets adapt to wrapped controls and enlarged text. */
+.ribbon-results { display: contents; }
+@media (min-width: 921px) {
+  .app-shell .app-header { min-height: 4.25rem; flex-wrap: wrap; gap: 1.25rem; padding-inline: 1.5rem; }
+  .app-shell .global-search { flex: 1; width: auto; min-width: 12rem; max-width: 32rem; }
+  .app-shell :is(.global-search, .input-shell, select, .button:not(.button-primary), .icon-button, .header-tab) {
+    border: 1px solid var(--line); border-radius: .75rem; background: var(--surface); box-shadow: none;
+  }
+  .app-shell :is(.global-search, .input-shell):focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .app-shell :is(.button, .icon-button, .header-tab, select) { min-height: 2.75rem; font-size: .8125rem; }
+  .app-shell .header-actions { gap: .5rem; }
+  .app-shell .header-tab { background: transparent; border-color: transparent; }
+  .app-shell .header-tab:hover { background: var(--surface-subtle); }
+  .app-shell .control-ribbon {
+    top: var(--library-header-height, 68px); display: grid; grid-template-columns: auto minmax(0, 1fr);
+    gap: .75rem 1rem; padding: .75rem 1.5rem; background: var(--background);
+  }
+  .app-shell .main-theme-filters { gap: .5rem; }
+  .app-shell .main-theme-filters button { min-height: 2.25rem; border-radius: 999px; padding-inline: .875rem; border-color: transparent; background: transparent; }
+  .app-shell .main-theme-filters button:hover { background: var(--surface-subtle); }
+  .app-shell .main-theme-filters button.is-active { color: var(--accent); background: var(--accent-soft); }
+  .app-shell .active-tags { grid-column: 1 / -1; }
+  .app-shell .active-tags:empty { display: none; }
+  .app-shell .ribbon-end { grid-column: 1 / -1; margin: 0; width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: .5rem; }
+  .app-shell .ribbon-end .results-count { margin-left: auto; color: var(--text); }
+  .app-shell .ribbon-results { display: flex; flex-wrap: wrap; max-width: 100%; align-items: center; gap: .5rem; margin-left: auto; }
+  .app-shell .loaded-count { margin-right: .5rem; }
+  .app-shell .view-switch { border-color: var(--line); border-radius: .75rem; background: var(--surface-subtle); }
+  .app-shell .view-switch button { min-height: 2.5rem; min-width: 2.75rem; }
+  .app-shell .library-layout { position: relative; gap: 1.25rem; padding: 1rem 1.5rem 2.25rem; }
+  .app-shell .library-layout.has-filters { grid-template-columns: 17rem minmax(0, 1fr); }
+  .desktop-filter-slot { min-width: 0; }
+  .library-layout:not(.has-filters) .desktop-filter-slot { position: absolute; inset: 1rem auto 2.25rem 1.5rem; width: 17rem; pointer-events: none; }
+  .app-shell .desktop-filter-panel {
+    top: var(--library-chrome-height, 200px); max-height: calc(100dvh - var(--library-chrome-height, 200px) - 16px);
+    border-color: color-mix(in srgb, var(--line) 70%, transparent); border-radius: 1rem;
+    opacity: 1; translate: 0; animation: none;
+    transition: opacity var(--motion-fast) ease, translate var(--motion-content) var(--motion-arrive), visibility var(--motion-fast);
+  }
+  .library-layout:not(.has-filters) .desktop-filter-panel { opacity: 0; translate: -16px 0; visibility: hidden; }
+  .app-shell .posts-grid { gap: 1rem; }
+  .app-shell .post-card { border-radius: 1rem; contain: layout style; }
+  .app-shell .post-card-copy { padding: .875rem; }
+  .app-shell .filter-heading { padding-bottom: .5rem; }
+  .app-shell .filter-content { gap: 1rem; }
+  body .detail-dialog, body .map-post-dialog, body .stats-dialog, body .import-dialog {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 1.5rem;
+    box-shadow: 0 24px 80px rgb(10 12 20 / .22);
+  }
+  .detail-dialog .detail-header, .detail-dialog .detail-footer { padding: 1rem 1.25rem; }
+  .detail-dialog .detail-scroll { padding: 1.25rem; }
+  .detail-dialog .detail-caption { font-size: .9375rem; line-height: 1.55; }
+  .detail-dialog[data-state="open"], .map-post-dialog[data-state="open"] { animation-name: desktop-modal-in; }
+  .detail-dialog[data-state="closed"], .map-post-dialog[data-state="closed"] { animation-name: desktop-modal-out; }
+}
+@media (min-width: 921px) and (max-width: 1100px) {
+  .app-shell .app-header { gap: .75rem; }
+  .app-shell .brand-name { font-size: 1.125rem; }
+  .app-shell .global-search { min-width: 10rem; }
+  .app-shell .global-search kbd { display: none; }
+  .app-shell .header-actions { gap: .375rem; }
+}
+@media (max-width: 920px) { .desktop-filter-slot { display: none; } }
+@keyframes desktop-modal-in { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes desktop-modal-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.985); } }
+@media (prefers-reduced-transparency: reduce) {
+  body .app-header, body .dialog-overlay, body .places-topbar, body .places-summary { backdrop-filter: none; }
+  .app-shell .app-header { background: var(--background); }
+}
+@media (prefers-contrast: more) {
+  body .app-shell :is(.post-card, .desktop-filter-panel, .global-search, .button), body .detail-dialog, body .map-post-dialog { border: 1px solid var(--text); }
+  .app-shell .app-header { background: var(--background); backdrop-filter: none; }
+}

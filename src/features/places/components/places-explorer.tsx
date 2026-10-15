@@ -79,6 +79,7 @@ export function PlacesExplorer({
   const [filters, setFilters] = useState<PlacesFilters>({ ...EMPTY_FILTERS, ...initialState });
   const [selectedId, setSelectedId] = useState<string | null>(initialState.placeId);
   const [postPreview, setPostPreview] = useState<{ placeId: string; postId: string } | null>(null);
+  const postOpenerRef = useRef<HTMLElement | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
@@ -194,18 +195,15 @@ export function PlacesExplorer({
     setHover(place && point ? { place, x: point.x, y: point.y } : null);
   }, []);
 
-  const handleOpenPost = useCallback((placeId: string, postId: string) => {
+  const handleOpenPost = useCallback((placeId: string, postId: string, trigger?: HTMLElement) => {
+    postOpenerRef.current = trigger ?? null;
     setSelectedId(null);
     setHover(null);
     setPostPreview({ placeId, postId });
   }, []);
 
   const closePostPreview = () => {
-    const placeId = postPreview?.placeId;
     setPostPreview(null);
-    requestAnimationFrame(() => {
-      if (placeId) document.querySelector<HTMLButtonElement>(`[data-map-preview-id="${CSS.escape(placeId)}"]`)?.focus({ preventScroll: true });
-    });
   };
 
   const toggleFilters = useCallback(() => {
@@ -503,7 +501,7 @@ export function PlacesExplorer({
 
         </MotionPresence>
 
-        {previewMounted ? <PlacesPostPreviewDialog postId={postPreview?.postId ?? null} placeId={postPreview?.placeId} onClose={closePostPreview} onSelectPlace={placeId => {
+        {previewMounted ? <PlacesPostPreviewDialog returnFocusRef={postOpenerRef} postId={postPreview?.postId ?? null} placeId={postPreview?.placeId} onClose={closePostPreview} onSelectPlace={placeId => {
           setPostPreview(null);
           setFilters({ ...EMPTY_FILTERS });
           handleSelect(placeId);

@@ -270,7 +270,13 @@ test.describe("bibliotheque Mosaïque", () => {
 
   test("récupère les proportions Pinterest des images chargées avant hydratation", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    const sources = await page.locator('.post-media img').evaluateAll(nodes => nodes.slice(0, 6).map(n => (n as HTMLImageElement).src));
+    // A failed poster may already have been replaced by BrokenImage. Obtain
+    // deterministic sources from the API rather than surviving image nodes.
+    const payload = await (await page.request.get('/api/posts?limit=30')).json();
+    const byId = new Map<string, string>(payload.items.map((post: {id: string; thumbnailUrl: string; mediaUrl: string}) => [post.id, post.thumbnailUrl || post.mediaUrl]));
+    const ids = await page.locator('[data-post-id]').evaluateAll(nodes => nodes.slice(0, 6).map(node => node.getAttribute('data-post-id')!));
+    const sources = ids.map(id => byId.get(id)!);
+    expect(sources).toHaveLength(6);
     const heights = [400, 720, 540, 800, 480, 600];
     let release!: () => void;
     const hydration = new Promise<void>(resolve => { release = resolve; });
@@ -329,7 +335,8 @@ test.describe("bibliotheque Mosaïque", () => {
     await expect.poll(checkColumns).toBe(true);
   });
 
-  for (const width of [390, 1140]) test(`anime la géométrie, les interruptions et les images tardives à ${width}px`, async ({ page }) => {
+  // 1160px straddles the three/four-column breakpoint with the desktop gutters.
+  for (const width of [390, 1160]) test(`anime la géométrie, les interruptions et les images tardives à ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 700 });
     const payload = await (await page.request.get('/api/posts?limit=1')).json();
     const items = [600, 480, 700, 520, 600, 500].map((height, index) => ({ ...payload.items[0], id: `motion-${index}`, thumbnailUrl: 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="${height}"><rect width="400" height="${height}" fill="#7c3aed"/></svg>`), media: [] }));

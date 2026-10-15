@@ -48,6 +48,18 @@ afterEach(() => {
 });
 
 describe("LibraryExplorer server search results", () => {
+  it("keeps an already active media filter idle and enables reset only for active filters", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [], nextCursor: null, totalFiltered: 0, totalLibrary: 20 })));
+    const { container } = render(explorer([post("photo")], { ...initialState, contentType: "image" }));
+    fireEvent.click(screen.getByRole("button", { name: "Photo" }));
+    expect(screen.getByRole("region", { name: "Publications sauvegardées" })).toHaveAttribute("aria-busy", "false");
+    const reset = container.querySelector<HTMLButtonElement>(".filter-content > button")!;
+    expect(reset).toBeEnabled();
+    fireEvent.click(reset);
+    await waitFor(() => expect(reset).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Tous" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it.each([
     { query: "restaurant", sort: "newest" as const, caption: "Une belle découverte" },
     { query: "  restaurant  ", sort: "newest" as const, caption: "Mon restaurant préféré" },

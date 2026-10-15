@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { PlacesRendererProps } from "@/features/places/renderer-contract";
@@ -52,16 +52,18 @@ export function PlacesMapPreviews({ map, places, selectedId, onSelect, onOpenPos
           key={`${place.id}:${place.previewThumbnailUrl}`}
           type="button"
           className={`places-map-preview is-${place.precision.toLowerCase()}${place.id === selectedId ? " is-selected" : ""}`}
-          style={{ left: x, top: y }}
+          style={{ left: x, top: y,
+            "--preview-shift-x": `${Math.max(76 - x, Math.min(0, map.getContainer().clientWidth - 76 - x))}px`,
+            "--preview-shift-y": `${Math.max(0, 160 - y)}px`,
+          } as CSSProperties}
           data-map-preview-id={place.id}
           data-post-id={place.previewPostId ?? undefined}
           aria-label={`Ouvrir le post de ${place.displayName}${place.postCount > 1 ? ` · ${place.postCount} posts associés` : ""}`}
-          title={place.displayName}
           onPointerEnter={() => onHover(null, null)}
           onClick={event => {
             event.stopPropagation();
             onHover(null, null);
-            if (onOpenPost && place.previewPostId) onOpenPost(place.id, place.previewPostId);
+            if (onOpenPost && place.previewPostId) onOpenPost(place.id, place.previewPostId, event.currentTarget);
             else onSelect(place.id);
           }}
         >
@@ -74,6 +76,7 @@ export function PlacesMapPreviews({ map, places, selectedId, onSelect, onOpenPos
               map.triggerRepaint();
             }}
           />
+          <span className="places-map-preview-name" aria-hidden="true">{place.displayName}</span>
           {place.postCount > 1 ? <span className="places-map-preview-count" aria-hidden="true">+{place.postCount - 1}</span> : null}
         </button>
       ))}
