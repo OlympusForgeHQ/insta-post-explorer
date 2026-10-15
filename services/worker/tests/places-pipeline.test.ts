@@ -68,3 +68,13 @@ it('preserves definitive evidence rejection codes without a transport retry',asy
   expect(calls).toBe(1);
  }
 });
+
+it('restricts the automatic runner to sync jobs and preserves evidence failure causes',async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'places-auto-test-'));roots.push(root);
+ const commands:Record<string,unknown>[]=[];
+ const api={async call(c:Record<string,unknown>){commands.push(c);return c.action==='claim'?{jobId:'auto',leaseToken:'lease',input:{post_id:'post',input_hash:'hash'},media:[],outputSchema,categoryRules:'rules'}:{ok:true};}};
+ await runPlacesPipeline({limit:1,commit:true,scope:'automatic',learning:true,signal:new AbortController().signal},{api,workdirs:createTempWorkdirManager({root,maxAgeMs:21_600_000}),analyze:async()=>{throw Error('PLACES_EVIDENCE_INVALID');}});
+ expect(commands[0]).toEqual({action:'claim',scope:'automatic',learning:true});
+ expect(commands.find(c=>c.action==='fail')?.code).toBe('PLACES_EVIDENCE_INVALID');
+ expect(await readdir(root)).toEqual([]);
+});

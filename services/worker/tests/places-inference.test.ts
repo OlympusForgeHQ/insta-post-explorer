@@ -90,3 +90,12 @@ it.each(['capacity','over_capacity','length'] as const)('fails an itinerary limi
  await expect(new HermesPlacesInference('http://hermes.test/v1','private',request).analyze({...prepared,outputSchema:schema},'fusion',{},[],new AbortController().signal)).rejects.toThrow('INVALID_RESULT');
  expect(request).toHaveBeenCalledTimes(1);
 });
+
+it('applies bounded learned guidance while preserving source validation and recognizes a busy provider',async()=>{
+ const request=vi.fn<typeof fetch>(async()=>reply(valid));
+ await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze({...prepared,learningContext:{version:1,strategy:'evidence_guidance',recent:{examined:2,formatFailures:0,evidenceFailures:2,successes:0}}},'caption',prepared.input,[],new AbortController().signal);
+ expect(JSON.parse(request.mock.calls[0][1]!.body as string).messages[0].content).toContain('Previous comparable analyses failed evidence validation');
+ const busy=vi.fn<typeof fetch>(async()=>new Response(null,{status:429}));
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',busy).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toThrow('INFERENCE_BUSY');
+ expect(busy).toHaveBeenCalledTimes(1);
+});

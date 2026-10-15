@@ -1,5 +1,18 @@
 # Operational Handoff
 
+## Automatic Places after sync — 15 October 2026
+
+Implementation adds durable admission for new sync imports after successful
+classification, a serial automatic-only Places consumer and bounded failure
+learning. Existing owner-confirmed identity memory and manual safeguards remain.
+No historical backfill or schema migration. `PLACES_AUTO_ENABLED` defaults off.
+Already opted-in posts can finish queueing during a pause; claims remain paused.
+
+Release/activation status: implementation under verification; do not infer that
+production is activated. See [decision](decisions/2026-10-15-automatic-places-after-sync.md)
+and [consumer runbook](../services/worker/places-consumer/README.md). The new service
+uses the existing scoped Places API and Hermes inference, with no DB/R2 credentials.
+
 ## Pinterest proportions after early image loading — 14 October 2026
 
 Cards now recover natural image dimensions on DOM attachment when loading finished

@@ -10,6 +10,7 @@ import {loadWorkerMedia,type MediaSigner,type WorkerMedia} from '@/server/places
 import {foldForSearch,tagSlug} from '@/lib/import/normalize';
 import {lockPostWrites} from '@/server/post-deletions';
 import {setAuditAction} from '@/server/audit-log';
+import {enqueueAutomaticPlaces} from '@/server/places/automation';
 type Lease={jobId:string;leaseToken:string};
 type Dependencies={signMedia?:MediaSigner;learning?:boolean};
 export async function enqueueClassification(ownerId:string,postId:string,tx:Prisma.TransactionClient){
@@ -77,6 +78,7 @@ export async function completeClassification(ownerId:string,command:Lease&{resul
    const tags=await tx.postTag.findMany({where:{postId:job.postId},include:{tag:true}});
    const metadata=state.post.metadata&&typeof state.post.metadata==='object'&&!Array.isArray(state.post.metadata)?state.post.metadata:{};
    await tx.post.update({where:{id:job.postId},data:{mainTheme,searchText:foldForSearch([state.post.authorUsername,state.post.caption,mainTheme??'',...tags.map(t=>t.tag.name)].join(' ')),metadata:{...metadata,classification:{version:CLASSIFICATION_VERSION,jobId:job.id,model:result.model}} as Prisma.InputJsonValue}});
+   await enqueueAutomaticPlaces(tx,ownerId,job.postId);
   }
   const receipt={postId:job.sourcePostId,status:result.status};
   await tx.postClassificationJob.update({where:{id:job.id},data:{status:result.status,completedAt:new Date(),leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,errorCode:null,result:{...result,completion:{requestHash,leaseHash,receipt}} as Prisma.InputJsonValue}});
