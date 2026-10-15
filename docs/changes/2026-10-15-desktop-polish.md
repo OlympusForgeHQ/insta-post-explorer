@@ -84,8 +84,9 @@ the implementing agent; Iris did not independently inspect the final screenshots
 | DESK-4 | Light/dark screenshots, 360px mobile, 921/940/1024/1440px desktop, 100%/200% text with no horizontal overflow; computed reduced-transparency overlay blur `none` and high-contrast border equal to text. |
 
 Fresh checks: lint, typecheck and production build pass; 770 application tests pass
-with disposable PostgreSQL (101 files). All 27 library/desktop browser scenarios
-pass, plus two desktop map scenarios and the distinct touch scenario. No worker,
+with disposable PostgreSQL (101 files). All 38 generic browser scenarios pass (one intentionally skipped duplicate),
+including the 27 library/desktop scenarios, plus two desktop map scenarios and
+the distinct touch scenario. No worker,
 production data, schema, dependency or synchronization configuration is changed.
 
 New test files protect specific risks:
@@ -98,7 +99,9 @@ New test files protect specific risks:
 Existing motion tests retain their assertions. The desktop fixture moved from
 1140px to 1160px to continue crossing the three/four-column breakpoint after the
 new gutters. Pre-hydration image fixtures now take source URLs from the API because
-failed images are correctly replaced before a hydrated DOM snapshot is taken.
+failed images are correctly replaced before a hydrated DOM snapshot is taken. The desktop toolbar regression checks
+visible controls and row/alignment geometry instead of requiring the previous
+CSS flex implementation.
 
 ### Performance evidence and limits
 
