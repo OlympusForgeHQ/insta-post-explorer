@@ -23,3 +23,13 @@ it('accepts full video coverage and late evidence up to fifteen minutes, rejecti
  expect(workerResultSchema.safeParse({...result,media:[{...result.media[0],durationMs:900001}]}).success).toBe(false);
  expect(workerResultSchema.safeParse({...result,candidates:[{...result.candidates[0],evidence:[{...result.candidates[0].evidence[0],videoTimestampMs:900001}]}]}).success).toBe(false);
 });
+
+it('accepts automatic-only claims and precise retry causes without widening legacy commands',async()=>{
+ const {workerCommandSchema}=await import('@/lib/places/worker-contract');
+ expect(workerCommandSchema.safeParse({action:'claim',scope:'automatic',learning:true}).success).toBe(true);
+ expect(workerCommandSchema.parse({action:'claim'})).toEqual({action:'claim'});
+ expect(workerCommandSchema.safeParse({action:'enqueue',scope:'automatic'}).success).toBe(false);
+ for(const code of ['INFERENCE_BUSY','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE']){
+  expect(workerCommandSchema.safeParse({action:'fail',jobId:'job',leaseToken:'00000000-0000-4000-8000-000000000000',code}).success).toBe(true);
+ }
+});

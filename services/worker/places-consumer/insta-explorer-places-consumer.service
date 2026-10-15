@@ -1,0 +1,43 @@
+[Unit]
+Description=Insta Explorer - automatic Places after synchronization
+After=network-online.target insta-explorer-places.service
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=argos
+Group=argos
+StateDirectory=insta-explorer-places-consumer
+StateDirectoryMode=0700
+WorkingDirectory=@RELEASE@
+EnvironmentFile=/var/lib/insta-explorer-places-consumer/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TOKENIZERS_PARALLELISM=false
+Environment=CLASSIFICATION_ASR_CPU_THREADS=2
+ExecStart=/usr/bin/flock -n -E 0 --no-fork /var/lib/insta-explorer-places-consumer/.consumer.lock @NODE@ @RELEASE@/dist/places/consumer.js
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=35min
+KillMode=mixed
+UMask=0077
+CPUQuota=200%
+MemoryMax=2G
+TasksMax=128
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/insta-explorer-places-consumer
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

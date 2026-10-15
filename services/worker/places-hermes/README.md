@@ -1,3 +1,7 @@
+> Automatic processing of future sync imports is provided by the separate
+> [Places consumer](../places-consumer/README.md). This Hermes service remains the
+> inference endpoint; it does not enqueue or schedule jobs itself.
+
 # Places Hermes service
 
 The owner approved this separate execution service on 4 October 2026. See the

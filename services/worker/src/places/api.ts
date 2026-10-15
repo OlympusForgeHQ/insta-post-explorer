@@ -1,9 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
+import {placesLearningContextSchema} from './learning.js';
 
 const mediaSchema=z.object({id:z.string().min(1),kind:z.enum(['IMAGE','VIDEO']),mimeType:z.string(),byteSize:z.number().int().positive().max(250*1024*1024),versionTag:z.string().nullable(),url:z.string().url()});
 export const preparedSchema=z.object({
  input:z.object({post_id:z.string().min(1),input_hash:z.string().min(1),analysis_version:z.string().optional(),main_theme:z.enum(['Restaurant','Voyages']).optional(),caption:z.string().max(100_000).optional(),author_username:z.string().optional(),internal_tags:z.array(z.string()).optional(),instagram_location:z.string().nullable().optional()}),
+ learningContext:placesLearningContextSchema.optional(),
  media:z.array(mediaSchema).max(20),outputSchema:z.record(z.string(),z.unknown()),categoryRules:z.string().max(5000),
  jobId:z.string().optional(),leaseToken:z.string().optional(),heartbeatIntervalMs:z.number().int().min(100).max(30_000).optional(),
 });

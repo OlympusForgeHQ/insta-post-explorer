@@ -1,3 +1,7 @@
+> New sync imports can now proceed to Places after successful classification when
+> `PLACES_AUTO_ENABLED=1` in the app. The [Places consumer](../places-consumer/README.md)
+> owns that queue; classification does not perform geographical analysis itself.
+
 # Independent DeepSeek classification consumer
 
 Initial production activation was verified on 5 October at 23:41 Brussels.

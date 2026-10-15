@@ -3,15 +3,15 @@ import type { TempWorkdirManager } from '../runtime/temp-workdir.js';
 import { preparedSchema, type PlacesApi, type PreparedPost } from './api.js';
 
 export type PipelineResult={candidates:Record<string,unknown>[];media:unknown[];model:string;usage:{inputTokens:number;outputTokens:number};elapsedMs:number};
-type Options={limit:number;commit:boolean;postId?:string;signal:AbortSignal};
+type Options={limit:number;commit:boolean;postId?:string;scope?:'automatic';learning?:boolean;signal:AbortSignal};
 type Dependencies={api:PlacesApi;workdirs:TempWorkdirManager;analyze:(prepared:PreparedPost,dir:string,signal:AbortSignal)=>Promise<PipelineResult>;log?:(event:Record<string,unknown>)=>void};
-const failureCodes=new Set(['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INVALID_RESULT','WORKER_STOPPING','WORKER_TIMEOUT']);
+const failureCodes=new Set(['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE','WORKER_STOPPING','WORKER_TIMEOUT']);
 export async function runPlacesPipeline(options:Options,deps:Dependencies){
   if(!Number.isInteger(options.limit)||options.limit<1||options.limit>50||(!options.commit&&!options.postId))throw Error('PLACES_OPTIONS_INVALID');
   const summary={succeeded:0,failed:0,receipts:[] as unknown[]};
   for(let index=0;index<options.limit;index++){
     options.signal.throwIfAborted();
-    const raw=await deps.api.call({action:options.commit?'claim':'prepare',...(options.postId?{postId:options.postId}:{})},options.signal);
+    const raw=await deps.api.call({action:options.commit?'claim':'prepare',...(options.postId?{postId:options.postId}:{}),...(options.commit&&options.scope?{scope:options.scope}:{}),...(options.commit&&options.learning?{learning:true}:{})},options.signal);
     if(raw===null)break;
     const prepared=preparedSchema.parse(raw);
     if(options.commit&&(!prepared.jobId||!prepared.leaseToken))throw Error('INVALID_RESULT');
@@ -29,7 +29,7 @@ export async function runPlacesPipeline(options:Options,deps:Dependencies){
       }catch{if(!heartbeatStop.signal.aborted&&!finishing)lostLease.abort();}
     })():Promise.resolve();
     try{
-      deps.log?.({postId:prepared.input.post_id,stage:'started'});
+      deps.log?.({postId:prepared.input.post_id,stage:'started',...(prepared.learningContext?{learning:prepared.learningContext}:{})});
       const result=await deps.analyze(prepared,dir,signal);
       signal.throwIfAborted();
       // Renew before stopping heartbeats. Completion is bounded below the lease
