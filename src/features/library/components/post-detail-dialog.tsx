@@ -3,7 +3,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, FileWarning, MapPin, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { DeletePostAlert } from "@/features/library/components/admin/delete-post-alert";
 import { PostCaption } from '@/features/library/components/post-caption';
@@ -23,11 +23,13 @@ type PostDetailDialogProps = {
   isAdmin: boolean;
   loadDetail?: boolean;
   onSelectPlace?: (placeId: string) => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 };
 
-export function PostDetailDialog({ post, position, total, onClose, onPrevious, onNext, isAdmin, loadDetail = true, onSelectPlace }: PostDetailDialogProps) {
+export function PostDetailDialog({ post, position, total, onClose, onPrevious, onNext, isAdmin, loadDetail = true, onSelectPlace, returnFocusRef }: PostDetailDialogProps) {
   const [copied, setCopied] = useState(false);
   const [detailPost, setDetailPost] = useState<LibraryPost | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!post) return;
@@ -80,10 +82,12 @@ export function PostDetailDialog({ post, position, total, onClose, onPrevious, o
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content
           className="detail-dialog"
+          onOpenAutoFocus={() => { opener.current = returnFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null); }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            const trigger = document.querySelector<HTMLButtonElement>(`[data-post-id="${CSS.escape(activePost.id)}"]`);
-            trigger?.focus();
+            const target = opener.current?.isConnected && opener.current !== document.body
+              ? opener.current : document.querySelector<HTMLElement>(".global-search input");
+            target?.focus({ preventScroll: true });
           }}
         >
           <Dialog.Title className="sr-only">Publication de {displayPost.authorUsername}</Dialog.Title>

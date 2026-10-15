@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PostCard, validMediaRatio } from "@/features/library/components/post-card";
 import type { LibraryPost } from "@/features/library/types";
@@ -31,7 +31,18 @@ const videoPost: LibraryPost = {
   collections: ["favoris"],
 };
 
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
 describe("PostCard video preview", () => {
+  it("recovers an image failure that finished before hydration attached its handler", () => {
+    const complete = vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    try {
+      const { container } = render(<PostCard post={videoPost} view="masonry" onOpen={vi.fn()} isAdmin={false} onToggleFavorite={vi.fn()} />);
+      expect(screen.getByText("Image indisponible")).toBeVisible();
+      expect(container.querySelector(".post-media")).toHaveStyle({ aspectRatio: "4 / 5" });
+    } finally { complete.mockRestore(); }
+  });
+
   it("ne charge la vidéo qu'au survol de la carte", () => {
     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("hover: hover") })));
     render(<PostCard post={videoPost} view="grid" onOpen={vi.fn()} isAdmin={false} onToggleFavorite={vi.fn()} />);

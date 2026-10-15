@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 type CapturedMap = {
+  unproject(point: [number, number]): { lng: number; lat: number };
+  getContainer(): HTMLElement;
   getCanvas(): HTMLCanvasElement;
   getCenter(): { lat: number; lng: number };
   getProjection(): { type: string } | undefined;
@@ -118,6 +120,45 @@ async function pointFor(page: Page, placeId: string) {
 }
 
 test.describe("globe Places continu", () => {
+  test("agrandit la même miniature au survol et conserve son ancrage aux bords", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await prepareMapCapture(page);
+    await page.goto("/places");
+    await waitForMap(page);
+    await waitForInitialViewport(page);
+    await moveTo(page, [2.3522, 48.8566], 9);
+    const preview = page.locator('[data-map-preview-id="places-visual-paris"]');
+    await expect(preview).toBeVisible();
+    const image = await preview.locator("img").elementHandle();
+    const compact = (await preview.boundingBox())!;
+    const pin = await pointFor(page, "places-visual-paris");
+    await page.mouse.move(pin.x, pin.y);
+    await expect(page.locator(".places-callout")).toHaveCount(0);
+    await page.mouse.move(1, 1);
+    await expect(page.locator(".places-globe-canvas canvas")).not.toHaveCSS("cursor", "pointer");
+    await preview.hover();
+    await expect.poll(async () => (await preview.boundingBox())!.width).toBeGreaterThan(120);
+    expect(await preview.locator("img").evaluate((node, original) => node === original, image)).toBe(true);
+    await expect(page.locator(".places-callout")).toHaveCount(0);
+    await page.mouse.move(1, 1);
+    await expect.poll(async () => Math.abs((await preview.boundingBox())!.width - compact.width)).toBeLessThan(1);
+    // Simulate a pin at the upper-left viewport edge; the real button must stay
+    // within the map rather than clipping its enlarged preview.
+    await page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap!;
+      const center = map.unproject([map.getContainer().clientWidth - 16, map.getContainer().clientHeight - 16]);
+      map.jumpTo({ center: [center.lng, center.lat], zoom: map.getZoom() });
+    });
+    await expect(preview).toBeVisible();
+    await preview.locator(".places-map-preview-name").evaluate(node => { node.textContent = "Une très longue enseigne de pâtisserie avec plusieurs noms et un quartier à proximité du bord"; });
+    await preview.focus();
+    await expect.poll(() => preview.evaluate(node => {
+      const rect = node.getBoundingClientRect(), map = node.closest(".maplibregl-map")!.getBoundingClientRect();
+      const name = node.querySelector(".places-map-preview-name")!.getBoundingClientRect();
+      return rect.width >= 120 && rect.left >= map.left && rect.top >= map.top && rect.right <= map.right && rect.bottom <= map.bottom && name.top >= map.top && name.bottom <= map.bottom;
+    })).toBe(true);
+  });
+
   test("ouvre une miniature dès qu’un point individuel est affiché sans déplacer la carte @mobile", async ({ page }, testInfo) => {
     await prepareMapCapture(page);
     await page.goto("/places");

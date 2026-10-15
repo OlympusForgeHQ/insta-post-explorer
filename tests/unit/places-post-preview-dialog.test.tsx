@@ -5,6 +5,18 @@ import {PlacesPostPreviewDialog} from '@/features/places/components/places-post-
 import type {LibraryPost} from '@/features/library/types';
 const post:LibraryPost={id:'post-1',externalId:null,postUrl:'https://instagram.com/p/test/',thumbnailUrl:'/preview.png',mediaUrl:null,media:[{id:'video',type:'video',url:'/video.mp4',sourcePath:null,thumbnailUrl:'/preview.png',position:0}],authorUsername:'alice',caption:'Le café sur la carte',tags:[],savedAt:null,publishedAt:null,contentType:'reel',mainTheme:'Restaurant',likesCount:null,commentsCount:null,metadata:{},collections:[]};
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+it('returns to the actual opener even when the browser did not focus it on pointer click', async () => {
+ vi.stubGlobal('fetch', vi.fn(async () => Response.json(post)));
+ const controls = render(<><button>Map thumbnail</button><input aria-label="Previous input" /></>);
+ const trigger = screen.getByRole('button', {name: 'Map thumbnail'});
+ screen.getByRole('textbox', {name: 'Previous input'}).focus();
+ const returnFocusRef = {current: trigger};
+ const dialog = render(<PlacesPostPreviewDialog postId="post-1" returnFocusRef={returnFocusRef} onClose={()=>{}} />);
+ await screen.findByRole('dialog', {name: 'Publication de alice'});
+ dialog.rerender(<PlacesPostPreviewDialog postId={null} returnFocusRef={returnFocusRef} onClose={()=>{}} />);
+ await waitFor(() => expect(trigger).toHaveFocus());
+ controls.unmount();
+});
 it('opens the full post including video with a single request and no unrelated post navigation',async()=>{
  const fetcher=vi.fn(async()=>Response.json(post));vi.stubGlobal('fetch',fetcher);
  render(<PlacesPostPreviewDialog postId="post-1" onClose={()=>{}}/>);

@@ -7,15 +7,16 @@ import { BrokenImage } from "@/features/library/components/library-states";
 import type { LibraryPost, ViewMode } from "@/features/library/types";
 import { cn } from "@/lib/utils";
 
-export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, selection }: { post: LibraryPost; view: ViewMode; onOpen: () => void; isAdmin: boolean; onToggleFavorite: () => void; selection?: { checked: boolean; disabled: boolean; onToggle: () => void } }) {
+export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, selection }: { post: LibraryPost; view: ViewMode; onOpen: (trigger: HTMLButtonElement) => void; isAdmin: boolean; onToggleFavorite: () => void; selection?: { checked: boolean; disabled: boolean; onToggle: () => void } }) {
   const [imageFailed, setImageFailed] = useState(false);
   const [videoPreviewActive, setVideoPreviewActive] = useState(false);
   const [mediaRatio, setMediaRatio] = useState<number | null>(null);
   const measureLoadedImage = useCallback((image: HTMLImageElement | null) => {
     // SSR/cache images can finish before React attaches its load handler.
     // Recover their real proportions instead of keeping the shared placeholder.
-    if (image?.complete && image.naturalWidth > 0) {
-      setMediaRatio(validMediaRatio(image.naturalWidth, image.naturalHeight));
+    if (image?.complete) {
+      if (image.naturalWidth > 0) setMediaRatio(validMediaRatio(image.naturalWidth, image.naturalHeight));
+      else if (image.getAttribute("src")) setImageFailed(true);
     }
   }, []);
   const previewVideo = post.media.find((media) => media.type === "video" && media.url);
@@ -30,7 +31,7 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
         className="post-card-button"
         type="button"
         data-post-id={post.id}
-        onClick={selection ? selection.onToggle : onOpen}
+        onClick={event => { if (selection) selection.onToggle(); else onOpen(event.currentTarget); }}
         disabled={selection?.disabled}
         aria-pressed={selection?.checked}
         onMouseEnter={() => {

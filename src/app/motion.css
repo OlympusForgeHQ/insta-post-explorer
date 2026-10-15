@@ -42,10 +42,6 @@
 :is(.menu-content, .author-suggestions)[data-state="closed"] { animation: motion-menu-out var(--motion-exit) ease forwards; pointer-events: none; }
 
 .motion-presence { display: contents; }
-@media (min-width: 761px) {
-  /* Keep the closing sidebar in its track until its exit completes. */
-  .library-layout:has(.desktop-filter-panel) { grid-template-columns: 288px minmax(0, 1fr); }
-}
 .motion-presence[data-motion-state="open"] > * { animation: motion-panel-in var(--motion-panel) var(--motion-arrive) backwards; }
 .motion-presence[data-motion-state="closed"] > * { animation: motion-panel-out var(--motion-exit) ease forwards; pointer-events: none; }
 .motion-presence[data-motion-state="open"] > .places-drawer { animation-name: motion-drawer-in; }
