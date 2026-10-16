@@ -134,7 +134,7 @@ describe("MapLibre Places data", () => {
       expect(polar[0][1]).toBeLessThanOrEqual(polar[1][1]);
       expect(polar.flat().every(value => Number.isFinite(value))).toBe(true);
     }
-    expect([250, 1000, 1500, 20_000].map(formatApproximationRadius)).toEqual(["Zone ~250 m", "Zone ~1 km", "Zone ~1,5 km", "Zone ~20 km"]);
+    expect([250, 1000, 1500, 20_000].map(formatApproximationRadius)).toEqual(["Zone approximative · rayon ~250 m", "Zone approximative · rayon ~1 km", "Zone approximative · rayon ~1,5 km", "Zone approximative · rayon ~20 km"]);
     expect(buildPlacesAreasGeoJson([place({ precision: "APPROXIMATE", approximationRadiusMeters: null })], null).features).toEqual([]);
   });
 

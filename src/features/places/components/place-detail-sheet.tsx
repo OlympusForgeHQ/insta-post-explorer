@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type RefObject } from "react";
 import { ExternalLink, Loader2, MapPin, X } from "lucide-react";
 
 import type { PlacesMapItem } from "@/server/places/map-view";
@@ -29,7 +29,13 @@ const ERROR_LABEL: Record<string, string> = {
 
 type Pending = "confirm" | "reject" | null;
 
-type SheetProps = { place: PlacesMapItem; isAdmin: boolean; onClose: () => void };
+type SheetProps = {
+  place: PlacesMapItem;
+  isAdmin: boolean;
+  onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
+  fallbackFocusRef?: RefObject<HTMLElement | null>;
+};
 
 // Remount on selection change: loading, error and confirmation state reset by
 // construction instead of being cleared in an effect.
@@ -37,7 +43,9 @@ export function PlaceDetailSheet(props: SheetProps) {
   return <PlaceDetailSheetContent key={props.place.id} {...props} />;
 }
 
-function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
+function PlaceDetailSheetContent({ place, isAdmin, onClose, returnFocusRef, fallbackFocusRef }: SheetProps) {
+  const panelRef = useRef<HTMLElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const [posts, setPosts] = useState<PlacePostDetailDto[] | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [postsError, setPostsError] = useState(false);
@@ -45,6 +53,25 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Pending>(null);
   const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && !panelRef.current?.contains(active)) {
+      previousFocusRef.current = active;
+    }
+    panelRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const close = () => {
+    onClose();
+    // An opener in an exiting drawer may already be inert or disconnected.
+    for (const target of [returnFocusRef?.current, fallbackFocusRef?.current, previousFocusRef.current]) {
+      if (!target?.isConnected || panelRef.current?.contains(target) || target.matches(":disabled")
+        || target.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
+      target.focus({ preventScroll: true });
+      if (document.activeElement === target) break;
+    }
+  };
 
   // Load the associated posts on demand, dropping a stale response when the
   // selection changes. State is reset by remounting on place.id (see the keyed
@@ -81,7 +108,13 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
   const showPostSelector = posts === null || postsError || posts.length !== 1;
 
   return (
-    <aside className="places-sheet" role="dialog" aria-label={`Détail de ${place.displayName}`}>
+    <aside ref={panelRef} className={cn("places-sheet", place.precision === "APPROXIMATE" && "is-approximate")} role="dialog" tabIndex={-1} aria-label={`Détail de ${place.displayName}`}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229) return;
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }}>
       <div className="places-sheet-grab" aria-hidden="true" />
       <header className="places-sheet-header">
         <div>
@@ -90,7 +123,7 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
             {[place.city, place.region, place.country].filter(Boolean).join(" · ") || "Localisation inconnue"}
           </p>
         </div>
-        <button type="button" className="places-icon-button" aria-label="Fermer le détail" onClick={onClose}>
+        <button type="button" className="places-icon-button" aria-label="Fermer le détail" onClick={close}>
           <X size={15} aria-hidden="true" />
         </button>
       </header>

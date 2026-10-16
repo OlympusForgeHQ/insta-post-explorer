@@ -13,6 +13,7 @@ type CapturedMap = {
   getBearing(): number;
   getPitch(): number;
   isMoving(): boolean;
+  areTilesLoaded(): boolean;
   flyTo(options: { center: [number, number]; duration: number; zoom: number }): void;
   jumpTo(options: { center: [number, number]; zoom: number; bearing?: number; pitch?: number }): void;
   once(event: string, listener: () => void): void;
@@ -277,7 +278,7 @@ test.describe("globe Places continu", () => {
     await expect(page.getByText("Tuiles locales de démonstration")).toBeVisible();
   });
 
-  test("charge les 180 points et les deux zones dans leurs sources MapLibre", async ({ page }) => {
+  test("charge les points sans calculer les zones avant une sélection", async ({ page }) => {
     await prepareMapCapture(page);
     await page.goto("/places");
     await waitForMap(page);
@@ -294,34 +295,40 @@ test.describe("globe Places continu", () => {
     await expect.poll(() => page.evaluate(() => {
       const source = (window as MapWindow).__placesMap?.getSource("places-areas");
       return (source?.serialize().data as { features?: unknown[] } | undefined)?.features?.length ?? 0;
-    })).toBe(2);
+    })).toBe(0);
+    await expect(page.getByRole("button", { name: /Zones approximatives/ })).toContainText("2");
   });
 
-  test("sélectionne une vraie zone sans épingle et cadre son rayon, y compris à l’antiméridien", async ({ page }) => {
+  test("sélectionne une vraie zone sans épingle et cadre son rayon, y compris à l’antiméridien", async ({ page }, testInfo) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await prepareMapCapture(page);
     await page.goto("/places?q=Carnet%20Shanghai");
     await waitForMap(page);
     await waitForInitialViewport(page);
     await expect(page.locator(".places-summary")).toContainText("1 lieu");
-    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap?.queryRenderedFeatures({ layers: ["places-area-outline"] }).length ?? 0)).toBeGreaterThan(0);
-    const area = await page.evaluate(() => {
-      const map = (window as MapWindow).__placesMap!;
-      const point = map.project([121.47, 31.23 + 10_000 / 6_371_000 * 180 / Math.PI]);
-      const canvas = map.getCanvas().getBoundingClientRect();
-      return { x: canvas.x + point.x, y: canvas.y + point.y, pins: map.queryRenderedFeatures({ layers: ["places-pins"] }).length };
-    });
-    expect(area.pins).toBe(0);
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap?.queryRenderedFeatures({ layers: ["places-area-outline", "places-area-fill", "places-pins"] }).length ?? 0)).toBe(0);
     await expect(page.locator("[data-map-preview-id]")).toHaveCount(0);
-    await page.mouse.click(area.x, area.y);
+    await page.getByRole("button", { name: /Zones approximatives/ }).click();
+    await page.locator('.places-drawer [data-place-id="places-visual-shanghai-area"]').click();
     const detail = page.getByRole("dialog", { name: "Détail de Carnet Shanghai" });
     await expect(detail).toBeVisible();
-    await expect(detail).toContainText("Zone ~10 km");
+    await expect(detail).toContainText("Zone approximative · rayon ~10 km");
     await waitForCamera(page);
     expect(await page.evaluate(() => (window as MapWindow).__placesMap?.getZoom())).toBeLessThan(12);
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.areTilesLoaded())).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("zone-selected-desktop.png") });
+    await expect(page.locator('.places-drawer')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => {
+      const source = (window as MapWindow).__placesMap!.getSource("places-areas")!;
+      return (source.serialize().data as { features: unknown[] }).features.length;
+    })).toBe(1);
+    const beforeClose = await page.evaluate(() => ({ center: (window as MapWindow).__placesMap!.getCenter(), zoom: (window as MapWindow).__placesMap!.getZoom() }));
     await detail.getByRole("button", { name: "Fermer le détail" }).click();
+    await expect(page.getByRole("button", { name: /Zones approximatives/ })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.queryRenderedFeatures({ layers: ["places-area-outline", "places-area-fill"] }).length)).toBe(0);
+    expect(await page.evaluate(() => ({ center: (window as MapWindow).__placesMap!.getCenter(), zoom: (window as MapWindow).__placesMap!.getZoom() }))).toEqual(beforeClose);
     await page.getByRole("combobox", { name: "Rechercher un lieu" }).fill("Carnet Pacifique");
-    const areaButton = page.getByRole("button", { name: "Sélectionner Carnet Pacifique — Zone ~50 km" });
+    const areaButton = page.getByRole("button", { name: "Sélectionner Carnet Pacifique — Zone approximative · rayon ~50 km" });
     await areaButton.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("dialog", { name: "Détail de Carnet Pacifique" })).toBeVisible();
@@ -338,6 +345,61 @@ test.describe("globe Places continu", () => {
     expect(camera.zoom).toBeLessThan(12);
     expect(camera.areas).toBeGreaterThan(0);
     expect(camera.bothSides).toEqual([true, true]);
+  });
+
+  test("consulte les zones au toucher sans masquer leur étendue @mobile-only", async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await prepareMapCapture(page);
+    await page.goto("/places?q=Carnet");
+    await waitForMap(page);
+    await waitForInitialViewport(page);
+    const zones = page.getByRole("button", { name: /Zones approximatives/ });
+    await expect(zones).toContainText("2");
+    await zones.tap();
+    await expect(page.locator('.places-drawer [data-place-id]')).toHaveCount(2);
+    await page.locator(".places-drawer").evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => undefined))));
+    await page.screenshot({ path: testInfo.outputPath("zones-list-mobile.png") });
+    await page.locator('.places-drawer [data-place-id="places-visual-shanghai-area"]').tap();
+    const detail = page.getByRole("dialog", { name: "Détail de Carnet Shanghai" });
+    await expect(detail).toBeVisible();
+    await expect(page.locator('.places-drawer')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.getZoom())).toBeGreaterThan(7);
+    await waitForCamera(page);
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.areTilesLoaded())).toBe(true);
+    const center = await page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap!;
+      const position = map.project([121.47, 31.23]);
+      const canvas = map.getCanvas().getBoundingClientRect();
+      return { x: canvas.left + position.x, y: canvas.top + position.y };
+    });
+    const bounds = (await detail.boundingBox())!;
+    expect(center.y).toBeLessThan(bounds.y - 12);
+    expect(center.y).toBeGreaterThan((await page.locator(".places-stage").boundingBox())!.y + 20);
+    await page.screenshot({ path: testInfo.outputPath("zone-selected-mobile.png") });
+    await page.setViewportSize({ width: 960, height: 600 });
+    await expect.poll(() => page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap!;
+      const position = map.project([121.47, 31.23]);
+      const canvas = map.getCanvas().getBoundingClientRect();
+      const sheet = document.querySelector('.places-sheet')!.getBoundingClientRect();
+      return canvas.left + position.x > sheet.right + 12;
+    })).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("zone-after-rotation.png") });
+    // A virtual keyboard can leave less room than the reserved sheet padding.
+    await page.setViewportSize({ width: 393, height: 300 });
+    await expect.poll(() => page.locator(".places-stage").evaluate(element => element.clientHeight)).toBeLessThan(116);
+    await page.setViewportSize({ width: 393, height: 851 });
+    await expect(detail).toBeVisible();
+    await waitForCamera(page);
+    expect(errors).toEqual([]);
+    await detail.getByRole("button", { name: "Fermer le détail" }).tap();
+    await expect(zones).toBeFocused();
+    await zones.tap();
+    await page.keyboard.press("Escape");
+    await expect(page.locator('.places-drawer')).toBeHidden();
+    await expect(zones).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
   test("garde la carte lisible et libre avec 335 zones superposées dont une mondiale", async ({ page }, testInfo) => {
@@ -360,7 +422,7 @@ test.describe("globe Places continu", () => {
       map.jumpTo({ center: [10, 30], zoom: 1.4 });
     }, { areas: buildPlacesAreasGeoJson(densePlaces, null), outlines: buildPlacesAreaOutlinesGeoJson(densePlaces, null) });
     await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.queryRenderedFeatures({ layers: ["places-area-outline"] })
-      .some(feature => feature.properties?.id?.startsWith("dense-")))).toBe(true);
+      .some(feature => feature.properties?.id?.startsWith("dense-")))).toBe(false);
     await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.queryRenderedFeatures({ layers: ["places-area-fill"] }).length)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("dense-areas-globe.png") });
     await moveTo(page, [121.47, 31.23], 10);
@@ -394,9 +456,6 @@ test.describe("globe Places continu", () => {
 
     const detail = page.getByRole("dialog", { name: "Détail de Café du Globe Paris" });
     await expect(detail).toBeVisible();
-    await page.getByRole("button", { name: /Liste/ }).click();
-    await expect(page.locator('[data-place-id="places-visual-paris"]')).toHaveClass(/is-selected/);
-
     await waitForCamera(page);
     const camera = () => page.evaluate(() => {
       const map = (window as MapWindow).__placesMap;
@@ -416,8 +475,9 @@ test.describe("globe Places continu", () => {
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       await waitForCamera(page);
       expect(await camera()).toEqual(beforeClose);
-      await expect(page.locator('[data-place-id="places-visual-paris"]')).not.toHaveClass(/is-selected/);
+      await expect(page).not.toHaveURL(/placeId=/);
       if (attempt === 0) {
+        await page.getByRole("button", { name: "Liste", exact: true }).click();
         await page.locator('[data-place-id="places-visual-paris"]').click();
         await expect(detail).toBeVisible();
         await waitForCamera(page);

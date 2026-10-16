@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -86,22 +86,24 @@ const PLACES: PlacesMapItem[] = [
   },
 ];
 
-function renderExplorer(view: "map" | "globe") {
+function renderExplorer(view: "map" | "globe", { places = PLACES, q = "rome", placeId = "p1", truncated = false }: {
+  places?: PlacesMapItem[]; q?: string; placeId?: string | null; truncated?: boolean;
+} = {}) {
   return render(
     <PlacesExplorer
-      places={PLACES}
+      places={places}
       stats={STATS}
       initialState={{
-        q: "rome",
+        q,
         themes: [],
         categories: [],
         precisions: [],
         reviews: [],
         countryCodes: [],
-        placeId: "p1",
+        placeId,
         view,
       }}
-      truncated={false}
+      truncated={truncated}
       isAdmin={false}
       tileUrl="https://tiles.example/{z}/{x}/{y}.png"
       tileAttribution="© tiles"
@@ -118,6 +120,92 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+const ZONES: PlacesMapItem[] = [
+  { ...PLACES[0], id: "japan-a", displayName: "Voyage au Japon", city: null, country: "Japon", countryCode: "JP", precision: "APPROXIMATE", approximationRadiusMeters: 150_000, latitude: 35, longitude: 135 },
+  { ...PLACES[0], id: "japan-b", displayName: "Autre voyage au Japon", city: null, country: "Japon", countryCode: "JP", precision: "APPROXIMATE", approximationRadiusMeters: 150_000, latitude: 35, longitude: 135 },
+  { ...PLACES[0], id: "italy", displayName: "Voyage en Italie", city: null, country: "Italie", countryCode: "IT", precision: "APPROXIMATE", approximationRadiusMeters: 200_000, latitude: 43, longitude: 12 },
+];
+
+it("opens every filtered zone in the shared drawer and restores the list without changing filters", async () => {
+  state.webgl = "unsupported";
+  renderExplorer("map", { places: [...PLACES, ...ZONES], q: "", placeId: null, truncated: true });
+  const zonesButton = screen.getByRole("button", { name: "Zones approximatives (3)" });
+  const input = screen.getByRole("combobox", { name: "Rechercher un lieu" });
+  expect(zonesButton).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(zonesButton);
+  let drawer = screen.getByRole("complementary", { name: "Zones approximatives" });
+  expect(zonesButton).toHaveAttribute("aria-controls", drawer.id);
+  expect(zonesButton).toHaveAttribute("aria-expanded", "true");
+  expect(within(drawer).getByRole("heading")).toHaveFocus();
+  expect(within(drawer).getAllByRole("button").length).toBe(4);
+  expect(within(drawer).queryByRole("button", { name: /Nobu Dubai/ })).not.toBeInTheDocument();
+  expect(within(drawer).getByText(/1 000 lieux les plus récents/)).toBeVisible();
+  expect(input).toHaveValue("");
+
+  const list = within(drawer).getByRole("list");
+  list.scrollTop = 140;
+  fireEvent.scroll(list);
+  fireEvent.click(within(drawer).getByRole("button", { name: /^Voyage au Japon/ }));
+  expect(screen.queryByRole("complementary", { name: "Zones approximatives" })).not.toBeInTheDocument();
+  const detail = await screen.findByRole("dialog", { name: "Détail de Voyage au Japon" });
+  expect(detail).toHaveFocus();
+  fireEvent.keyDown(detail, { key: "Escape" });
+  expect(zonesButton).toHaveFocus();
+  fireEvent.click(zonesButton);
+  drawer = screen.getByRole("complementary", { name: "Zones approximatives" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(within(drawer).getByRole("list").scrollTop).toBe(140);
+  fireEvent.keyDown(drawer, { key: "Escape" });
+  expect(zonesButton).toHaveFocus();
+
+  fireEvent.click(screen.getByRole("button", { name: "Liste" }));
+  expect(within(screen.getByRole("complementary", { name: "Liste des lieux" })).getByRole("button", { name: /Nobu Dubai/ })).toBeVisible();
+  fireEvent.click(zonesButton);
+  fireEvent.change(input, { target: { value: "Japon" } });
+  expect(screen.getByRole("button", { name: "Zones approximatives (2)" })).toHaveAttribute("aria-expanded", "true");
+  drawer = screen.getByRole("complementary", { name: "Zones approximatives" });
+  expect(within(drawer).queryByRole("button", { name: /Italie/ })).not.toBeInTheDocument();
+  fireEvent.click(within(drawer).getByRole("button", { name: /^Autre voyage au Japon/ }));
+  await screen.findByRole("dialog", { name: "Détail de Autre voyage au Japon" });
+  fireEvent.change(input, { target: { value: "Italie" } });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(new URLSearchParams(window.location.search).get("placeId")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Zones approximatives (1)" }));
+  drawer = screen.getByRole("complementary", { name: "Zones approximatives" });
+  expect(within(drawer).getByRole("button", { name: /^Voyage en Italie/ })).toBeVisible();
+  expect(input).toHaveValue("Italie");
+});
+
+it("preserves valid initial and restored place links while applying their filters", async () => {
+  state.webgl = "unsupported";
+  renderExplorer("map", { places: ZONES, q: "Japon", placeId: "japan-a" });
+  const detail = await screen.findByRole("dialog", { name: "Détail de Voyage au Japon" });
+  expect(detail).toBeVisible();
+  fireEvent.keyDown(detail, { key: "Escape" });
+  expect(screen.getByRole("button", { name: "Liste" })).toHaveFocus();
+  window.history.replaceState(null, "", "/places?q=Italie&placeId=italy");
+  fireEvent.popState(window);
+  expect(await screen.findByRole("dialog", { name: "Détail de Voyage en Italie" })).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "Rechercher un lieu" })).toHaveValue("Italie");
+  expect(new URLSearchParams(window.location.search).get("placeId")).toBe("italy");
+});
+
+it("keeps map selection and the list, filters and statistics mutually exclusive", async () => {
+  state.webgl = "unsupported";
+  renderExplorer("map", { places: ZONES, q: "", placeId: null });
+  for (const label of ["Zones approximatives (3)", "Filtres", "Statistiques"]) {
+    const control = screen.getByRole("button", { name: label });
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: /^Sélectionner Voyage au Japon/ }));
+    expect(control).toHaveAttribute("aria-expanded", "false");
+    expect(await screen.findByRole("dialog", { name: "Détail de Voyage au Japon" })).toBeVisible();
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("dialog", { name: "Détail de Voyage au Japon" })).not.toBeInTheDocument();
+  }
+});
 
 describe("3D engine is never imported without a proven WebGL capability", () => {
   it.each([

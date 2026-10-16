@@ -164,9 +164,9 @@ describe("Places renderer gating", () => {
     const renderedPlaces = mapProps.at(-1)?.places as { id: string; precision: string }[];
     expect(renderedPlaces.map((place) => place.id)).toEqual(["p1", "p2", "p4"]);
     expect(screen.getByRole("status")).toHaveTextContent("3 lieux");
-    fireEvent.click(screen.getByRole("button", { name: /Sélectionner Approximate place.*Zone ~10 km/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Sélectionner Approximate place.*Zone approximative · rayon ~10 km/ }));
     const detail = screen.getByRole("dialog", { name: "Détail de Approximate place" });
-    expect(detail).toHaveTextContent("Zone ~10 km");
+    expect(detail).toHaveTextContent("Zone approximative · rayon ~10 km");
     expect(mapProps.at(-1)?.selectedId).toBe("p4");
   });
 

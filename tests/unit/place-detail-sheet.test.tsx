@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const loadPlacePostsAction = vi.fn(async () => ({
@@ -20,6 +21,33 @@ const { PlaceDetailSheet } = await import("@/features/places/components/place-de
 afterEach(cleanup);
 
 describe("Place detail sheet", () => {
+  it.each([false, true])("moves focus once and returns safely after Escape (inert opener: %s)", async (inertOpener) => {
+    const openerRef = createRef<HTMLButtonElement>();
+    const fallbackRef = createRef<HTMLButtonElement>();
+    const place = { id: "place-focus", displayName: "Zone test", city: "Paris", region: null, country: "France", precision: "APPROXIMATE", approximationRadiusMeters: 10000, isUserConfirmed: false, sourceThemes: ["Restaurant"], postCount: 2, confidence: 1 } as never;
+    const onClose = vi.fn();
+    const content = () => <><button ref={openerRef}>Ouvrir la zone</button><button ref={fallbackRef}>Zones</button><PlaceDetailSheet place={place} isAdmin={false} onClose={() => onClose()} returnFocusRef={openerRef} fallbackFocusRef={fallbackRef} /></>;
+    const view = render(content());
+    const detail = screen.getByRole("dialog", { name: "Détail de Zone test" });
+    expect(detail).toHaveFocus();
+    await screen.findByText("Première caption");
+
+    act(() => fallbackRef.current!.focus());
+    view.rerender(content());
+    expect(fallbackRef.current).toHaveFocus();
+
+    if (inertOpener) openerRef.current!.setAttribute("inert", "");
+    const destination = inertOpener ? fallbackRef.current! : openerRef.current!;
+    const focus = vi.spyOn(destination, "focus");
+    const close = screen.getByRole("button", { name: "Fermer le détail" });
+    act(() => close.focus());
+    fireEvent.keyDown(close, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(destination).toHaveFocus();
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    focus.mockRestore();
+  });
+
   it.each([
     { address: "12 rue de l'Église & Café", precision: "EXACT", expected: "12 rue de l'Église & Café, Paris, France" },
     { address: null, precision: "APPROXIMATE", expected: "Fraté, Paris, France" },
