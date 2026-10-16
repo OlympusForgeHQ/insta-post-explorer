@@ -87,7 +87,7 @@ describe("LibraryExplorer server search results", () => {
     }));
     render(explorer([post("unrelated", { mainTheme: "Voyages" })]));
 
-    fireEvent.change(screen.getByRole("searchbox", { name: /Rechercher dans la bibliothèque/ }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /Rechercher dans la bibliothèque/ }), {
       target: { value: "restaurant" },
     });
 
@@ -129,7 +129,7 @@ describe("LibraryExplorer server search results", () => {
       name: requestType === "pagination" ? "Chargement…" : "Recherche…",
     })).toBeDisabled();
 
-    fireEvent.change(screen.getByRole("searchbox", { name: /Rechercher dans la bibliothèque/ }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /Rechercher dans la bibliothèque/ }), {
       target: { value: "beta" },
     });
     await screen.findByRole("button", { name: "Ouvrir la publication de beta" });

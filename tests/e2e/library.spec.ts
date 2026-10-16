@@ -37,7 +37,7 @@ test.describe("bibliotheque Mosaïque", () => {
   });
 
   test("recherche sans accent et restaure la requete dans l'URL", async ({ page }) => {
-    const search = page.getByRole("searchbox", { name: "Rechercher dans la bibliothèque" });
+    const search = page.getByRole("combobox", { name: "Rechercher dans la bibliothèque" });
 
     await search.fill("patisserie");
 
@@ -55,6 +55,53 @@ test.describe("bibliotheque Mosaïque", () => {
     await filters.getByRole("button", { name: "OU", exact: true }).click();
     await expect(page.locator(".results-count:visible")).toHaveText(/^11\b/);
     await expect.poll(() => new URL(page.url()).searchParams.get("tagMode")).toBe("or");
+  });
+
+  test("retrouve les cinq dernières recherches après rechargement @mobile", async ({ page, isMobile }) => {
+    const search = page.getByRole("combobox", { name: "Rechercher dans la bibliothèque" });
+    for (const term of ["Paris", "Rome", "Tokyo", "Lyon", "Lille", "patisserie"]) {
+      await search.fill(term);
+      await search.press("Enter");
+      await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe(term);
+    }
+    await page.reload();
+    if (isMobile) await search.tap();
+    else await search.click();
+    const history = page.getByRole("listbox", { name: "Recherches récentes" });
+    await expect(history.getByRole("option")).toHaveText(["patisserie", "Lille", "Lyon", "Tokyo", "Rome"]);
+    const popup = page.locator(".recent-search-popover");
+    const bounds = await popup.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    const option = history.getByRole("option", { name: "Lille", exact: true });
+    if (isMobile) await option.tap();
+    else await option.click();
+    await expect(search).toHaveValue("Lille");
+    await expect(search).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("Lille");
+    await search.press("ArrowDown");
+    await search.press("ArrowDown");
+    await search.press("Enter");
+    await expect(search).toHaveValue("patisserie");
+    await expect(page.locator(".results-count:visible")).toHaveText(/^2\b/);
+    await search.click();
+    const forget = page.getByRole("button", { name: "Effacer l’historique" });
+    await search.press("Tab");
+    await expect(forget).toBeFocused();
+    await forget.press("Shift+Tab");
+    await expect(search).toBeFocused();
+    await search.press("Tab");
+    await forget.press("Tab");
+    await expect(history).toBeHidden();
+    await expect(search).not.toBeFocused();
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
+    await search.click();
+    await search.press("Tab");
+    await forget.press("Enter");
+    await expect(history).toBeHidden();
+    await search.click();
+    await expect(history).toBeHidden();
   });
 
   test("affiche un état de chargement pendant un filtrage lent", async ({ page }) => {
@@ -184,7 +231,7 @@ test.describe("bibliotheque Mosaïque", () => {
     const post = { ...payload.items[0], thumbnailUrl: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#7c3aed"/></svg>'), media: [{ id: 'preview', type: 'video', url: '/preview-probe.mp4', position: 0 }] };
     await page.route('**/preview-probe.mp4', route => route.fulfill({ status: 204 }));
     await page.route('**/api/posts?**', route => route.fulfill({ json: { items: [post], nextCursor: null, total: 1, totalFiltered: 1, totalLibrary: 18 } }));
-    await page.getByRole('searchbox', { name: 'Rechercher dans la bibliothèque' }).fill('preview-probe');
+    await page.getByRole('combobox', { name: 'Rechercher dans la bibliothèque' }).fill('preview-probe');
     const card = page.locator('[data-post-id]');
     await expect(card).toHaveCount(1);
     await expect(page.locator('.posts-masonry')).toHaveAttribute('data-masonry-ready', 'true');
@@ -341,7 +388,7 @@ test.describe("bibliotheque Mosaïque", () => {
     const payload = await (await page.request.get('/api/posts?limit=1')).json();
     const items = [600, 480, 700, 520, 600, 500].map((height, index) => ({ ...payload.items[0], id: `motion-${index}`, thumbnailUrl: 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="${height}"><rect width="400" height="${height}" fill="#7c3aed"/></svg>`), media: [] }));
     await page.route('**/api/posts?**', route => route.fulfill({ json: { items, nextCursor: null, total: items.length, totalFiltered: items.length, totalLibrary: 18 } }));
-    await page.getByRole('searchbox', { name: 'Rechercher dans la bibliothèque' }).fill('motion-probe');
+    await page.getByRole('combobox', { name: 'Rechercher dans la bibliothèque' }).fill('motion-probe');
     await expect(page.locator('[data-post-id]')).toHaveCount(items.length);
     await expect.poll(() => page.locator('.post-media img').evaluateAll(nodes => nodes.every(node => (node as HTMLImageElement).naturalWidth > 0))).toBe(true);
     await expect(page.locator('.posts-masonry')).toHaveAttribute('data-masonry-ready', 'true');
@@ -435,7 +482,7 @@ test.describe("bibliotheque Mosaïque", () => {
     await backToTop.click();
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 
-    const search = page.getByRole("searchbox", { name: "Rechercher dans la bibliothèque" });
+    const search = page.getByRole("combobox", { name: "Rechercher dans la bibliothèque" });
     await search.fill("patisserie");
     const sparseGrid = page.locator(".posts-masonry-sparse");
     await expect(sparseGrid).toBeVisible();

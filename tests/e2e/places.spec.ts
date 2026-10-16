@@ -78,7 +78,7 @@ test.describe("page Places avec le harnais local", () => {
   });
 
   test("recherche une fixture connue et efface son état partagé", async ({ page }) => {
-    const search = page.getByRole("searchbox", { name: "Rechercher un lieu" });
+    const search = page.getByRole("combobox", { name: "Rechercher un lieu" });
     await search.fill("Santorin");
 
     await expect(page).toHaveURL(/q=Santorin/);
@@ -87,6 +87,11 @@ test.describe("page Places avec le harnais local", () => {
 
     await search.fill("");
     await expect(page).not.toHaveURL(/q=/);
+    await search.click();
+    await page.getByRole("option", { name: "Santorin", exact: true }).click();
+    await expect(page).toHaveURL(/q=Santorin/);
+    await expect(page.getByRole("button", { name: "Sélectionner Terrasse Santorin" })).toBeVisible();
+    await expect(search).toHaveAttribute("aria-expanded", "false");
   });
 
   test("présente les statistiques issues du jeu de données local", async ({ page }) => {
