@@ -328,6 +328,60 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    await db.post.update({where:{id:'worker-post'},data:{caption:'Changed by the owner'}});
    await expect(service.retryPlacesJob(owner,command)).rejects.toThrow('PLACES_INPUT_STALE');
  });
+ it('defers infrastructure faults with a separate finite budget and preserves analysis history',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const job=await db.placeAnalysisJob.findFirstOrThrow({where:{ownerId:owner}});
+   const marker={automation:{version:1,source:'sync',syncJobId:'sync'},learning:{version:1,shape:'image:short:single',outcomes:[{attempt:1,status:'FAILED',code:'INVALID_RESULT',strategy:'standard'}]}};
+   await db.placeAnalysisJob.update({where:{id:job.id},data:{attemptCount:1,result:marker}});
+   for(let count=1;count<=7;count++){
+    const claim=(await service.claimPlacesJob(owner,{postId:'worker-post',learning:true},dependencies))!;
+    const lease={jobId:claim.jobId,leaseToken:claim.leaseToken,code:count%2?'ASR_UNAVAILABLE':'INFERENCE_BUSY'};
+    await expect(service.failPlacesJob(other,lease)).rejects.toThrow('PLACES_JOB_NOT_FOUND');
+    await service.failPlacesJob(owner,lease);
+    const saved=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id}});
+    expect(saved).toMatchObject({attemptCount:count<=6?1:2,status:count<=6?'PENDING':'FAILED',leaseOwner:null,result:{automation:marker.automation,learning:marker.learning,infrastructure:{deferrals:count,lastCode:lease.code}}});
+    await expect(service.failPlacesJob(owner,lease)).rejects.toThrow('PLACES_LEASE_LOST');
+    if(count<=6){expect(saved.nextAttemptAt!.getTime()-Date.now()).toBeGreaterThan(55_000);expect(await service.claimPlacesJob(owner,{postId:'worker-post'},dependencies)).toBeNull();await db.placeAnalysisJob.update({where:{id:job.id},data:{nextAttemptAt:new Date(0)}});}
+   }
+ });
+ it('persists provider cooldown across claims even if an individual job is ready',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   await service.failPlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,code:'INFERENCE_BUSY',retryAfterMs:120_000});
+   const saved=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});expect(saved.nextAttemptAt!.getTime()-Date.now()).toBeGreaterThan(119_000);
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{nextAttemptAt:new Date(0),status:'FAILED'}});
+   expect(await service.retryPlacesJob(owner,{jobId:claim.jobId,postId:'worker-post',inputHash:claim.input.input_hash,repairInfrastructure:true})).toEqual({requeued:true});
+   expect(await service.claimPlacesJob(owner,{},dependencies)).toBeNull();
+   const result=saved.result as Record<string,unknown>;
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{result:{...result,infrastructure:{deferrals:1,providerBlockedUntil:new Date(0).toISOString()}}}});
+   expect(await service.claimPlacesJob(owner,{},dependencies)).not.toBeNull();
+ });
+ it('repairs a named infrastructure failure once without resetting attempts or protected history',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const job=await db.placeAnalysisJob.findFirstOrThrow({where:{ownerId:owner}});
+   const history={automation:{version:1,source:'sync',syncJobId:'sync'},learning:{version:1,shape:'image:short:single',outcomes:[{attempt:3,status:'FAILED',code:'MEDIA_UNAVAILABLE',strategy:'standard'}]}};
+   await db.placeAnalysisJob.update({where:{id:job.id},data:{status:'FAILED',stage:'COMPLETE',attemptCount:3,errorCode:'MEDIA_UNAVAILABLE',result:history}});
+   const command={jobId:job.id,postId:job.postId,inputHash:job.inputHash,repairInfrastructure:true};
+   await expect(service.retryPlacesJob(other,command)).rejects.toThrow('PLACES_JOB_NOT_FOUND');
+   await expect(service.retryPlacesJob(owner,{...command,inputHash:'0'.repeat(64)})).rejects.toThrow('PLACES_INPUT_STALE');
+   expect(await service.retryPlacesJob(owner,{...command,repairInfrastructure:false})).toEqual({requeued:false});
+   const replies=await Promise.all([service.retryPlacesJob(owner,command),service.retryPlacesJob(owner,command)]);
+   expect(replies.filter(r=>r.requeued)).toHaveLength(1);
+   expect(await db.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id}})).toMatchObject({status:'PENDING',attemptCount:3,maxAttempts:6,result:history});
+   const claim=(await service.claimPlacesJob(owner,{postId:'worker-post',learning:true},dependencies))!;
+   await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},dependencies);
+   expect(await service.retryPlacesJob(owner,command)).toEqual({requeued:false});
+   const saved=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id}});
+   expect(saved).toMatchObject({attemptCount:4,status:'SUCCEEDED'});
+   expect((saved.result as {learning:{outcomes:unknown[]}}).learning.outcomes).toContainEqual(expect.objectContaining({attempt:4,status:'SUCCEEDED'}));
+   await db.placeAnalysisJob.update({where:{id:job.id},data:{status:'FAILED',errorCode:'MEDIA_UNAVAILABLE'}});
+   expect(await service.retryPlacesJob(owner,command)).toEqual({requeued:false});
+ });
+ it('refuses infrastructure repair when the owner has excluded the post',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});const job=await db.placeAnalysisJob.findFirstOrThrow({where:{ownerId:owner}});
+   await db.placeAnalysisJob.update({where:{id:job.id},data:{status:'FAILED',attemptCount:3,errorCode:'MEDIA_UNAVAILABLE'}});
+   await db.placeEvidence.create({data:{ownerId:owner,postId:job.postId,analysisJobId:job.id,evidenceType:'USER_CORRECTION',excerpt:'No place',confidence:1,metadata:{action:'POST_NO_PLACE_CONFIRMED',actorType:'USER',actorId:owner}}});
+   await expect(service.retryPlacesJob(owner,{jobId:job.id,postId:job.postId,inputHash:job.inputHash,repairInfrastructure:true})).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+ });
  it('previews without jobs and commits a claimed result exactly once with the post category',async()=>{
    const preview=await service.preparePlacesPost(owner,'worker-post',dependencies);
    expect(preview.input.main_theme).toBe('Restaurant');expect(await db.placeAnalysisJob.count({where:{ownerId:owner}})).toBe(0);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import {placesFailureCodes} from '../../../services/worker/src/places/learning';
 import { placeCandidateSchema } from '@/lib/places/candidates';
 import { PLACE_CATEGORY_KEYS } from '@/lib/places/categories';
 
@@ -28,7 +29,7 @@ const lease={jobId:id,leaseToken:z.string().uuid()};
 export const workerCommandSchema=z.discriminatedUnion('action',[
   z.object({action:z.literal('prepare'),postId:id}).strict(),
   z.object({action:z.literal('enqueue'),postId:id.optional(),cursor:id.optional()}).strict(),
-  z.object({action:z.literal('retry'),jobId:id,postId:id,inputHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),
+  z.object({action:z.literal('retry'),jobId:id,postId:id,inputHash:z.string().regex(/^[a-f0-9]{64}$/),repairInfrastructure:z.boolean().optional()}).strict(),
   z.object({action:z.literal('claim'),postId:id.optional(),scope:z.literal('automatic').optional(),learning:z.boolean().optional()}).strict(),
   z.object({action:z.literal('heartbeat'),...lease}).strict(),
   z.object({action:z.literal('complete'),...lease,result:workerResultSchema}).strict(),
@@ -36,7 +37,7 @@ export const workerCommandSchema=z.discriminatedUnion('action',[
   z.object({action:z.literal('recover'),postId:id,sourceJobId:id,inputHash:z.string().regex(/^[a-f0-9]{64}$/),
     originalResult:workerResultSchema,sourceCandidateIndices:z.array(z.number().int().min(0).max(199)).min(1).max(200),
     result:workerResultSchema,commit:z.boolean().default(false)}).strict(),
-  z.object({action:z.literal('fail'),...lease,code:z.enum(['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE','WORKER_STOPPING','WORKER_TIMEOUT'])}).strict(),
+  z.object({action:z.literal('fail'),...lease,code:z.enum(placesFailureCodes),retryAfterMs:z.number().int().min(0).max(900_000).optional()}).strict(),
 ]);
 export type WorkerResult=z.infer<typeof workerResultSchema>;
 export type WorkerCommand=z.infer<typeof workerCommandSchema>;

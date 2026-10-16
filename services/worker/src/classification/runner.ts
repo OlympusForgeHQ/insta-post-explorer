@@ -19,7 +19,7 @@ export async function runClassificationOnce(deps:ClassificationDependencies,stop
   return {status:result.status};
  }catch(error){
   const message=error instanceof Error?error.message:'';const cancelled=lost.signal.aborted||['CLASSIFICATION_INPUT_STALE','CLASSIFICATION_LEASE_LOST','NOT_FOUND'].includes(message);
-  const code=stop.aborted?'WORKER_STOPPING':signal.aborted?'WORKER_TIMEOUT':['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT'].includes(message)?message:message==='API_UNAVAILABLE'?'INFERENCE_FAILED':'INVALID_RESULT';
+  const code=stop.aborted?'WORKER_STOPPING':signal.aborted?'WORKER_TIMEOUT':['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT'].includes(message)?message:message==='API_UNAVAILABLE'?'INFERENCE_FAILED':['MEDIA_DOWNLOAD_FAILED','MEDIA_DECODE_FAILED','MEDIA_TOOLS_UNAVAILABLE','ASR_UNAVAILABLE','ASR_FAILED','TEMP_STORAGE_UNAVAILABLE'].includes(message)?'MEDIA_UNAVAILABLE':message==='WORKER_TIMEOUT'?'WORKER_TIMEOUT':message==='WORKER_STOPPING'?'WORKER_STOPPING':'INVALID_RESULT';
   tracker?.observe({stage:'learning_failure',code});
   if(!cancelled)await deps.api.call({action:'fail',...lease,code,...(tracker?{learning:tracker.report()}:{})},AbortSignal.timeout(15_000)).catch(()=>undefined);
   deps.log?.({stage:'classification_failed',jobId:claim.jobId,postId:claim.input.post_id,code:cancelled?'CLASSIFICATION_LEASE_LOST':code});return {status:cancelled?'CANCELLED':'FAILED'};

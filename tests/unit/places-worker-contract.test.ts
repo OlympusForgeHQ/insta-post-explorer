@@ -29,7 +29,7 @@ it('accepts automatic-only claims and precise retry causes without widening lega
  expect(workerCommandSchema.safeParse({action:'claim',scope:'automatic',learning:true}).success).toBe(true);
  expect(workerCommandSchema.parse({action:'claim'})).toEqual({action:'claim'});
  expect(workerCommandSchema.safeParse({action:'enqueue',scope:'automatic'}).success).toBe(false);
- for(const code of ['INFERENCE_BUSY','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE']){
+ for(const code of ['INFERENCE_BUSY','ASR_UNAVAILABLE','ASR_FAILED','MEDIA_DOWNLOAD_FAILED','MEDIA_DECODE_FAILED','MEDIA_TOOLS_UNAVAILABLE','TEMP_STORAGE_UNAVAILABLE','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE']){
   expect(workerCommandSchema.safeParse({action:'fail',jobId:'job',leaseToken:'00000000-0000-4000-8000-000000000000',code}).success).toBe(true);
  }
 });
