@@ -77,9 +77,12 @@ test.describe("page Places avec le harnais local", () => {
     await expect.poll(() => mapList.getByRole("button").count()).toBeGreaterThan(0);
   });
 
-  test("recherche une fixture connue et efface son état partagé", async ({ page }) => {
+  test("recherche une fixture connue et efface son état partagé @mobile", async ({ page, isMobile }) => {
     const search = page.getByRole("combobox", { name: "Rechercher un lieu" });
-    await search.fill("Santorin");
+    for (const term of ["Paris", "Rome", "Tokyo", "Lyon", "Lille", "Santorin"]) {
+      await search.fill(term);
+      await search.press("Enter");
+    }
 
     await expect(page).toHaveURL(/q=Santorin/);
     await expect(page.getByRole("button", { name: "Sélectionner Terrasse Santorin" })).toBeVisible();
@@ -88,7 +91,13 @@ test.describe("page Places avec le harnais local", () => {
     await search.fill("");
     await expect(page).not.toHaveURL(/q=/);
     await search.click();
-    await page.getByRole("option", { name: "Santorin", exact: true }).click();
+    const history = page.getByRole("listbox", { name: "Recherches récentes" });
+    await expect(history.getByRole("option")).toHaveText(["Santorin", "Lille", "Lyon", "Tokyo", "Rome"]);
+    const popup = await page.locator(".recent-search-popover").boundingBox();
+    expect(popup!.width).toBeLessThanOrEqual(480);
+    const savedSearch = page.getByRole("option", { name: "Santorin", exact: true });
+    if (isMobile) await savedSearch.tap();
+    else await savedSearch.click();
     await expect(page).toHaveURL(/q=Santorin/);
     await expect(page.getByRole("button", { name: "Sélectionner Terrasse Santorin" })).toBeVisible();
     await expect(search).toHaveAttribute("aria-expanded", "false");

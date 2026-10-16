@@ -2,6 +2,10 @@
 
 ## Recent searches — 16 October 2026
 
+Production verification caught and corrected a Places input transition race: the
+search text updates immediately while result filtering remains deferred. The final
+release receipts are under `.tmp/recent-searches-transition-20261016/`.
+
 The Posts and Places search bars offer five recent searches each, saved locally
 and recalled without changing existing live filters, routes or shortcuts. Safe
 storage fallback and keyboard/touch interactions are covered by focused tests;
