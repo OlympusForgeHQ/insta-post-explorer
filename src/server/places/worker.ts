@@ -1,3 +1,4 @@
+import {deferredFailureCodes,repairableFailureCodes} from '../../../services/worker/src/places/learning';
 import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -135,6 +136,8 @@ export async function claimPlacesJob(ownerId:string,options:{postId?:string;scop
     // Serialize admission for this owner, including concurrent API requests.
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`places-worker:${ownerId}`},0))::text`;
     const now=new Date();
+    // A provider cooldown is owner-scoped and survives consumer restarts.
+    if(await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,result:{path:['infrastructure','providerBlockedUntil'],gt:now.toISOString()}},select:{id:true}}))return null;
     if(await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,status:'PROCESSING',leaseExpiresAt:{gt:now}}}))return null;
     for(let scan=0;scan<100;scan++){
       const job=await tx.placeAnalysisJob.findFirst({where:{ownerId,analysisVersion:PLACES_WORKER_VERSION,...(options.scope==='automatic'?{result:{path:['automation','source'],equals:'sync'}}:{}),...(options.postId?{postId:options.postId}:{}),OR:[{status:'PENDING',OR:[{nextAttemptAt:null},{nextAttemptAt:{lte:now}}]},{status:'PROCESSING',leaseExpiresAt:{lte:now}}]},orderBy:[{priority:'desc'},{createdAt:'asc'},{id:'asc'}]});
@@ -179,9 +182,9 @@ export async function heartbeatPlacesJob(ownerId:string,lease:Lease){
   return {ok:true};
 }
 
-// Explicit recovery only: keep the original identity and attempt budget, and
+// Explicit recovery only: keep the original identity and attempt history, and
 // never requeue successes, live claims, changed inputs or another owner's job.
-export async function retryPlacesJob(ownerId:string,options:{jobId:string;postId:string;inputHash:string}){
+export async function retryPlacesJob(ownerId:string,options:{jobId:string;postId:string;inputHash:string;repairInfrastructure?:boolean}){
   return prisma.$transaction(async tx=>{
     await tx.$queryRaw`SELECT id FROM posts WHERE id=${options.postId} AND owner_id=${ownerId} FOR UPDATE`;
     await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${options.jobId} AND owner_id=${ownerId} FOR UPDATE`;
@@ -189,9 +192,15 @@ export async function retryPlacesJob(ownerId:string,options:{jobId:string;postId
     if(!job)throw Error('PLACES_JOB_NOT_FOUND');
     const current=await inputs(ownerId,options.postId,tx);
     if(current.inputHash!==options.inputHash||job.inputHash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
-    if(job.status!=='FAILED'||job.errorCode!=='INVALID_RESULT'||job.attemptCount>=job.maxAttempts)return {requeued:false};
-    await setAuditAction(tx,'places.worker.retry');
+    if(job.status!=='FAILED')return {requeued:false};
+    const metadata=placesJobMetadata(job.result),repair=options.repairInfrastructure===true;
+    if(repair){
+      if(!repairableFailureCodes.has(job.errorCode??'')||metadata.infrastructureRepair||job.maxAttempts>=6||job.attemptCount>=6)return {requeued:false};
+    }else if(job.errorCode!=='INVALID_RESULT'||job.attemptCount>=job.maxAttempts)return {requeued:false};
+    await setAuditAction(tx,repair?'places.worker.repair_infrastructure':'places.worker.retry');
     await tx.placeAnalysisJob.update({where:{id:job.id},data:{status:'PENDING',stage:'QUEUED',errorCode:null,errorMessage:null,
+      ...(repair?{maxAttempts:Math.min(6,job.maxAttempts+3),result:{...metadata,
+        infrastructureRepair:{at:new Date().toISOString(),priorErrorCode:job.errorCode,attemptCount:job.attemptCount,maxAttempts:job.maxAttempts,infrastructure:metadata.infrastructure??null,learning:metadata.learning??null},infrastructure:{...placesJobMetadata(metadata.infrastructure??null),deferrals:0}}}:{}),
       nextAttemptAt:null,completedAt:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
     return {requeued:true};
   },{timeout:30_000});
@@ -269,16 +278,27 @@ export async function completePlacesJob(ownerId:string,options:Lease&{result:unk
     return receipt;
   },{timeout:30_000});
 }
-export async function failPlacesJob(ownerId:string,options:Lease&{code:string}){
+export async function failPlacesJob(ownerId:string,options:Lease&{code:string;retryAfterMs?:number}){
   return prisma.$transaction(async tx=>{
-    // Serialize outcome writes with completion. Only the live lease may teach.
+    // Serialize provider cooldown admission with claims, then fence the live lease.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`places-worker:${ownerId}`},0))::text`;
     await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${options.jobId} AND owner_id=${ownerId} FOR UPDATE`;
     const job=await loadLease(ownerId,options,tx),now=new Date();
     const metadata=placesJobMetadata(job.result);
     const adaptive=Boolean(metadata.learningClaim)||(metadata.automation as {source?:string}|undefined)?.source==='sync';
-    const retryable=(['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','WORKER_STOPPING','WORKER_TIMEOUT'].includes(options.code)||(adaptive&&['INVALID_RESULT','PLACES_EVIDENCE_INVALID'].includes(options.code)))&&job.attemptCount<job.maxAttempts;
+    const infrastructure=deferredFailureCodes.has(options.code);
+    const prior=metadata.infrastructure as {deferrals?:unknown}|undefined;
+    const count=typeof prior?.deferrals==='number'&&Number.isInteger(prior.deferrals)&&prior.deferrals>=0?prior.deferrals:0;
+    const deferrals=Math.min(7,count+1),deferred=infrastructure&&deferrals<=6;
+    const retryable=deferred||(!infrastructure&&(['MEDIA_UNAVAILABLE','MEDIA_DOWNLOAD_FAILED','ASR_FAILED','INFERENCE_FAILED','WORKER_STOPPING','WORKER_TIMEOUT'].includes(options.code)||(adaptive&&['INVALID_RESULT','PLACES_EVIDENCE_INVALID'].includes(options.code)))&&job.attemptCount<job.maxAttempts);
+    const providerDelay=options.code==='INFERENCE_BUSY'&&Number.isFinite(options.retryAfterMs)?Math.max(0,Math.min(900_000,options.retryAfterMs!)):0;
+    const waitMs=Math.max(providerDelay,infrastructure?Math.min(900_000,60_000*2**Math.min(deferrals-1,4)):job.attemptCount===1?60_000:300_000);
+    // Environment/provider deferrals do not teach extraction rules or replace
+    // an earlier outcome for the refunded attempt. Their budget stays durable.
+    const result=infrastructure?{...metadata,infrastructure:{deferrals,lastCode:options.code,lastAt:now.toISOString(),...(providerDelay?{providerBlockedUntil:new Date(now.getTime()+providerDelay).toISOString()}:{})}}:recordPlacesOutcome(job.result,{attempt:job.attemptCount,status:'FAILED',code:options.code});
     await setAuditAction(tx,'places.worker.fail');
-    const updated=await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:options.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',stage:retryable?'QUEUED':'COMPLETE',errorCode:options.code,errorMessage:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,result:recordPlacesOutcome(job.result,{attempt:job.attemptCount,status:'FAILED',code:options.code})}});
+    const updated=await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:options.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',stage:retryable?'QUEUED':'COMPLETE',errorCode:options.code,errorMessage:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,
+      ...(deferred?{attemptCount:Math.max(0,job.attemptCount-1)}:{}),nextAttemptAt:retryable?new Date(now.getTime()+waitMs):null,completedAt:retryable?null:now,result}});
     if(updated.count!==1)throw Error('PLACES_LEASE_LOST');
     return {ok:true,retryable};
   });

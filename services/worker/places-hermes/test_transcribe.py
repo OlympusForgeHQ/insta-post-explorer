@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -34,12 +36,12 @@ class TranscriptionTimingTests(unittest.TestCase):
                 model.transcribe.return_value = (iter([segment(0, 1, 'Original words.')]),
                                                  SimpleNamespace(duration=1))
                 output = io.StringIO()
-                with patch.object(transcriber, 'WhisperModel', return_value=model) as factory, \
+                with patch.dict(sys.modules, {'faster_whisper': SimpleNamespace(WhisperModel=Mock(return_value=model))}), \
                      patch.object(sys, 'argv', ['transcribe.py', '--audio', '/local/audio.wav',
                                                 '--cache', '/local/model-cache']), \
                      contextlib.redirect_stdout(output):
                     transcriber.main()
-                self.assertEqual(factory.call_args.kwargs['cpu_threads'], expected)
+                    self.assertEqual(sys.modules['faster_whisper'].WhisperModel.call_args.kwargs['cpu_threads'], expected)
                 self.assertEqual(json.loads(output.getvalue())['segments'][0]['text'],
                                  'Original words.')
         for invalid in ['0', '-1', '5', '1.5', 'invalid', '']:
@@ -54,7 +56,7 @@ class TranscriptionTimingTests(unittest.TestCase):
         model.transcribe.return_value = (iter(segments), SimpleNamespace(
             duration=duration, duration_after_vad=1.0))
         output = io.StringIO()
-        with patch.object(transcriber, 'WhisperModel', return_value=model), \
+        with patch.dict(sys.modules, {'faster_whisper': SimpleNamespace(WhisperModel=Mock(return_value=model))}), \
              patch.object(sys, 'argv', ['transcribe.py', '--audio', '/local/audio.wav',
                                         '--cache', '/local/model-cache']), \
              contextlib.redirect_stdout(output):
@@ -88,6 +90,77 @@ class TranscriptionTimingTests(unittest.TestCase):
         ], 10)
         self.assertEqual(rows, [{'startMs': 5250, 'endMs': 8500, 'text': 'Actual words.'}])
 
+
+
+class TranscriptionIsolationTests(unittest.TestCase):
+    def invoke(self, mode='check', failure=None):
+        with tempfile.TemporaryDirectory(prefix='places-asr-isolation-') as folder:
+            root = Path(folder)
+            cache = root / 'existing-cache'
+            cache.mkdir()
+            # Match the existing explicit download_root layout, outside HF_HOME/hub.
+            model_path = cache / 'models--Systran--faster-whisper-small'
+            model_path.mkdir()
+            (model_path / 'cached-model').touch()
+            fake_module = root / 'faster_whisper.py'
+            fake_module.write_text("""
+import os
+from pathlib import Path
+from types import SimpleNamespace
+cache = Path(os.environ['TEST_CACHE'])
+assert os.environ.get('HF_HOME') == str(cache / 'huggingface')
+assert os.environ.get('HF_TOKEN_PATH') == str(cache / 'huggingface' / 'token')
+assert os.environ.get('HF_HUB_CACHE') == str(cache)
+assert os.environ.get('HUGGINGFACE_HUB_CACHE') == str(cache)
+assert os.environ.get('HF_HUB_DISABLE_IMPLICIT_TOKEN') == '1'
+assert os.environ.get('HF_HUB_OFFLINE') == '1'
+if os.environ.get('TEST_FAILURE') == 'import':
+    raise ImportError('private import path /home/argos/secret')
+class WhisperModel:
+    def __init__(self, name, **kwargs):
+        assert name == 'small'
+        assert kwargs['download_root'] == str(cache)
+        assert kwargs['local_files_only'] is True
+        assert kwargs['use_auth_token'] is False
+        assert (cache / 'models--Systran--faster-whisper-small' / 'cached-model').exists()
+        if os.environ.get('TEST_FAILURE') == 'load':
+            raise PermissionError('private cache path /home/argos/secret')
+    def transcribe(self, *args, **kwargs):
+        assert os.environ['TEST_MODE'] == 'audio', 'preflight must only load the model'
+        if os.environ.get('TEST_FAILURE') == 'transcribe':
+            raise RuntimeError('private signed media URL and content')
+        return iter([]), SimpleNamespace(duration=1)
+""", encoding='utf-8')
+            env = {**os.environ, 'PYTHONPATH': folder, 'TEST_CACHE': str(cache),
+                   'TEST_MODE': mode, 'TEST_FAILURE': failure or '',
+                   'HOME': str(root / 'inaccessible-home'),
+                   'HF_HOME': '/home/argos/private-hf',
+                   'HF_TOKEN_PATH': '/home/argos/private-hf/token',
+                   'HF_HUB_CACHE': '/home/argos/private-hf/hub',
+                   'HUGGINGFACE_HUB_CACHE': '/home/argos/private-hf/hub'}
+            args = ['--check'] if mode == 'check' else ['--audio', str(root / 'audio.wav')]
+            return subprocess.run([sys.executable, '-B', str(TARGET), *args,
+                                   '--cache', str(cache)], env=env, text=True,
+                                  capture_output=True, timeout=5)
+
+    def test_initializes_private_offline_cache_before_import_and_loads_it_for_preflight(self):
+        for mode, expected in [('check', {'ready': True}), ('audio', {'segments': []})]:
+            with self.subTest(mode=mode):
+                result = self.invoke(mode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), expected)
+                self.assertEqual(result.stderr, '')
+
+    def test_reports_sanitized_model_unavailability_separately_from_transcription_failure(self):
+        for failure, mode, code in [('import', 'check', 'ASR_UNAVAILABLE'),
+                                    ('load', 'check', 'ASR_UNAVAILABLE'),
+                                    ('load', 'audio', 'ASR_UNAVAILABLE'),
+                                    ('transcribe', 'audio', 'ASR_FAILED')]:
+            with self.subTest(failure=failure, mode=mode):
+                result = self.invoke(mode, failure)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, '')
+                self.assertEqual(result.stderr, code + '\n')
 
 if __name__ == '__main__':
     unittest.main()

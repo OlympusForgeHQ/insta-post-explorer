@@ -1,9 +1,15 @@
 import {z} from 'zod';
+// Shared with the application: diagnostic codes never contain private payloads.
+export const placesFailureCodes = ['MEDIA_UNAVAILABLE','MEDIA_DOWNLOAD_FAILED','MEDIA_DECODE_FAILED','MEDIA_TOOLS_UNAVAILABLE','MEDIA_LIMIT','ASR_UNAVAILABLE','ASR_FAILED','TEMP_STORAGE_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE','WORKER_STOPPING','WORKER_TIMEOUT'] as const;
+export const runtimeFailureCodes = new Set<string>(['ASR_UNAVAILABLE','MEDIA_TOOLS_UNAVAILABLE','TEMP_STORAGE_UNAVAILABLE']);
+export const deferredFailureCodes = new Set<string>([...runtimeFailureCodes,'INFERENCE_BUSY']);
+export const repairableFailureCodes = new Set<string>([...deferredFailureCodes,'MEDIA_UNAVAILABLE','MEDIA_DOWNLOAD_FAILED','INFERENCE_FAILED','WORKER_TIMEOUT']);
+
 
 const strategySchema=z.enum(['standard','format_guidance','evidence_guidance']);
-export const placesFailureSchema=z.enum(['MEDIA_UNAVAILABLE','MEDIA_LIMIT','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','PLACES_EVIDENCE_INVALID','PLACES_MEDIA_INCOMPLETE','WORKER_STOPPING','WORKER_TIMEOUT']);
+export const placesFailureSchema=z.enum(placesFailureCodes);
 const shapeSchema=z.string().regex(/^(caption|image|video):(short|long):(single|multi)$/);
-const outcomeSchema=z.object({attempt:z.number().int().min(1).max(3),status:z.enum(['FAILED','SUCCEEDED','NEEDS_REVIEW']),code:placesFailureSchema.optional(),strategy:strategySchema}).strict();
+const outcomeSchema=z.object({attempt:z.number().int().min(1).max(6),status:z.enum(['FAILED','SUCCEEDED','NEEDS_REVIEW']),code:placesFailureSchema.optional(),strategy:strategySchema}).strict();
 const stateSchema=z.object({version:z.literal(1),shape:shapeSchema,outcomes:z.array(outcomeSchema).max(3)}).strict();
 export const placesLearningContextSchema=z.object({version:z.literal(1),strategy:strategySchema,recent:z.object({examined:z.number().int().min(0).max(100),formatFailures:z.number().int().min(0).max(100),evidenceFailures:z.number().int().min(0).max(100),successes:z.number().int().min(0).max(100)}).strict()}).strict();
 export type PlacesLearningContext=z.infer<typeof placesLearningContextSchema>;

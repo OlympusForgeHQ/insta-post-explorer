@@ -11,7 +11,7 @@ it('bounds the whole response body with the download deadline rather than waitin
  const dir=await mkdtemp(path.join(tmpdir(),'classification-download-timeout-')),parent=AbortSignal.timeout(250);
  try{
   const request:typeof fetch=async()=>new Response(new ReadableStream({start(c){c.enqueue(new Uint8Array([1]));}}));
-  await expect(downloadMedia({...media,byteSize:3},path.join(dir,'source'),parent,request,{...policy,downloadTimeoutMs:10})).rejects.toThrow('MEDIA_UNAVAILABLE');
+  await expect(downloadMedia({...media,byteSize:3},path.join(dir,'source'),parent,request,{...policy,downloadTimeoutMs:10})).rejects.toThrow('WORKER_TIMEOUT');
   expect(parent.aborted).toBe(false);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
@@ -40,7 +40,7 @@ it('enforces video bytes and process deadlines without weakening default downloa
   await expect(downloadMedia({...media,byteSize:600*1024*1024},path.join(dir,'default'),signal,request)).rejects.toThrow('MEDIA_LIMIT');
   for(const invalid of [{...media,byteSize:policy.maxVideoBytes+1},{...media,kind:'IMAGE' as const,mimeType:'image/jpeg',byteSize:250*1024*1024+1}])await expect(downloadMedia(invalid,path.join(dir,'invalid'),signal,request,policy)).rejects.toThrow('MEDIA_LIMIT');
   expect(request).not.toHaveBeenCalled();
-  await expect(runProcess('/usr/bin/python3',['-c','import time;time.sleep(0.25)'],signal,10)).rejects.toThrow('MEDIA_UNAVAILABLE');
+  await expect(runProcess('/usr/bin/python3',['-c','import time;time.sleep(0.25)'],signal,10)).rejects.toThrow('WORKER_TIMEOUT');
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 

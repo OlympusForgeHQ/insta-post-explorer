@@ -12,25 +12,46 @@ export type Frame={path:string;timestampMs:number;mediaId:string};
 export type MediaExtractionLimits={maxVideoBytes:number;maxDurationMs:number;downloadTimeoutMs:number;processTimeoutMs:number};
 const defaultLimits:Readonly<MediaExtractionLimits>={maxVideoBytes:250*1024*1024,maxDurationMs:900_000,downloadTimeoutMs:180_000,processTimeoutMs:600_000};
 export type ExtractedMedia={frames:Frame[];transcript:{mediaId:string;segments:Array<{startMs:number;endMs:number;text:string}>};coverage:{mediaId:string;kind:'IMAGE'|'VIDEO';durationMs:number|null;frameCount:number;audio:'transcribed'|'absent'|'not_applicable'}};
-export async function runProcess(file:string,args:string[],signal:AbortSignal,timeoutMs=600_000):Promise<string>{
+type AsrConfig=Pick<PlacesConfig,'python'|'transcribeScript'|'modelCache'>;
+function abortCode(signal:AbortSignal){return signal.reason?.name==='TimeoutError'?'WORKER_TIMEOUT':'WORKER_STOPPING';}
+function storageUnavailable(error:unknown){return error instanceof Error&&'code' in error&&['ENOSPC','EDQUOT','EACCES','EPERM','EROFS'].includes(String(error.code));}
+export async function runProcess(file:string,args:string[],signal:AbortSignal,timeoutMs=600_000,failureCode:'MEDIA_DECODE_FAILED'|'ASR_FAILED'|'ASR_UNAVAILABLE'='MEDIA_DECODE_FAILED'):Promise<string>{
+  if(signal.aborted)throw Error(abortCode(signal));
+  const deadline=AbortSignal.timeout(timeoutMs);
   try{return await new Promise<string>((resolve,reject)=>{
-    execFile(file,args,{signal,killSignal:'SIGKILL',timeout:timeoutMs,maxBuffer:4*1024*1024,encoding:'utf8'},(error,stdout,stderr)=>error || (file.startsWith('/usr/bin/ff') && stderr.trim()) ? reject(error ?? Error('MEDIA_DECODE_FAILED')) : resolve(stdout));
-  });}catch{throw Error(signal.aborted?'WORKER_STOPPING':'MEDIA_UNAVAILABLE');}
+    execFile(file,args,{signal:AbortSignal.any([signal,deadline]),killSignal:'SIGKILL',maxBuffer:4*1024*1024,encoding:'utf8'},(error,stdout,stderr)=>{
+      if(!error&&!(file.startsWith('/usr/bin/ff')&&stderr.trim())){resolve(stdout);return;}
+      const asr=failureCode!=='MEDIA_DECODE_FAILED';
+      const unavailable=error?.code==='ENOENT'||error?.code==='EACCES';
+      // ffmpeg reports output filesystem failures through stderr, not errno.
+      // Retain only the failure family; paths and raw diagnostics stay private.
+      const storage=!asr&&/\b(?:No space left on device|Disk quota exceeded|Read-only file system)\b/i.test(stderr);
+      const code=unavailable?(asr?'ASR_UNAVAILABLE':'MEDIA_TOOLS_UNAVAILABLE'):storage?'TEMP_STORAGE_UNAVAILABLE':asr&&stderr.trim()==='ASR_UNAVAILABLE'?'ASR_UNAVAILABLE':failureCode;
+      reject(Error(code));
+    });
+  });}catch(error){throw Error(signal.aborted?abortCode(signal):deadline.aborted?'WORKER_TIMEOUT':error instanceof Error&&['ASR_UNAVAILABLE','MEDIA_TOOLS_UNAVAILABLE','TEMP_STORAGE_UNAVAILABLE'].includes(error.message)?error.message:failureCode);}
+}
+export async function preflightAsr(config:AsrConfig,signal:AbortSignal,timeoutMs=60_000):Promise<void>{
+  const output=await runProcess(config.python,[config.transcribeScript,'--check','--cache',config.modelCache],signal,timeoutMs,'ASR_UNAVAILABLE');
+  try{z.object({ready:z.literal(true)}).strict().parse(JSON.parse(output));}catch{throw Error('ASR_UNAVAILABLE');}
 }
 export async function downloadMedia(media:MediaDescriptor,target:string,signal:AbortSignal,request:typeof fetch=fetch,limits:Readonly<MediaExtractionLimits>=defaultLimits){
-  const url=new URL(media.url);
+  if(signal.aborted)throw Error(abortCode(signal));
+  let url:URL;try{url=new URL(media.url);}catch{throw Error('MEDIA_UNAVAILABLE');}
   if(url.protocol!=='https:'||!url.hostname.endsWith('.r2.cloudflarestorage.com')||url.username||url.password||url.hash||url.port)throw Error('MEDIA_UNAVAILABLE');
   if(media.byteSize<=0||media.byteSize>(media.kind==='VIDEO'?limits.maxVideoBytes:250*1024*1024))throw Error('MEDIA_LIMIT');
-  const downloadSignal=AbortSignal.any([signal,AbortSignal.timeout(limits.downloadTimeoutMs)]);
+  const deadline=AbortSignal.timeout(limits.downloadTimeoutMs);
+  const downloadSignal=AbortSignal.any([signal,deadline]);
+  const failure=()=>signal.aborted?abortCode(signal):deadline.aborted?'WORKER_TIMEOUT':'MEDIA_DOWNLOAD_FAILED';
   let response:Response;
-  try{response=await request(url,{redirect:'error',headers:media.versionTag?{'If-Match':media.versionTag}:{},signal:downloadSignal});}catch{throw Error('MEDIA_UNAVAILABLE');}
+  try{response=await request(url,{redirect:'error',headers:media.versionTag?{'If-Match':media.versionTag}:{},signal:downloadSignal});}catch{throw Error(failure());}
   const declared=response.headers.get('content-length');
-  if(!response.ok||!response.body||(declared!==null&&Number(declared)!==media.byteSize)){await response.body?.cancel();throw Error('MEDIA_UNAVAILABLE');}
+  if(!response.ok||!response.body||(declared!==null&&Number(declared)!==media.byteSize)){await response.body?.cancel().catch(()=>undefined);throw Error(failure());}
   let size=0;
   const bound=new Transform({transform(chunk:Buffer,_encoding,callback){size+=chunk.length;callback(size>media.byteSize?Error('MEDIA_LIMIT'):null,chunk);}});
   try{await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),bound,createWriteStream(target,{mode:0o600,flags:'wx'}),{signal:downloadSignal});}
-  catch(error){throw Error(error instanceof Error&&error.message==='MEDIA_LIMIT'?'MEDIA_LIMIT':'MEDIA_UNAVAILABLE');}
-  if(size!==media.byteSize)throw Error('MEDIA_UNAVAILABLE');
+  catch(error){throw Error(downloadSignal.aborted?failure():storageUnavailable(error)?'TEMP_STORAGE_UNAVAILABLE':error instanceof Error&&error.message==='MEDIA_LIMIT'?'MEDIA_LIMIT':'MEDIA_DOWNLOAD_FAILED');}
+  if(size!==media.byteSize)throw Error(failure());
 }
 const probeSchema=z.object({format:z.object({duration:z.string().optional(),format_name:z.string()}),streams:z.array(z.object({codec_type:z.string(),width:z.number().optional(),height:z.number().optional(),duration:z.string().optional(),avg_frame_rate:z.string().optional()}))});
 const transcriptSchema=z.object({segments:z.array(z.object({startMs:z.number().int().nonnegative(),endMs:z.number().int().nonnegative(),text:z.string().max(5000)})).max(2000)});
@@ -41,11 +62,13 @@ export async function extractMedia(media:MediaDescriptor,index:number,dir:string
 }
 export async function extractLocalMedia(media:MediaDescriptor,source:string,index:number,dir:string,config:Pick<PlacesConfig,'python'|'transcribeScript'|'modelCache'>,signal:AbortSignal,limits:Readonly<MediaExtractionLimits>=defaultLimits):Promise<ExtractedMedia>{
   const execute=(file:string,args:string[])=>runProcess(file,args,signal,limits.processTimeoutMs);
-  const probe=probeSchema.parse(JSON.parse(await execute('/usr/bin/ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_format','-show_streams','-of','json',source])));
+  const probeText=await execute('/usr/bin/ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_format','-show_streams','-of','json',source]);
+  let probe:z.infer<typeof probeSchema>;
+  try{probe=probeSchema.parse(JSON.parse(probeText));}catch{throw Error('MEDIA_DECODE_FAILED');}
   const video=probe.streams.find(s=>s.codec_type==='video');
   if(!video?.width||!video.height||video.width>8192||video.height>8192)throw Error('MEDIA_LIMIT');
   const allowed=media.kind==='VIDEO'?['mov','mp4']:media.mimeType==='image/jpeg'?['jpeg_pipe','image2']:media.mimeType==='image/png'?['png_pipe','image2']:['webp_pipe','image2'];
-  if(!probe.format.format_name.split(',').some(n=>allowed.includes(n)))throw Error('MEDIA_UNAVAILABLE');
+  if(!probe.format.format_name.split(',').some(n=>allowed.includes(n)))throw Error('MEDIA_DECODE_FAILED');
   const durationMs=media.kind==='VIDEO'?Math.round(Number(probe.format.duration)*1000):null;
   if(durationMs!==null&&(!Number.isFinite(durationMs)||durationMs<=0||durationMs>limits.maxDurationMs))throw Error('MEDIA_LIMIT');
   if(media.kind==='VIDEO')await execute('/usr/bin/ffmpeg',['-nostdin','-v','error','-threads','2','-protocol_whitelist','file,pipe','-i',source,'-map','0:v:0','-f','null','-']);
@@ -59,7 +82,7 @@ export async function extractLocalMedia(media:MediaDescriptor,source:string,inde
   const count=durationMs===null?1:Math.min(12,Math.max(1,Math.ceil(videoDurationMs/1000)));
   const frames:Frame[]=[];
   for(let i=0;i<count;i++){
-    signal.throwIfAborted();
+    if(signal.aborted)throw Error(abortCode(signal));
     const timestampMs=durationMs===null?0:Math.floor(i*lastFrameMs/Math.max(1,count-1));
     const framePath=path.join(dir,`frame-${index}-${i}.jpg`);
     await execute('/usr/bin/ffmpeg',['-nostdin','-v','error','-threads','2','-protocol_whitelist','file,pipe',...(durationMs!==null?['-ss',String(timestampMs/1000)]:[]),'-i',source,'-frames:v','1','-vf',"scale=w='min(1280,iw)':h=-2",'-q:v','3','-y',framePath]);
@@ -70,13 +93,13 @@ export async function extractLocalMedia(media:MediaDescriptor,source:string,inde
   if(media.kind==='VIDEO'&&probe.streams.some(s=>s.codec_type==='audio')){
     const audioPath=path.join(dir,`audio-${index}.wav`);
     await execute('/usr/bin/ffmpeg',['-nostdin','-v','error','-threads','2','-protocol_whitelist','file,pipe','-i',source,'-vn','-ac','1','-ar','16000','-y',audioPath]);
-    const text=await execute(config.python,[config.transcribeScript,'--audio',audioPath,'--cache',config.modelCache]);
-    try{segments=transcriptSchema.parse(JSON.parse(text)).segments;}catch{throw Error('INVALID_RESULT');}
-    if(segments.some(s=>s.endMs<s.startMs||s.endMs>(durationMs??0)+1000))throw Error('INVALID_RESULT');
+    const text=await runProcess(config.python,[config.transcribeScript,'--audio',audioPath,'--cache',config.modelCache],signal,limits.processTimeoutMs,'ASR_FAILED');
+    try{segments=transcriptSchema.parse(JSON.parse(text)).segments;}catch{throw Error('ASR_FAILED');}
+    if(segments.some(s=>s.endMs<s.startMs||s.endMs>(durationMs??0)+1000))throw Error('ASR_FAILED');
     audio='transcribed';
   }
   // Verify outputs exist before handing them to the inference client.
-  try{for(const frame of frames){if(!(await readFile(frame.path)).length)throw Error('MEDIA_UNAVAILABLE');}}
-  catch{throw Error('MEDIA_UNAVAILABLE');}
+  try{for(const frame of frames){if(!(await readFile(frame.path)).length)throw Error('MEDIA_DECODE_FAILED');}}
+  catch(error){throw Error(storageUnavailable(error)?'TEMP_STORAGE_UNAVAILABLE':'MEDIA_DECODE_FAILED');}
   return {frames,transcript:{mediaId:media.id,segments},coverage:{mediaId:media.id,kind:media.kind,durationMs,frameCount:frames.length,audio}};
 }

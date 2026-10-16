@@ -6,11 +6,21 @@ using their final theme and tags. If classification is disabled, sync admits usi
 its provisional current theme. Uncertain classification stays in review. Existing
 posts and sync replays do not opt in retroactively. No backfill command is used.
 
-The consumer is independent of Instagram sync and classification. It polls the
-existing scoped Places API every 15 seconds at rest, performs one bounded analysis
-at a time and immediately continues after success. A failed job or API poll waits
-60 seconds. Server retries wait 1 then 5 minutes, within three attempts. Persistent
-failures remain visible as FAILED; ambiguous geographical results remain in review.
+The consumer is independent of Instagram sync and classification. Before claiming,
+it executes both media tools, verifies writable temporary storage and loads the
+cached ASR model. No runtime download or home-token lookup occurs. Failed readiness
+blocks claims; local infrastructure faults invalidate readiness. Failure waits
+start at 60 seconds and double to 15 minutes, resetting after successful work.
+At rest it polls every 15 seconds; it processes one bounded analysis at a time.
+
+Inference retries transient transport errors within the existing six-minute stage
+deadline (at most five retries, separate from one format repair). Provider cooldowns
+up to 15 minutes survive the request, the job and consumer restarts, blocking new
+owner claims until due. Larger Retry-After values are capped at this operational
+limit. Busy/runtime faults have six durable deferrals without spending the analysis
+budget; the seventh ends FAILED. Ordinary retryable failures use the existing
+three analysis attempts. Persistent failures remain visible as FAILED; ambiguous
+geographical results remain in review.
 The daemon never silently turns them into successes.
 
 ## Learning and audit
@@ -23,7 +33,12 @@ model-written rule is stored in this learning metadata. Busy-provider errors hav
 backoff, not fabricated extraction guidance. Only a live lease may record outcomes.
 
 `PlaceAnalysisJob.result` retains sync provenance, selected strategy, up to three
-attempt outcomes, final resolution decisions and completion receipt. Existing audit
+recent attempt outcomes, finite infrastructure deferrals, final resolution decisions
+and completion receipt. An explicit `retry` with `repairInfrastructure:true` can grant
+one additional allowance of three attempts (maximum six) to a named infrastructure
+failure, while preserving its attempt counter, input identity and prior history in
+a repair receipt. It cannot reset successes, live claims, changed inputs, manual
+exclusions or a previously repaired job. Default retry behavior stays unchanged. Existing audit
 triggers preserve changes. Logs include sanitized failure codes and strategy counts,
 never captions, media URLs or credentials. Existing explicitly owner-confirmed
 identity memory supplies geographical context; providers still validate candidates.
@@ -65,8 +80,13 @@ PLACES_ASR_CACHE=/var/lib/insta-explorer-places-consumer/cache
 PLACES_LEARNING_ENABLED=1
 ```
 
-Reuse the installed ASR cache by copying it to this dedicated cache if available,
-so the first post does not need a model download. Keep secrets out of command-line
+Pre-stage the complete `small` faster-whisper model cache in the dedicated cache
+before activation; `--check --cache /var/lib/insta-explorer-places-consumer/cache`
+must load it under the service user and protections. Runtime transcription is
+cached-only. A missing cache blocks readiness instead of claiming posts. Copy the
+existing working classification cache when available. No private Hugging Face
+token is needed for this public model. The shared script also preserves the
+classification cache layout; keep its cache staged before upgrading that runtime. Keep secrets out of command-line
 arguments, Git, chat and logs. The app retains `PLACES_WORKER_ENABLED=1`, its existing
 scoped key hash and configured geographic provider keys.
 

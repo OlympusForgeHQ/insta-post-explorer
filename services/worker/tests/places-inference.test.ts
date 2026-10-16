@@ -52,7 +52,7 @@ it('does not spend a repair call after cancellation or an invalid upstream envel
   const abort=new AbortController();
   const request=vi.fn(async()=>{
    if(scenario==='cancel'){abort.abort();return reply(invalid);}
-   return scenario==='http'?new Response(null,{status:503}):reply(valid,'unexpected-model');
+   return scenario==='http'?new Response(null,{status:401}):reply(valid,'unexpected-model');
   });
   await expect(new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'caption',prepared.input,[],abort.signal)).rejects.toThrow(scenario==='cancel'?'WORKER_STOPPING':scenario==='http'?'INFERENCE_FAILED':'INVALID_RESULT');
   expect(request).toHaveBeenCalledTimes(1);
@@ -91,11 +91,118 @@ it.each(['capacity','over_capacity','length'] as const)('fails an itinerary limi
  expect(request).toHaveBeenCalledTimes(1);
 });
 
-it('applies bounded learned guidance while preserving source validation and recognizes a busy provider',async()=>{
+it('applies bounded learned guidance while preserving source validation',async()=>{
  const request=vi.fn<typeof fetch>(async()=>reply(valid));
  await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze({...prepared,learningContext:{version:1,strategy:'evidence_guidance',recent:{examined:2,formatFailures:0,evidenceFailures:2,successes:0}}},'caption',prepared.input,[],new AbortController().signal);
  expect(JSON.parse(request.mock.calls[0][1]!.body as string).messages[0].content).toContain('Previous comparable analyses failed evidence validation');
- const busy=vi.fn<typeof fetch>(async()=>new Response(null,{status:429}));
- await expect(new HermesPlacesInference('http://hermes.test/v1','private',busy).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toThrow('INFERENCE_BUSY');
- expect(busy).toHaveBeenCalledTimes(1);
+});
+
+function retryRuntime(){
+ let now=Date.UTC(2026,9,16);
+ return {now:()=>now,random:()=>0,advance:(ms:number)=>{now+=ms;},wait:vi.fn(async(ms:number)=>{now+=ms;})};
+}
+const transientFailure=(status:number|'transport',headers?:Record<string,string>)=>{
+ if(status==='transport')throw new TypeError('fetch failed');
+ return new Response(null,{status,headers});
+};
+
+it.each([429,502,503,504,'transport'] as const)('recovers from %s without spending the format repair or changing its source',async status=>{
+ const runtime=retryRuntime();let calls=0;
+ const request=vi.fn<typeof fetch>(async()=>{
+  calls++;
+  return calls===1||calls===3?transientFailure(status):reply(calls===2?invalid:valid);
+ });
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request,runtime).analyze(prepared,'caption',prepared.input,[],new AbortController().signal);
+ expect(result).toEqual({candidates:[{name:'Cafe',category:'cafe'}],usage:{inputTokens:20,outputTokens:10}});
+ expect(request).toHaveBeenCalledTimes(4);
+ const bodies=request.mock.calls.map(([,init])=>init!.body as string);
+ expect(bodies[1]).toBe(bodies[0]);expect(bodies[3]).toBe(bodies[2]);
+ expect(JSON.parse(bodies[2]).messages).toHaveLength(3);
+ expect(JSON.parse(bodies[2]).messages.slice(0,2)).toEqual(JSON.parse(bodies[0]).messages);
+ expect(bodies[2]).not.toContain('evidenceNote');
+ expect(runtime.wait.mock.calls.map(([ms])=>ms)).toEqual([1000,2000]);
+ expect(new Set(request.mock.calls.map(([,init])=>init!.signal)).size).toBe(1);
+});
+
+it.each([
+ {status:429,code:'INFERENCE_BUSY'},
+ {status:503,code:'INFERENCE_FAILED'},
+ {status:'transport',code:'INFERENCE_FAILED'},
+] as const)('bounds $status retries across the original response and its repair',async({status,code})=>{
+ const runtime=retryRuntime();let calls=0;
+ const request=vi.fn<typeof fetch>(async()=>++calls===2?reply(invalid):transientFailure(status));
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request,runtime).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toThrow(code);
+ expect(request).toHaveBeenCalledTimes(7);
+ expect(runtime.wait.mock.calls.map(([ms])=>ms)).toEqual([1000,2000,4000,8000,15000]);
+ expect(JSON.parse(request.mock.calls.at(-1)![1]!.body as string).messages).toHaveLength(3);
+});
+
+it.each([
+ {header:'30',wait:30_000},
+ {header:'Fri, 16 Oct 2026 00:00:40 GMT',wait:40_000},
+ {header:'-1',wait:1000},
+ {header:'not a date',wait:1000},
+] as const)('honors Retry-After $header without a hot retry loop',async({header,wait})=>{
+ const runtime=retryRuntime();const cancel=vi.fn();
+ const rejected=new Response(new ReadableStream({cancel}),{status:429,headers:{'Retry-After':header}});
+ const request=vi.fn<typeof fetch>().mockResolvedValueOnce(rejected).mockImplementation(async()=>reply(valid));
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request,runtime).analyze(prepared,'caption',{},[],new AbortController().signal);
+ expect(result.usage).toEqual({inputTokens:10,outputTokens:5});
+ expect(cancel).toHaveBeenCalledOnce();expect(runtime.wait.mock.calls[0][0]).toBe(wait);
+ expect(request).toHaveBeenCalledTimes(2);
+});
+
+it.each(['too_long','deadline_before_wait','deadline_during_wait'] as const)('does not retry early or extend the shared deadline: %s',async scenario=>{
+ const runtime=retryRuntime();let calls=0;
+ if(scenario==='deadline_during_wait')runtime.wait.mockImplementation(async()=>runtime.advance(360_000));
+ const request=vi.fn<typeof fetch>(async()=>{
+  calls++;
+  if(scenario==='deadline_before_wait')runtime.advance(359_500);
+  return calls===1?reply(invalid):transientFailure(429,{'Retry-After':scenario==='too_long'?'61':'1'});
+ });
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request,runtime).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toThrow('INFERENCE_BUSY');
+ expect(request).toHaveBeenCalledTimes(2);
+ expect(runtime.wait).toHaveBeenCalledTimes(scenario==='deadline_during_wait'?1:0);
+});
+
+it.each([
+ {header:'120',remaining:120_000},
+ {header:'Fri, 16 Oct 2026 00:02:00 GMT',remaining:120_000},
+ {header:'3600',remaining:900_000},
+ {header:'9'.repeat(400),remaining:900_000},
+])('carries a bounded busy cooldown to the queue for Retry-After $header',async({header,remaining})=>{
+ const runtime=retryRuntime();
+ const request=vi.fn<typeof fetch>(async()=>transientFailure(429,{'Retry-After':header}));
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request,runtime).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toMatchObject({message:'INFERENCE_BUSY',retryAfterMs:remaining});
+ expect(request).toHaveBeenCalledOnce();expect(runtime.wait).not.toHaveBeenCalled();
+});
+
+it('retains the strongest known remaining busy cooldown across retries',async()=>{
+ const runtime=retryRuntime();let calls=0;
+ // Simulate elapsed wall time shorter than scheduled waits so later replies
+ // cannot erase a still-active cooldown learned from the first response.
+ runtime.wait.mockImplementation(async()=>runtime.advance(1000));
+ const request=vi.fn<typeof fetch>(async()=>transientFailure(429,++calls===1?{'Retry-After':'30'}:calls===2?{'Retry-After':'10'}:undefined));
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request,runtime).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toMatchObject({message:'INFERENCE_BUSY',retryAfterMs:25_000});
+ expect(request).toHaveBeenCalledTimes(6);
+});
+
+it.each(['before_request','during_backoff'] as const)('aborts promptly %s without another inference request',async scenario=>{
+ const stop=new AbortController();
+ if(scenario==='before_request')stop.abort();
+ const request=vi.fn<typeof fetch>(async()=>{
+  setTimeout(()=>stop.abort(),10);
+  return transientFailure(429,{'Retry-After':'30'});
+ });
+ const error=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'caption',{},[],stop.signal).catch(error=>error);
+ expect(error).toBeInstanceOf(Error);expect(error.message).toBe('WORKER_STOPPING');
+ expect(error).not.toHaveProperty('retryAfterMs');
+ expect(request).toHaveBeenCalledTimes(scenario==='before_request'?0:1);
+});
+
+it.each(['broken_body','invalid_json'] as const)('does not repeat an accepted inference after %s',async scenario=>{
+ const body=scenario==='broken_body'?new ReadableStream({start(controller){controller.error(new TypeError('connection lost'));}}):'not JSON';
+ const request=vi.fn<typeof fetch>(async()=>new Response(body));
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request,retryRuntime()).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toThrow(scenario==='broken_body'?'INFERENCE_FAILED':'INVALID_RESULT');
+ expect(request).toHaveBeenCalledTimes(1);
 });
