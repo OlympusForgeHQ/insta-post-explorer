@@ -78,3 +78,17 @@ it('restricts the automatic runner to sync jobs and preserves evidence failure c
  expect(commands.find(c=>c.action==='fail')?.code).toBe('PLACES_EVIDENCE_INVALID');
  expect(await readdir(root)).toEqual([]);
 });
+
+it('reports temporary storage failure against its lease and stops a batch before the next claim',async()=>{
+ const commands:Record<string,unknown>[]=[];const api={async call(c:Record<string,unknown>){commands.push(c);return c.action==='claim'?{jobId:'job',leaseToken:'lease',input:{post_id:'post',input_hash:'hash'},media:[],outputSchema,categoryRules:'rules'}:{ok:true};}};
+ const summary=await runPlacesPipeline({limit:2,commit:true,signal:new AbortController().signal},{api,workdirs:{create:async()=>{throw Error('disk unavailable');},remove:async()=>{},cleanupStale:async()=>0},analyze:async()=>{throw Error('unreachable');}});
+ expect(summary).toMatchObject({failed:1,failureCodes:['TEMP_STORAGE_UNAVAILABLE']});
+ expect(commands.filter(c=>c.action==='claim')).toHaveLength(1);expect(commands.find(c=>c.action==='fail')?.code).toBe('TEMP_STORAGE_UNAVAILABLE');
+});
+
+it('carries a sanitized provider cooldown to the API and consumer',async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'places-cooldown-test-'));roots.push(root);const commands:Record<string,unknown>[]=[];
+ const api={async call(c:Record<string,unknown>){commands.push(c);return c.action==='claim'?{jobId:'job',leaseToken:'lease',input:{post_id:'post',input_hash:'hash'},media:[],outputSchema,categoryRules:'rules'}:{ok:true};}};
+ const result=await runPlacesPipeline({limit:1,commit:true,signal:new AbortController().signal},{api,workdirs:createTempWorkdirManager({root,maxAgeMs:21_600_000}),analyze:async()=>{throw Object.assign(Error('INFERENCE_BUSY'),{retryAfterMs:120_000});}});
+ expect(result.retryAfterMs).toBe(120_000);expect(commands.find(c=>c.action==='fail')).toMatchObject({code:'INFERENCE_BUSY',retryAfterMs:120_000});
+});

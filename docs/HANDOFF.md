@@ -1,5 +1,20 @@
 # Operational Handoff
 
+## Places consumer resilience — 16 October 2026
+
+ASR loads the staged public model offline from its service cache before claiming
+work. Runtime readiness and circuit backoff protect the queue; distinct errors
+separate download, decoding, transcription and local storage failures. Transient
+inference retries share a bounded deadline; provider cooldowns survive restarts.
+Infrastructure deferrals are finite and preserve analysis attempts. A named failed
+job can receive one explicit repair allowance without resetting its history,
+manual protections or sync provenance. Classification/sync runtimes stay separate.
+
+Validation and release procedure: [requirements and evidence](changes/2026-10-16-places-consumer-resilience.md),
+[consumer runbook](../services/worker/places-consumer/README.md). No migration or new
+dependency. Deploy the compatible web API before the consumer, then recover only
+the intended jobs through the scoped API and verify their actual receipts.
+
 ## Desktop Places and library polish — 15 October 2026
 
 Places thumbnails expand in place; detail dialogs are centered and restore their
