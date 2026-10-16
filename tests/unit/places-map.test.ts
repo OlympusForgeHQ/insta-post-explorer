@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PlacesMapItem } from "@/server/places/map-view";
 import { buildMapStyle, buildPlacesGeoJson } from "@/features/places/components/places-map";
-import { buildPlacesAreasGeoJson, formatApproximationRadius, placeViewportBounds } from "@/features/places/map-areas";
+import { buildPlacesAreasGeoJson, buildPlacesAreaOutlinesGeoJson, formatApproximationRadius, placeViewportBounds } from "@/features/places/map-areas";
 
 function place(overrides: Partial<PlacesMapItem> = {}): PlacesMapItem {
   return {
@@ -136,6 +136,20 @@ describe("MapLibre Places data", () => {
     }
     expect([250, 1000, 1500, 20_000].map(formatApproximationRadius)).toEqual(["Zone ~250 m", "Zone ~1 km", "Zone ~1,5 km", "Zone ~20 km"]);
     expect(buildPlacesAreasGeoJson([place({ precision: "APPROXIMATE", approximationRadiusMeters: null })], null).features).toEqual([]);
+  });
+
+  it("draws only true circular boundaries without date-line or world-wide clipping seams", () => {
+    const data = buildPlacesAreaOutlinesGeoJson([
+      place({ id: "local", longitude: 179.9, latitude: 0, precision: "APPROXIMATE", approximationRadiusMeters: 50_000 }),
+      place({ id: "global", precision: "APPROXIMATE", approximationRadiusMeters: Math.PI * 6_371_000 }),
+    ], null);
+    expect(data.features.map(feature => feature.properties.id)).toEqual(["local"]);
+    const lines = data.features[0].geometry.coordinates;
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.flat().length).toBeLessThan(150);
+    for (const line of lines) for (let index = 1; index < line.length; index += 1) {
+      expect(Math.abs(line[index][0] - line[index - 1][0])).toBeLessThan(2);
+    }
   });
 
 });

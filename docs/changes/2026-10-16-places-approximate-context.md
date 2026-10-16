@@ -48,10 +48,10 @@ Implementation and deployment are covered by the owner's standing instructions t
 
 Fresh local evidence on the reviewed implementation:
 
-- Full application suite: 852 tests, 101 files, including disposable PostgreSQL integration checks.
+- Full application suite: 853 tests, 101 files, including disposable PostgreSQL integration checks.
 - Worker compatibility: 231 TypeScript tests and six Python ASR tests pass.
 - Application lint, typecheck and production build pass; worker typecheck and build pass.
-- Places browser coverage: all 22 scenarios validated, including selectable zones, both sides of the antimeridian, mobile/desktop details and existing thumbnail interactions. Two outdated test expectations were corrected and rerun.
+- Places browser coverage: all 23 scenarios validated, including selectable zones, both sides of the antimeridian, mobile/desktop details and existing thumbnail interactions. Two outdated test expectations were corrected and rerun. A 335-zone browser fixture proved that inactive filled areas obscured the map; geographic outlines now remain visible while only the selected area is filled. Outlines have no polygon-clipping seams and inactive surfaces do not intercept map clicks.
 - Independent review reproduced and closed false city proof from a business name, ungrounded parenthetical names and polar bounds. Cross-identity country/district normalization now protects removals and exact upgrades, with positive and contradictory PostgreSQL cases passing.
 - Private real-provider replay covers the entire intended unresolved cohort; receipts remain outside the repository. Production rollout and scoped application are still pending and must be verified from their private execution journal.
 

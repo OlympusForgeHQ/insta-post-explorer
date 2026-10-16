@@ -5,8 +5,8 @@
 Implementation verified locally: precise retrieval followed by a verified
 approximate area, distinct venue identities, geographic zone rendering and bounded
 explicit reprocessing of a completed review. Manual decisions and original source
-jobs stay protected. Validation includes 852 application tests, 231 worker tests,
-six Python checks and 22 Places browser scenarios. See [scope, risks and fresh evidence](changes/2026-10-16-places-approximate-context.md).
+jobs stay protected. Validation includes 853 application tests, 231 worker tests,
+six Python checks and 23 Places browser scenarios. See [scope, risks and fresh evidence](changes/2026-10-16-places-approximate-context.md).
 Production rollout and the five-post application are recorded privately under
 `.tmp/places-approximate-20261016/`; they are not implied by this entry.
 

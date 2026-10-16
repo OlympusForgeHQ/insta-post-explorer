@@ -1,7 +1,8 @@
-import type { FeatureCollection, MultiPolygon } from "geojson";
+import type { FeatureCollection, MultiLineString, MultiPolygon } from "geojson";
 import type { PlacesMapItem } from "@/server/places/map-view";
 
 export type PlacesAreasGeoJson = FeatureCollection<MultiPolygon, { id: string; selected: boolean }>;
+export type PlacesAreaOutlinesGeoJson = FeatureCollection<MultiLineString, { id: string; selected: boolean }>;
 type Coordinate = [number, number];
 type Bounds = [Coordinate, Coordinate];
 const EARTH_RADIUS_METERS = 6_371_000;
@@ -84,6 +85,42 @@ export function buildPlacesAreasGeoJson(places: readonly PlacesMapItem[], select
       }];
     }),
   };
+}
+
+export function buildPlacesAreaOutlinesGeoJson(places: readonly PlacesMapItem[], selectedId: string | null): PlacesAreaOutlinesGeoJson {
+  return { type: "FeatureCollection", features: places.flatMap(place => {
+    const radius = angularRadius(place);
+    // The entire sphere has no boundary. In particular, polygon clipping strips
+    // must never appear as geographic meridians or become clickable outlines.
+    if (radius === null || radius >= Math.PI) return [];
+    const latitude = place.latitude * RADIANS;
+    const points: Coordinate[] = [];
+    for (let step = 0; step < 128; step += 1) {
+      const bearing = step / 128 * 2 * Math.PI;
+      const lat = Math.asin(Math.max(-1, Math.min(1, Math.sin(latitude) * Math.cos(radius)
+        + Math.cos(latitude) * Math.sin(radius) * Math.cos(bearing))));
+      const lng = place.longitude + Math.atan2(Math.sin(bearing) * Math.sin(radius) * Math.cos(latitude),
+        Math.cos(radius) - Math.sin(latitude) * Math.sin(lat)) / RADIANS;
+      points.push([((lng + 180) % 360 + 360) % 360 - 180, lat / RADIANS]);
+    }
+    points.push(points[0]);
+    const lines: Coordinate[][] = [[points[0]]];
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1], point = points[index];
+      const delta = point[0] - previous[0];
+      if (Math.abs(delta) > 180) {
+        const longitude = previous[0] > 0 ? 180 : -180;
+        const continuous = point[0] + (delta > 0 ? -360 : 360);
+        const crossingLatitude = previous[1] + (point[1] - previous[1]) * (longitude - previous[0]) / (continuous - previous[0]);
+        lines.at(-1)!.push([longitude, crossingLatitude]);
+        lines.push([[-longitude, crossingLatitude]]);
+      }
+      lines.at(-1)!.push(point);
+    }
+    return [{ type: "Feature" as const, id: place.id,
+      geometry: { type: "MultiLineString" as const, coordinates: lines },
+      properties: { id: place.id, selected: place.id === selectedId } }];
+  }) };
 }
 
 export function placeViewportBounds(place: PlacesMapItem): Bounds {

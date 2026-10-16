@@ -122,6 +122,7 @@ export function PlacesExplorer({
 
   const mappable = useMemo(() => places.filter(isMappable), [places]);
   const visible = useMemo(() => filterPlaces(mappable, filters), [mappable, filters]);
+  const approximateCount = useMemo(() => visible.filter(place => place.precision === "APPROXIMATE").length, [visible]);
   const selected = useMemo(
     () => visible.find((place) => place.id === selectedId) ?? places.find((place) => place.id === selectedId) ?? null,
     [visible, places, selectedId],
@@ -511,7 +512,7 @@ export function PlacesExplorer({
       <div className="places-summary">
         <div className="places-summary-count" role="status">
           <span><strong>{visible.length}</strong> lieu{visible.length > 1 ? "x" : ""}</span>
-          {truncated ? <span className="places-truncated">Parmi les 1 000 plus récents</span> : <span className="places-summary-caption">À explorer sur la carte</span>}
+          {truncated ? <span className="places-truncated">{approximateCount ? `${approximateCount} zone${approximateCount > 1 ? "s" : ""} · ` : "Parmi les "}1 000 plus récents</span> : <span className="places-summary-caption">{approximateCount ? `${approximateCount} zone${approximateCount > 1 ? "s" : ""} approximative${approximateCount > 1 ? "s" : ""}` : "À explorer sur la carte"}</span>}
         </div>
         <div className="places-summary-actions">
           <button type="button" className="places-footer-button" aria-label="Statistiques" aria-expanded={statsOpen} onClick={() => {

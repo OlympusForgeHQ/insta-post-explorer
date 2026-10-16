@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { buildPlacesAreasGeoJson, buildPlacesAreaOutlinesGeoJson } from "../../src/features/places/map-areas";
+import type { PlacesMapItem } from "../../src/server/places/map-view";
 
 type CapturedMap = {
   unproject(point: [number, number]): { lng: number; lat: number };
@@ -6,7 +8,7 @@ type CapturedMap = {
   getCanvas(): HTMLCanvasElement;
   getCenter(): { lat: number; lng: number };
   getProjection(): { type: string } | undefined;
-  getSource(id: string): { serialize(): { data?: unknown } } | undefined;
+  getSource(id: string): { serialize(): { data?: unknown }; setData(data: unknown): void } | undefined;
   getZoom(): number;
   getBearing(): number;
   getPitch(): number;
@@ -302,10 +304,10 @@ test.describe("globe Places continu", () => {
     await waitForMap(page);
     await waitForInitialViewport(page);
     await expect(page.locator(".places-summary")).toContainText("1 lieu");
-    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap?.queryRenderedFeatures({ layers: ["places-area-fill"] }).length ?? 0)).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap?.queryRenderedFeatures({ layers: ["places-area-outline"] }).length ?? 0)).toBeGreaterThan(0);
     const area = await page.evaluate(() => {
       const map = (window as MapWindow).__placesMap!;
-      const point = map.project([121.47, 31.23]);
+      const point = map.project([121.47, 31.23 + 10_000 / 6_371_000 * 180 / Math.PI]);
       const canvas = map.getCanvas().getBoundingClientRect();
       return { x: canvas.x + point.x, y: canvas.y + point.y, pins: map.queryRenderedFeatures({ layers: ["places-pins"] }).length };
     });
@@ -336,6 +338,41 @@ test.describe("globe Places continu", () => {
     expect(camera.zoom).toBeLessThan(12);
     expect(camera.areas).toBeGreaterThan(0);
     expect(camera.bothSides).toEqual([true, true]);
+  });
+
+  test("garde la carte lisible et libre avec 335 zones superposées dont une mondiale", async ({ page }, testInfo) => {
+    await prepareMapCapture(page);
+    await page.goto("/places?q=Carnet%20Shanghai");
+    await waitForMap(page);
+    await waitForInitialViewport(page);
+    const densePlaces: PlacesMapItem[] = Array.from({ length: 335 }, (_, index) => ({
+      id: `dense-${index}`, displayName: `Synthetic area ${index}`, city: null, region: null, country: null, countryCode: null,
+      category: "voyage", categoryGroup: "voyage", confidence: 0.5, precision: "APPROXIMATE", reviewStatus: "UNREVIEWED",
+      isUserConfirmed: false, postCount: 1, sourceThemes: ["Voyages"], previewThumbnailUrl: null,
+      latitude: index < 5 ? 10 : (index % 13) * 10 - 60,
+      longitude: index < 5 ? 100 : (index % 31) * 11 - 165,
+      approximationRadiusMeters: index === 0 ? Math.PI * 6_371_000 : index < 5 ? 5_000_000 + index * 700_000 : 50_000 + (index % 20) * 100_000,
+    }));
+    await page.evaluate(({ areas, outlines }) => {
+      const map = (window as MapWindow).__placesMap!;
+      map.getSource("places-areas")!.setData(areas);
+      map.getSource("places-area-outlines")!.setData(outlines);
+      map.jumpTo({ center: [10, 30], zoom: 1.4 });
+    }, { areas: buildPlacesAreasGeoJson(densePlaces, null), outlines: buildPlacesAreaOutlinesGeoJson(densePlaces, null) });
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.queryRenderedFeatures({ layers: ["places-area-outline"] })
+      .some(feature => feature.properties?.id?.startsWith("dense-")))).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap!.queryRenderedFeatures({ layers: ["places-area-fill"] }).length)).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("dense-areas-globe.png") });
+    await moveTo(page, [121.47, 31.23], 10);
+    const center = await page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap!;
+      const point = map.project([121.47, 31.23]);
+      const box = map.getCanvas().getBoundingClientRect();
+      return { x: box.x + point.x, y: box.y + point.y };
+    });
+    await page.mouse.click(center.x, center.y);
+    await expect(page).not.toHaveURL(/placeId=/);
+    await expect(page.getByRole("dialog", { name: /^Détail de / })).toHaveCount(0);
   });
 
   test("affiche le callout sans miniature puis sélectionne un point isolé", async ({ page }) => {

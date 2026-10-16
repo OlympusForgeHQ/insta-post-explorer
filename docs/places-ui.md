@@ -68,7 +68,7 @@ Rendering rules:
 | --- | --- |
 | `EXACT` | pin, green |
 | `PROBABLE` | pin, amber |
-| `APPROXIMATE` | selectable zone proportional to the radius, without an exact center pin; shared list/detail show approximate precision |
+| `APPROXIMATE` | selectable geographic outline proportional to the radius; only the selected zone is filled. Shared list/detail show approximate precision, without an exact center pin. |
 | `UNKNOWN` | creates no Place, so it never reaches the map |
 
 `REJECTED` places are excluded from the map and the list. Clusters keep the map
