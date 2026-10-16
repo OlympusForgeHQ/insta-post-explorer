@@ -3,7 +3,7 @@
 import { MotionPresence } from "@/components/motion-presence";
 import { RecentSearchInput } from "@/components/recent-search-input";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { BarChart3, Check, ListFilter, MapPin, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { PLACE_CATEGORY_GROUPS } from "@/lib/places/categories";
@@ -122,7 +122,8 @@ export function PlacesExplorer({
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const mappable = useMemo(() => places.filter(isMappable), [places]);
-  const visible = useMemo(() => filterPlaces(mappable, filters), [mappable, filters]);
+  const deferredFilters = useDeferredValue(filters);
+  const visible = useMemo(() => filterPlaces(mappable, deferredFilters), [mappable, deferredFilters]);
   const approximateCount = useMemo(() => visible.filter(place => place.precision === "APPROXIMATE").length, [visible]);
   const selected = useMemo(
     () => visible.find((place) => place.id === selectedId) ?? places.find((place) => place.id === selectedId) ?? null,
@@ -238,7 +239,7 @@ export function PlacesExplorer({
         {/* Top control bar: search + a single filters button. */}
         <div className="places-topbar">
           <RecentSearchInput scope="places" className="places-search" inputRef={searchRef}
-            value={filters.q} onValueChange={q => patch({ q })} label="Rechercher un lieu"
+            value={filters.q} onValueChange={q => setFilters(current => ({ ...current, q }))} label="Rechercher un lieu"
             placeholder="Rechercher un lieu, une ville, un pays…" />
           <button
             type="button"

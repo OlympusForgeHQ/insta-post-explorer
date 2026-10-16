@@ -62,3 +62,32 @@ after the checks run.
 
 Public changes contain synthetic tests and documentation only. Private deployment
 and production-browser receipts remain under `.tmp/recent-searches-20261016/`.
+
+## Production verification follow-up
+
+The initial production smoke exposed a real timing gap on Places: the controlled
+search value was updated inside a transition. Immediately after typing a new term,
+the DOM could revert to the previous term before Enter, losing a history entry.
+The initial library path passed; the Places path omitted one of six submitted
+terms. A focused trace confirmed the input temporarily held the preceding value.
+
+The low-risk corrective patch makes only the search input update urgent and defers
+`filterPlaces` through `useDeferredValue(filters)`. It retains one filter state for
+URL synchronization, reset and back/forward, with no server change. An integration
+regression in the existing Places harness reproduces the stale value before the
+fix, then proves immediate text, all five latest terms, native clear/blur and
+matching final result count/URL. Desktop and touch browser checks also submit six
+queries without waiting for filtering between input and Enter.
+
+Production inspection additionally caps the menu at 480px on wide screens and
+hides the browser's duplicate clear glyph when the custom clear button is shown.
+Independent review approved the urgency/deferred-filter fix. Corrective build,
+application and native browser validation are recorded in private receipts under
+`.tmp/recent-searches-transition-20261016/`, together with the final production
+smoke. Original release receipts remain preserved separately.
+
+Corrective validation: lint, typecheck and production build pass; the application
+suite has 599 passed and 259 PostgreSQL cases reserved for CI; four native Places
+browser cases pass (layout and six-query recall on desktop/mobile). The focused
+integration test failed before the fix and passed after it. No new test file was
+needed.
