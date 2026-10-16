@@ -19,6 +19,53 @@ const suite=url?describe:describe.skip;
 suite('Places worker ownership, leases and atomic completion',()=>{
  beforeAll(async()=>{process.env.DATABASE_URL=url;({prisma:db}=await import('@/server/db'));service=await import('@/server/places/worker');await clear();});
  beforeEach(async()=>{await clear();await seed();});afterAll(async()=>{await clear();await db.$disconnect();});
+ it('reprocesses a named review with fresh coverage once per policy, retaining its original history',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},{...dependencies,resolver:{resolve:async()=>[]}});
+   const original=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+   const completion=(original.result as {completion:{requestHash:string}}).completion;
+   const fresh={...result,elapsedMs:2000};
+   const command={postId:'worker-post',sourceJobId:claim.jobId,inputHash:claim.input.input_hash,expectedCompletionHash:completion.requestHash,result:fresh,commit:true};
+   for(const [scope,change,error] of [[other,{},'POST_NOT_FOUND'],[owner,{expectedCompletionHash:'0'.repeat(64)},'PLACES_JOB_CONFLICT'],[owner,{inputHash:'0'.repeat(64)},'PLACES_INPUT_STALE'],[owner,{result:{...fresh,media:[]}},'PLACES_MEDIA_INCOMPLETE']] as const){
+     await expect(service.reprocessPlacesResult(scope,{...command,...change},dependencies)).rejects.toThrow(error);
+   }
+   const preview=await service.reprocessPlacesResult(owner,{...command,commit:false},dependencies);
+   expect(preview).toMatchObject({committed:false});
+   expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+   const [first,second]=await Promise.all([service.reprocessPlacesResult(owner,command,dependencies),service.reprocessPlacesResult(owner,command,dependencies)]);
+   expect(second).toEqual(first);expect(first).toMatchObject({status:'SUCCEEDED',linksPersisted:1});
+   expect(await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}})).toEqual(original);
+   expect(await db.placeAnalysisJob.count({where:{ownerId:owner,analysisVersion:'places-policy-reprocess-v1'}})).toBe(1);
+   expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(1);
+   const noProvider={...dependencies,resolver:{resolve:async()=>{throw Error('UNEXPECTED_PROVIDER_CALL');}}};
+   expect(await service.reprocessPlacesResult(owner,command,noProvider)).toEqual(first);
+   await expect(service.reprocessPlacesResult(owner,{...command,result:{...fresh,elapsedMs:2001}},noProvider)).rejects.toThrow('PLACES_JOB_CONFLICT');
+   await db.post.update({where:{id:'worker-post'},data:{caption:'Changed source'}});
+   await expect(service.reprocessPlacesResult(owner,command,noProvider)).rejects.toThrow('PLACES_INPUT_STALE');
+ });
+ it('lets owner exclusion and source changes during explicit reprocessing win before persistence',async()=>{
+   for(const race of ['exclusion','source','media','active'] as const){
+     await clear();await seed();
+     await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+     const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+     await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},{...dependencies,resolver:{resolve:async()=>[]}});
+     const original=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+     const command={postId:'worker-post',sourceJobId:claim.jobId,inputHash:claim.input.input_hash,expectedCompletionHash:(original.result as {completion:{requestHash:string}}).completion.requestHash,result,commit:true};
+     const racing:PlaceResolver={resolve:async input=>{
+       if(race==='exclusion'){
+         const review=await import('@/server/places/review');
+         await review.confirmPostHasNoPlace(owner,'worker-post',{actor:{type:'USER',id:owner},reason:'No place'});
+       }else if(race==='source')await db.post.update({where:{id:'worker-post'},data:{caption:'Source changed during provider lookup'}});
+       else if(race==='media')await db.postMedia.update({where:{id:'worker-media'},data:{id:'worker-media-replaced'}});
+       else await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{status:'PROCESSING',leaseExpiresAt:new Date(Date.now()+60000)}});
+       return resolver.resolve(input);
+     }};
+     await expect(service.reprocessPlacesResult(owner,command,{...dependencies,resolver:racing})).rejects.toThrow();
+     expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+     expect(await db.placeAnalysisJob.count({where:{ownerId:owner,analysisVersion:'places-policy-reprocess-v1'}})).toBe(0);
+   }
+ });
  it('honors only the owner-authored no-place correction before automatic preparation',async()=>{
    await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
    const job=await db.placeAnalysisJob.findFirstOrThrow({where:{ownerId:owner,postId:'worker-post'}});
@@ -284,7 +331,7 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[result.candidates[0],unknown]}},dependencies);
    expect(receipt).toMatchObject({status:'NEEDS_REVIEW',unknownCandidates:1,linksPersisted:1});
    const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
-   expect(job.result).toMatchObject({resolutionPolicy:'provider-context-v5',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
+   expect(job.result).toMatchObject({resolutionPolicy:'provider-context-v6',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
  });
 
  it('learns only from fenced failures, backs off, and retains the recovery outcome and sync provenance',async()=>{

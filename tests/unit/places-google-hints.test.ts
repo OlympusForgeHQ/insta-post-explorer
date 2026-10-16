@@ -34,3 +34,13 @@ it('retains distinct nearby-hint branches so the decision layer can reject ambig
   {searchHints:async()=>[{placeId:'first-hint',latitude:48.85,longitude:2.35},{placeId:'second-hint',latitude:48.86,longitude:2.35}]});
  expect(await resolver.resolve({candidate,sourceTheme:'Restaurant'})).toEqual([geo,other]);
 });
+
+
+it('keeps area fallback separate until all precise hints have been attempted',async()=>{
+ const calls:string[]=[];
+ const resolve=async()=>{calls.push('primary');return [];};
+ const resolveApproximate=async()=>{calls.push('area');return [];};
+ const resolver=new FallbackPlaceResolver({resolve,resolveApproximate},{searchHints:async()=>{calls.push('google');return [];}});
+ await resolver.resolve({candidate,sourceTheme:'Restaurant'});expect(calls).toEqual(['primary','google']);
+ await resolver.resolveApproximate({candidate,sourceTheme:'Restaurant'});expect(calls).toEqual(['primary','google','area']);
+});

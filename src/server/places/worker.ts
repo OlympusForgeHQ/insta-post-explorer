@@ -24,6 +24,69 @@ import {loadPlacesLearning,placesJobMetadata,recordPlacesOutcome} from './learni
 
 type Dependencies={resolver?:PlaceResolver;signMedia?:MediaSigner};
 type Lease={jobId:string;leaseToken:string};
+// Explicit fresh analysis of one completed review. This is separate from
+// evidence-preserving recovery: the original payload and job are never reset.
+export async function reprocessPlacesResult(ownerId:string,options:{postId:string;sourceJobId:string;inputHash:string;expectedCompletionHash:string;result:unknown;commit:boolean},deps:Dependencies={}) {
+  const result=workerResultSchema.parse(options.result);
+  const prepared=await preparePlacesPost(ownerId,options.postId,deps);
+  if(prepared.input.input_hash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
+  validateCoverage(result,prepared.media,prepared.input.caption);
+  const sourceWhere={id:options.sourceJobId,ownerId,postId:options.postId,analysisVersion:PLACES_WORKER_VERSION,inputHash:options.inputHash};
+  const checkSource=async(client:Prisma.TransactionClient=prisma)=>{
+    const source=await client.placeAnalysisJob.findFirst({where:sourceWhere});
+    if(!source)throw Error('PLACES_JOB_NOT_FOUND');
+    const details=source.result as {completion?:{requestHash?:string}}|null;
+    if(source.status!=='NEEDS_REVIEW'||details?.completion?.requestHash!==options.expectedCompletionHash)throw Error('PLACES_JOB_CONFLICT');
+    if(await client.placeAnalysisJob.findFirst({where:{ownerId,postId:options.postId,status:'PROCESSING',leaseExpiresAt:{gt:new Date()}}}))throw Error('PLACES_JOB_CONFLICT');
+    return source;
+  };
+  await checkSource();
+  const requestHash=digest(result);
+  const identity={ownerId,postId:options.postId,analysisVersion:'places-policy-reprocess-v1',
+    inputHash:digest({sourceJobId:options.sourceJobId,sourceInputHash:options.inputHash,resolutionPolicy:RESOLUTION_POLICY_VERSION})};
+  const priorReceipt=async(client:Prisma.TransactionClient=prisma)=>{
+    const previous=await client.placeAnalysisJob.findFirst({where:identity});
+    if(!previous)return null;
+    const saved=previous.result as {reprocess?:{requestHash?:string;receipt?:AnalyzeRecordResult}}|null;
+    if(saved?.reprocess?.requestHash!==requestHash||!saved.reprocess.receipt)throw Error('PLACES_JOB_CONFLICT');
+    return saved.reprocess.receipt;
+  };
+  const prior=await priorReceipt();
+  if(prior){
+    const current=await inputs(ownerId,options.postId);
+    if(current.inputHash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
+    await checkSource();
+    return prior;
+  }
+  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:options.postId}),
+    await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location});
+  if(!options.commit){
+    const current=await inputs(ownerId,options.postId);
+    if(current.inputHash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
+    await checkSource();
+    return {postId:options.postId,committed:false,plans};
+  }
+  return prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT id FROM posts WHERE id=${options.postId} AND owner_id=${ownerId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${options.sourceJobId} AND owner_id=${ownerId} FOR UPDATE`;
+    const current=await inputs(ownerId,options.postId,tx);
+    if(current.inputHash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
+    await checkSource(tx);
+    validateCoverage(result,await loadWorkerMedia(ownerId,options.postId,async()=>'',tx),current.post.caption);
+    const cached=await priorReceipt(tx);
+    if(cached)return cached;
+    await setAuditAction(tx,'places.worker.policy_reprocess');
+    const job=await tx.placeAnalysisJob.create({data:{...identity,sourceTheme:current.sourceTheme,depth:'DEEP',status:'PROCESSING',stage:'RESOLVING',attemptCount:1,maxAttempts:1}});
+    const receipt=await persistMetadataAnalysis(tx,{ownerId,postId:options.postId,jobId:job.id,plans,preserveExisting:true});
+    const saved=await tx.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id},select:{result:true}});
+    const details=saved.result&&typeof saved.result==='object'&&!Array.isArray(saved.result)?saved.result:{};
+    await tx.placeAnalysisJob.update({where:{id:job.id},data:{result:{...details,
+      model:result.model,usage:result.usage,elapsedMs:result.elapsedMs,media:result.media,
+      reprocess:{sourceJobId:options.sourceJobId,sourceInputHash:options.inputHash,expectedCompletionHash:options.expectedCompletionHash,requestHash,receipt},
+    } as Prisma.InputJsonValue}});
+    return receipt;
+  },{timeout:30_000});
+}
 export async function recoverPlacesResult(ownerId:string,options:{postId:string;sourceJobId:string;inputHash:string;originalResult:unknown;sourceCandidateIndices:number[];result:unknown;commit:boolean},deps:Dependencies={}) {
   const result=workerResultSchema.parse(options.result);
   const original=workerResultSchema.parse(options.originalResult);

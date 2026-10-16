@@ -80,6 +80,18 @@ function anonymousBuilding(overrides: Partial<ResolvedPlaceCandidate> = {}): Res
     street: "Main Street", houseNumber: "10", providerPlaceId: "geo-anonymous-building", ...overrides});
 }
 
+function contextualArea(name: string, overrides: Partial<ResolvedPlaceCandidate> = {}): import('@/server/places/analysis').CandidatePlan {
+  return {candidate: candidate({name}), best: {resolved: resolved({providerPlaceId: 'geo-dubai-area',
+    displayName: 'Dubai', providerName: 'Dubai', providerResultType: 'city', address: null, ...overrides}),
+    scored: {precision: 'APPROXIMATE', confidence: .6, approximationRadiusMeters: 10_000, reasons: ['contextual_venue_area'],
+      contextualArea: {level: 'city', sourceName: name, missingDetails: ['business_address']}}}};
+}
+
+async function persistPlans(postId: string, plans: import('@/server/places/analysis').CandidatePlan[], preserveExisting = false) {
+  const job = await jobs.createMetadataAnalysisJob({ownerId: OWNER_A, postId});
+  return prisma.$transaction(tx => analysis.persistMetadataAnalysis(tx, {ownerId: OWNER_A, postId, jobId: job.id, plans, preserveExisting}));
+}
+
 async function businessRecord(postId: string, name: string | null, ownerId = OWNER_A, category: PlaceCandidate['category'] = "patisserie") {
   await seedPost(postId, ownerId, "Restaurant");
   const excerpt = name ? `Pastries at ${name}` : "Pastries at this address";
@@ -470,6 +482,142 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
 
     expect(await prisma.place.count({ where: { ownerId: OWNER_A, precision: "APPROXIMATE" } })).toBe(2);
     expect(await prisma.postPlace.count({ where: { ownerId: OWNER_A, precision: "APPROXIMATE" } })).toBe(2);
+  });
+
+  it('keeps source-named businesses distinct inside one area and stable when the provider area improves', async () => {
+    for (const id of ['venues-first', 'venues-second']) await seedPost(id, OWNER_A, 'Restaurant');
+    await persistPlans('venues-first', [contextualArea('Alpha Bakery'), contextualArea('Beta Cafe')]);
+    const original = await prisma.place.findMany({where: {ownerId: OWNER_A}, orderBy: {displayName: 'asc'}});
+    expect(original.map(place => place.displayName)).toEqual(['Alpha Bakery', 'Beta Cafe']);
+    expect(original[0].metadata).toMatchObject({label: {source: 'source_candidate_approximate_area',
+      candidateName: 'Alpha Bakery', sourcePostId: 'venues-first', providerDisplayName: 'Dubai'}});
+    await persistPlans('venues-first', [contextualArea('Alpha Bakery', {providerPlaceId: 'geo-district', displayName: 'Central Dubai'})]);
+    const improved = await prisma.place.findUniqueOrThrow({where: {id: original[0].id}});
+    expect(improved.displayName).toBe('Alpha Bakery');
+    expect(improved.metadata).toMatchObject({sourceProviderPlaceId: 'geo-district', label: {providerDisplayName: 'Central Dubai'}});
+    expect(await prisma.postPlace.count({where: {postId: 'venues-first'}})).toBe(2);
+    await persistPlans('venues-second', [contextualArea('Alpha Bakery')]);
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(3);
+  });
+
+  it('preserves manual removal, rejection and confirmation when a business area changes', async () => {
+    for (const protection of ['removed', 'rejected', 'confirmed'] as const) {
+      const postId = `area-${protection}`;
+      await seedPost(postId, OWNER_A, 'Restaurant');
+      await persistPlans(postId, [contextualArea('Alpha Bakery')]);
+      const link = await prisma.postPlace.findFirstOrThrow({where: {postId}, include: {place: true}});
+      if (protection === 'removed') await prisma.postPlace.delete({where: {id: link.id}});
+      if (protection === 'rejected') await prisma.place.update({where: {id: link.placeId}, data: {reviewStatus: 'REJECTED'}});
+      if (protection === 'confirmed') {
+        await prisma.place.update({where: {id: link.placeId}, data: {isUserConfirmed: true, reviewStatus: 'CONFIRMED', displayName: 'Owner label'}});
+        await prisma.postPlace.update({where: {id: link.id}, data: {isUserConfirmed: true}});
+      }
+      await persistPlans(postId, [contextualArea('Alpha Bakery', {providerPlaceId: `geo-${protection}-new`, latitude: 25.3})]);
+      expect(await prisma.place.count({where: {ownerId: OWNER_A, postLinks: {some: {postId}}}})).toBe(protection === 'removed' ? 0 : 1);
+      expect(await prisma.place.findUniqueOrThrow({where: {id: link.placeId}})).toMatchObject(protection === 'confirmed'
+        ? {displayName: 'Owner label', latitude: link.place.latitude, isUserConfirmed: true} : {latitude: link.place.latitude});
+    }
+  });
+
+  it.each([false, true])('upgrades only the matching automatic business zone while preserving other businesses (additive %s)', async preserveExisting => {
+    await seedPost('area-upgrade', OWNER_A, 'Restaurant');
+    const alpha = contextualArea('Alpha Bakery'), beta = contextualArea('Beta Cafe');
+    beta.best!.scored.confidence = .8;
+    await persistPlans('area-upgrade', [alpha, beta]);
+    await persistPlans('area-upgrade', [{candidate: alpha.candidate, best: {resolved: resolved({displayName: 'Alpha Bakery', providerName: 'Alpha Bakery'}),
+      scored: {precision: 'EXACT', confidence: .95, approximationRadiusMeters: null, reasons: ['venue_identity_and_context']}}}], preserveExisting);
+    const links = await prisma.postPlace.findMany({where: {postId: 'area-upgrade'}, include: {place: true}});
+    expect(links.map(link => [link.place.displayName, link.precision]).sort()).toEqual([['Alpha Bakery', 'EXACT'], ['Beta Cafe', 'APPROXIMATE']]);
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(3);
+  });
+
+  it('keeps prior exact removals, rejections, renames and confirmations authoritative over a new area identity', async () => {
+    for (const protection of ['removed', 'rejected', 'renamed', 'confirmed', 'removed-district'] as const) {
+      const postId = `prior-exact-${protection}`;
+      await seedPost(postId, OWNER_A, 'Restaurant');
+      const plan = contextualArea('Alpha Bakery');
+      if (protection === 'removed-district') {
+        plan.candidate = {...plan.candidate, city: 'Shanghai', country: 'China'};
+        plan.best!.resolved = {...plan.best!.resolved, city: 'Shanghai', region: 'Shanghai', country: 'China', countryCode: 'CN'};
+      }
+      await persistPlans(postId, [{candidate: plan.candidate, best: {resolved: resolved({providerPlaceId: `geo-exact-${protection}`, displayName: 'Alpha Bakery', providerName: 'Alpha Bakery'}),
+        scored: {precision: 'EXACT', confidence: .95, approximationRadiusMeters: null, reasons: ['venue_identity_and_context']}}}]);
+      const link = await prisma.postPlace.findFirstOrThrow({where: {postId}, include: {place: true}});
+      if (protection === 'removed-district') await prisma.place.update({where: {id: link.placeId}, data: {city: 'Xuhui District', region: 'Shanghai', country: 'China', countryCode: 'CN'}});
+      if (protection.startsWith('removed')) await prisma.postPlace.delete({where: {id: link.id}});
+      if (protection === 'rejected') await prisma.place.update({where: {id: link.placeId}, data: {reviewStatus: 'REJECTED'}});
+      if (protection === 'renamed') await prisma.place.update({where: {id: link.placeId}, data: {displayName: 'Owner correction', normalizedName: 'owner correction'}});
+      if (protection === 'confirmed') await prisma.place.update({where: {id: link.placeId}, data: {isUserConfirmed: true, reviewStatus: 'CONFIRMED'}});
+      for (let replay = 0; replay < 3; replay++) await persistPlans(postId, [plan]);
+      expect(await prisma.place.count({where: {ownerId: OWNER_A, providerPlaceId: {startsWith: 'contextual-venue:'}}})).toBe(0);
+      expect(await prisma.postPlace.findMany({where: {postId}})).toHaveLength(protection.startsWith('removed') ? 0 : 1);
+      if (protection === 'confirmed') expect(await prisma.postPlace.findUniqueOrThrow({where: {id: link.id}})).toMatchObject({precision: 'EXACT', confidence: .95});
+    }
+  });
+
+  it('keeps manually confirmed business areas and links during an additive exact upgrade', async () => {
+    for (const target of ['place', 'link'] as const) {
+      const postId = `manual-area-${target}`;
+      await seedPost(postId, OWNER_A, 'Restaurant');
+      const area = contextualArea('Alpha Bakery');
+      await persistPlans(postId, [area]);
+      const link = await prisma.postPlace.findFirstOrThrow({where: {postId}, include: {place: true}});
+      if (target === 'place') await prisma.place.update({where: {id: link.placeId}, data: {isUserConfirmed: true, reviewStatus: 'CONFIRMED'}});
+      else await prisma.postPlace.update({where: {id: link.id}, data: {isUserConfirmed: true}});
+      const before = await prisma.postPlace.findUniqueOrThrow({where: {id: link.id}});
+      await persistPlans(postId, [{candidate: area.candidate, best: {resolved: resolved({providerPlaceId: `exact-manual-${target}`, displayName: 'Alpha Bakery', providerName: 'Alpha Bakery'}),
+        scored: {precision: 'EXACT', confidence: .95, approximationRadiusMeters: null, reasons: ['venue_identity_and_context']}}}], true);
+      expect(await prisma.postPlace.findUniqueOrThrow({where: {id: link.id}})).toEqual(before);
+      expect(await prisma.place.findUniqueOrThrow({where: {id: link.placeId}})).toMatchObject({displayName: 'Alpha Bakery', precision: 'APPROXIMATE', latitude: link.place.latitude});
+    }
+  });
+
+  it('preserves removals across equivalent country and administrative labels without conflating conflicting contexts', async () => {
+    for (const [label, region, countryCode, country, expectedLinks] of [
+      ['CN', 'Xuhui', 'CN', 'China', 0],
+      ['Chine', 'Xuhui', 'CN', 'China', 0],
+      ['China', 'Xuhui District', 'CN', 'China', 0],
+      ['Japan', 'Xuhui', 'JP', 'Japan', 1],
+      ['China', 'Jingan District', 'CN', 'China', 1],
+    ] as const) {
+      const postId = `area-context-${label}-${region}`;
+      await seedPost(postId, OWNER_A, 'Restaurant');
+      const original = contextualArea('Alpha Bakery', {city: 'Shanghai', region: 'Shanghai', country: 'China', countryCode: 'CN',
+        administrativeLabels: {district: 'Xuhui District', city: 'Shanghai'}});
+      original.candidate = {...original.candidate, city: 'Shanghai', region: 'Xuhui', country: 'China'};
+      await persistPlans(postId, [original]);
+      const link = await prisma.postPlace.findFirstOrThrow({where: {postId}});
+      await prisma.postPlace.delete({where: {id: link.id}});
+      const replacement = contextualArea('Alpha Bakery', {providerPlaceId: `changed-${label}-${region}`, city: 'Shanghai', region: 'Shanghai', country, countryCode,
+        administrativeLabels: {district: region.includes('Jingan') ? 'Jingan District' : 'Xuhui District', city: 'Shanghai'}});
+      replacement.candidate = {...original.candidate, country: label, region};
+      await persistPlans(postId, [replacement]);
+      expect(await prisma.postPlace.count({where: {postId}})).toBe(expectedLinks);
+    }
+  });
+
+  it('upgrades equivalent country and district labels but preserves areas in genuinely different contexts', async () => {
+    for (const [country, countryCode, region, expectedAreas] of [
+      ['CN', 'CN', 'Xuhui District', 0],
+      ['Chine', 'CN', 'Xuhui', 0],
+      ['Japan', 'JP', 'Xuhui District', 1],
+      ['China', 'CN', 'Jingan District', 1],
+    ] as const) {
+      const postId = `area-upgrade-context-${country}-${region}`;
+      await seedPost(postId, OWNER_A, 'Restaurant');
+      const area = contextualArea('Alpha Bakery', {city: 'Shanghai', region: 'Shanghai', country: 'China', countryCode: 'CN',
+        administrativeLabels: {district: 'Xuhui District', city: 'Shanghai'}});
+      area.candidate = {...area.candidate, city: 'Shanghai', region: 'Xuhui', country: 'China'};
+      await persistPlans(postId, [area]);
+      await persistPlans(postId, [{candidate: {...area.candidate, country, region}, best: {
+        resolved: resolved({providerPlaceId: `exact-${postId}`, displayName: 'Alpha Bakery', providerName: 'Alpha Bakery',
+          city: 'Shanghai', region: 'Shanghai', country: countryCode === 'JP' ? 'Japan' : 'China', countryCode,
+          administrativeLabels: {district: region.includes('Jingan') ? 'Jingan District' : 'Xuhui District', city: 'Shanghai'}}),
+        scored: {precision: 'EXACT', confidence: .95, approximationRadiusMeters: null, reasons: ['venue_identity_and_context']},
+      }}], true);
+      expect(await prisma.postPlace.count({where: {postId, precision: 'APPROXIMATE'}})).toBe(expectedAreas);
+      expect(await prisma.postPlace.count({where: {postId, precision: 'EXACT'}})).toBe(1);
+    }
   });
 
   it("records an UNKNOWN candidate as evidence only and creates no place", async () => {

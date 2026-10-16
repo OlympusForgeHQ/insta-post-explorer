@@ -34,6 +34,8 @@ export const workerCommandSchema=z.discriminatedUnion('action',[
   z.object({action:z.literal('heartbeat'),...lease}).strict(),
   z.object({action:z.literal('complete'),...lease,result:workerResultSchema}).strict(),
   z.object({action:z.literal('preview'),postId:id,inputHash:z.string().regex(/^[a-f0-9]{64}$/),result:workerResultSchema}).strict(),
+  z.object({action:z.literal('reprocess'),postId:id,sourceJobId:id,inputHash:z.string().regex(/^[a-f0-9]{64}$/),
+    expectedCompletionHash:z.string().regex(/^[a-f0-9]{64}$/),result:workerResultSchema,commit:z.boolean().default(false)}).strict(),
   z.object({action:z.literal('recover'),postId:id,sourceJobId:id,inputHash:z.string().regex(/^[a-f0-9]{64}$/),
     originalResult:workerResultSchema,sourceCandidateIndices:z.array(z.number().int().min(0).max(199)).min(1).max(200),
     result:workerResultSchema,commit:z.boolean().default(false)}).strict(),

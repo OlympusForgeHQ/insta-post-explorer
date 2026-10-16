@@ -166,8 +166,8 @@ export function filterPlaces(places: readonly PlacesMapItem[], filters: PlacesFi
   });
 }
 
-// Rejected places stay out of the map and list. Approximate results remain
-// available to the review/list UI and are filtered only at renderer boundaries.
+// Rejected places stay out of the map and list. Approximate results share these
+// filters with precise places and render as geographic areas.
 export function isMappable(place: PlacesMapItem): boolean {
   return place.reviewStatus !== "REJECTED";
 }

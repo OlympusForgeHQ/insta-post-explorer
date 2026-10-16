@@ -1,5 +1,18 @@
 # Operational Handoff
 
+## Contextual approximate places — 16 October 2026
+
+The owner authorizes placing source-identified venues within a verified approximate
+area when exact detail is unavailable. The change retains precise retrieval first,
+adds distinct source-venue zone identities and displays selectable geographic zones.
+An explicit policy-scoped reprocess action preserves original completed reviews
+while accepting a complete fresh analysis. No migration, new provider or consumer
+restart is required. Implementation and verification are tracked in
+[requirements and evidence](changes/2026-10-16-places-approximate-context.md).
+Private production rollout and named-post receipts belong in
+`.tmp/places-approximate-20261016/`; their actual state determines deployment and
+cohort completion, not this design note.
+
 ## Administrative context during Places resolution — 16 October 2026
 
 Geoapify's structured district and municipality labels are kept as geographic

@@ -10,6 +10,7 @@ import {municipalityCityLabels} from '@/lib/places/administrative-context';
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
+import {approximateAddress, approximateDistrict, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 
 // Geoapify geographic resolver behind the replaceable PlaceResolver interface.
 // It turns a textual candidate into provider-verified coordinates and a provider
@@ -228,6 +229,30 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
       if(distanceMeters({latitude,longitude},match)>200)continue;
       this.mergePoi(results,match,input);
     }
+    }
+    return results;
+  }
+
+  async resolveApproximate(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {
+    if(!canApproximateVenue(input.candidate))return [];
+    const candidate=input.candidate;
+    const address=approximateAddress(candidate);
+    // Three bounded neutral geocoding queries at most. They contain geographic
+    // fields only, never captions, source identifiers, business names or Google
+    // coordinates. Each response is still checked against the unchanged source.
+    const queries:Array<{candidate:PlaceCandidate;level:number}>=[];
+    if(address)queries.push({candidate:{...candidate,name:null,address},level:0});
+    const district=approximateDistrict(candidate);
+    if(district)queries.push({candidate:{...candidate,name:null,address:district,region:null},level:2});
+    queries.push({candidate:{...candidate,name:null,address:null,region:null},level:3});
+    const results:ResolvedPlaceCandidate[]=[];
+    for(const [index,query] of queries.entries()){
+      results.push(...await this.search(query.candidate));
+      const best=selectContextualVenueArea(candidate,results);
+      const level=best?.scored.contextualArea?.level;
+      // A coarse response to the address query must not prevent the remaining
+      // district query from finding a smaller, still verified envelope.
+      if(level&&!queries.slice(index+1).some(next=>next.level<({building:0,street:1,district:2,city:3})[level]))break;
     }
     return results;
   }

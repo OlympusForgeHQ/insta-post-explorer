@@ -1,8 +1,17 @@
 import { expect, it } from 'vitest';
-import { workerCandidatesSchema, workerResultSchema } from '@/lib/places/worker-contract';
+import { workerCandidatesSchema, workerResultSchema, workerCommandSchema } from '@/lib/places/worker-contract';
 import { placeCandidateBatchSchema } from '@/lib/places/candidates';
 
 const candidate={name:'Example Cafe',address:null,city:'Paris',region:null,country:'France',category:'cafe',categoryReason:'The source recommends brunch.',confidence:0.8,evidence:[{type:'CAPTION',excerpt:'Brunch at Example Cafe'}]};
+
+it('requires an explicitly scoped fresh reprocess command and defaults it to preview',()=>{
+ const command={action:'reprocess',postId:'post',sourceJobId:'job',inputHash:'a'.repeat(64),expectedCompletionHash:'b'.repeat(64),
+  result:{candidates:[candidate],media:[],model:'deepseek/deepseek-v4.1-flash',usage:{inputTokens:10,outputTokens:20},elapsedMs:100}};
+ expect(workerCommandSchema.parse(command)).toMatchObject({commit:false});
+ for(const change of [{ownerId:'other'},{sourceJobId:undefined},{expectedCompletionHash:undefined},{inputHash:'stale'},{resolutionPolicy:'arbitrary'}]){
+  expect(workerCommandSchema.safeParse({...command,...change}).success).toBe(false);
+ }
+});
 
 it('accepts long worker itineraries without widening the caption-import limit',()=>{
  const candidates=Array.from({length:200},(_,i)=>({...candidate,name:`Example Cafe ${i+1}`}));

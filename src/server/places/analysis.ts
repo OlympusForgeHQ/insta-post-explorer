@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { createHash } from "node:crypto";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { foldForSearch } from "@/lib/import/normalize";
 import type { PlaceCandidate, PlaceCandidateRecord } from "@/lib/places/candidates";
@@ -10,6 +11,8 @@ import { continentCodeForCountry } from "@/lib/places/continents";
 import { distanceMeters } from "@/lib/places/distance";
 import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
+import {administrativeRegionMatches, municipalityCityLabels} from '@/lib/places/administrative-context';
+import {approximateAddress, approximateDistrict, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 import { prisma } from "@/server/db";
 import { assertPostAllowsPlaceAnalysis } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
@@ -111,12 +114,19 @@ async function planCandidate(
     if(sites.length>1)return {candidate,best:sites[0],reasons:[branchScope==='generic'?'generic_city_branches':'explicit_city_branches'],
       branches:sites.map(best=>({candidate,best,reasons:best.scored.reasons}))};
   }
-  if (specific.some((entry, index) =>
-    specific.slice(index + 1).some(other => distanceMeters(entry.resolved, other.resolved) > 100))) {
-    return { candidate, best: null, reasons: ['ambiguous_branches'] };
+  const ambiguous = specific.some((entry, index) =>
+    specific.slice(index + 1).some(other => distanceMeters(entry.resolved, other.resolved) > 100));
+  let best:CandidatePlan['best'] = ambiguous ? null : viable[0] ?? null;
+  // Geographic context is a separate final fallback, after precise retrieval
+  // (including provider hints) and branch ambiguity checks have completed.
+  if (!best && canApproximateVenue(candidate)) {
+    best = selectContextualVenueArea(candidate, resolved);
+    if (resolver.resolveApproximate && (!best || (best.scored.contextualArea?.level !== 'building' &&
+      (approximateAddress(candidate) || approximateDistrict(candidate))))) {
+      best = selectContextualVenueArea(candidate, [...resolved, ...await resolver.resolveApproximate(input)]);
+    }
   }
-  const best = viable[0] ?? null;
-  return { candidate, best, reasons: best?.scored.reasons ?? [...new Set(evaluated.flatMap(entry => entry.scored.reasons)),
+  return { candidate, best, reasons: best?.scored.reasons ?? [...(ambiguous ? ['ambiguous_branches'] : []),...new Set(evaluated.flatMap(entry => entry.scored.reasons)),
     ...(resolved.length ? [] : ['provider_no_results'])] };
 }
 
@@ -216,7 +226,48 @@ type PersistedLink = {
   placeId: string;
   confidence: number;
   precision: "EXACT" | "PROBABLE" | "APPROXIMATE";
+  candidate: PlaceCandidate;
+  resolved: ResolvedPlaceCandidate;
 };
+
+async function loadPostPlaceHistory(tx: TxClient, ownerId: string, postId: string, contextualFallback: boolean, resolvedCities: (string | null)[]) {
+  const lockCities = async (cities: (string | null)[]) => {
+    for (const city of [...new Set(cities.map(value => foldForSearch(value ?? '')))].sort()) {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`place-identity:${ownerId}:${city}`},0))::text`;
+    }
+  };
+  const contextualHistory = contextualFallback || await tx.place.findFirst({where: {ownerId, AND: [
+    {metadata: {path: ['label', 'source'], equals: 'source_candidate_approximate_area'}},
+    {metadata: {path: ['label', 'sourcePostId'], equals: postId}},
+  ]}, select: {id: true}});
+  if (!contextualHistory) {
+    await lockCities(resolvedCities);
+    return {places: [] as Awaited<ReturnType<typeof readHistory>>, removedPlaceIds: new Set<string>(), exhausted: false};
+  }
+  const removals = await tx.auditEvent.findMany({where: {ownerId, tableName: 'post_places', operation: 'DELETE',
+    beforeData: {path: ['post_id'], equals: postId}}, take: 501, select: {beforeData: true}});
+  const removedPlaceIds = new Set(removals.flatMap(row => row.beforeData && typeof row.beforeData === 'object' &&
+    !Array.isArray(row.beforeData) && typeof row.beforeData.place_id === 'string' ? [row.beforeData.place_id] : []));
+  const query = {where: {ownerId, OR: [{postLinks: {some: {ownerId, postId}}},
+    {evidence: {some: {ownerId, postId}}}, {id: {in: [...removedPlaceIds]}}]}, take: 501,
+    include: {postLinks: {where: {ownerId, postId}, select: {id: true}},
+      evidence: {where: {ownerId, postId, evidenceType: {not: 'PROVIDER_MATCH'}}, take: 201,
+        select: {normalizedValue: true, evidenceType: true}}}} satisfies Prisma.PlaceFindManyArgs;
+  function readHistory() { return tx.place.findMany(query); }
+  let places = await readHistory();
+  // All persistence paths acquire their cities in one deterministic order before
+  // locking any place, including precise-only passes sharing these identities.
+  await lockCities([...resolvedCities, ...places.map(place => place.city)]);
+  if (places.length && places.length <= 500) {
+    const ids = places.map(place => place.id);
+    // Reviews of an existing identity serialize with a fallback or upgrade. Read
+    // again after acquiring locks so a prior confirmation cannot be overlooked.
+    await tx.$queryRaw`SELECT id FROM places WHERE owner_id=${ownerId} AND id IN (${Prisma.join(ids)}) ORDER BY id FOR UPDATE`;
+    places = await tx.place.findMany({...query, where: {ownerId, id: {in: ids}}});
+  }
+  return {places, removedPlaceIds, exhausted: places.length > 500 || removals.length > 500 || places.some(place => place.evidence.length > 200)};
+}
+type PostPlaceHistory = Awaited<ReturnType<typeof loadPostPlaceHistory>>;
 
 // The single atomic domain transaction. Any thrown error rolls back every write.
 export async function persistMetadataAnalysis(
@@ -226,10 +277,24 @@ export async function persistMetadataAnalysis(
   await tx.$queryRaw`SELECT id FROM posts WHERE id=${postId} AND owner_id=${ownerId} FOR UPDATE`;
   await assertPostAllowsPlaceAnalysis(ownerId, postId, tx);
   await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${jobId} AND owner_id=${ownerId} FOR UPDATE`;
+  // Capture source identities before rebuilding this job's evidence. Otherwise
+  // a removed or renamed exact place would disappear from the fallback guard.
+  const persistencePlans = plans.flatMap(plan => plan.branches ?? [plan]);
+  const history = await loadPostPlaceHistory(tx, ownerId, postId, persistencePlans.some(plan => plan.best?.scored.contextualArea),
+    persistencePlans.flatMap(plan => plan.best ? [plan.best.resolved.city] : []));
+  const areaNames = plans.flatMap(plan => (plan.branches ?? [plan]).flatMap(branch =>
+    branch.best?.scored.contextualArea?.sourceName ? [branch.best.scored.contextualArea.sourceName] : []));
+  // A conflicting rename must keep its original source identity across every
+  // replay. New refused evidence is unlinked, so this retained set cannot grow.
+  const retainedIdentityIds = history.places.filter(place => areaNames.some(name =>
+    !sameSourceBusiness(place.displayName, name) && place.evidence.some(evidence =>
+      evidence.evidenceType !== 'USER_CORRECTION' && evidence.normalizedValue && sameSourceBusiness(evidence.normalizedValue, name))))
+    .map(place => place.id);
   // Re-runs are idempotent: drop the job's previous automatic evidence, never a
   // user correction, then rebuild it.
   await tx.placeEvidence.deleteMany({
-    where: { ownerId, postId, analysisJobId: jobId, evidenceType: { not: "USER_CORRECTION" } },
+    where: { ownerId, postId, analysisJobId: jobId, evidenceType: { not: "USER_CORRECTION" },
+      ...(retainedIdentityIds.length ? {OR: [{placeId: null}, {placeId: {notIn: retainedIdentityIds}}]} : {}) },
   });
 
   const persistedPlaceIds = new Set<string>();
@@ -254,7 +319,7 @@ export async function persistMetadataAnalysis(
       evidencePersisted+=await insertCandidateEvidence(tx,{ownerId,postId,placeId:null,jobId,candidate:plan.candidate});
       continue;
     }
-    const place = await upsertCanonicalPlace(tx, { ownerId, postId, resolved, scored, candidate: plan.candidate, preserveExisting });
+    const place = await upsertCanonicalPlace(tx, { ownerId, postId, resolved, scored, candidate: plan.candidate, preserveExisting, history });
     if(!place||place.reviewStatus==='REJECTED'){
       plan.best=null;plan.reasons=[place?'manual_identity_rejected':'existing_identity_conflict'];
       evidencePersisted+=await insertCandidateEvidence(tx,{ownerId,postId,placeId:null,jobId,candidate:plan.candidate});
@@ -273,6 +338,8 @@ export async function persistMetadataAnalysis(
         placeId: place.id,
         confidence: scored.confidence,
         precision: scored.precision as "EXACT" | "PROBABLE" | "APPROXIMATE",
+        candidate: plan.candidate,
+        resolved,
       });
     }
 
@@ -286,7 +353,7 @@ export async function persistMetadataAnalysis(
     evidencePersisted += await insertProviderEvidence(tx, { ownerId, postId, placeId: place.id, jobId, resolved, scored });
   }
 
-  if(!preserveExisting)await supersedeAutomaticApproximatePrimary(tx, { ownerId, postId, persistedLinks });
+  await supersedeAutomaticApproximatePrimary(tx, { ownerId, postId, persistedLinks, preserveExisting });
   if(!preserveExisting||!await tx.postPlace.findFirst({where:{ownerId,postId,isPrimary:true}}))await assignPrimaryLink(tx, { ownerId, postId, persistedLinks });
 
   for(const plan of plans){
@@ -365,15 +432,114 @@ function readSourceBusinessLabel(metadata: Prisma.JsonValue) {
     sourcePostId: label.sourcePostId, providerName: null, providerDisplayName: label.providerDisplayName };
 }
 
+type SourceAreaLabel = {
+  source: 'source_candidate_approximate_area';
+  candidateName: string;
+  candidateKey: string;
+  sourcePostId: string;
+  sourceContext: {address: string | null; city: string | null; region: string | null; country: string | null};
+  providerName: string | null;
+  providerDisplayName: string;
+  level: 'building' | 'street' | 'district' | 'city';
+  missingDetails: string[];
+};
+
+function sourceAreaLabel(candidate: PlaceCandidate, resolved: ResolvedPlaceCandidate, scored: ScoredResolution, postId: string): SourceAreaLabel | null {
+  const area = scored.contextualArea;
+  if (scored.precision !== 'APPROXIMATE' || !scored.reasons.includes('contextual_venue_area') || !area?.sourceName.trim()) return null;
+  const sourceContext = {address: candidate.address, city: candidate.city, region: candidate.region, country: candidate.country};
+  // Provider refinements never change the source identity or bypass its deletion
+  // tombstone. Deduced geography is not a new branch discriminator.
+  const key = [area.sourceName, candidate.address, ...(['city', 'region', 'country'] as const)
+    .map(field => candidate.inferredFields?.includes(field) ? null : candidate[field])]
+    .map(value => value ? foldForSearch(value) : null);
+  return {source: 'source_candidate_approximate_area', candidateName: area.sourceName.trim(),
+    candidateKey: createHash('sha256').update(JSON.stringify(key)).digest('hex'), sourcePostId: postId,
+    sourceContext, providerName: resolved.providerName ?? null, providerDisplayName: resolved.displayName,
+    level: area.level, missingDetails: area.missingDetails};
+}
+
+function readSourceAreaLabel(metadata: Prisma.JsonValue): SourceAreaLabel | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const label = metadata.label;
+  if (!label || typeof label !== 'object' || Array.isArray(label) || label.source !== 'source_candidate_approximate_area' ||
+    typeof label.candidateName !== 'string' || typeof label.candidateKey !== 'string' || typeof label.sourcePostId !== 'string' ||
+    !label.sourceContext || typeof label.sourceContext !== 'object' || Array.isArray(label.sourceContext)) return null;
+  if (['address', 'city', 'region', 'country'].some(field => label.sourceContext && typeof label.sourceContext === 'object' &&
+    !Array.isArray(label.sourceContext) && label.sourceContext[field] !== null && typeof label.sourceContext[field] !== 'string')) return null;
+  return label as unknown as SourceAreaLabel;
+}
+
+type HistoricalGeography = {countryCode: string | null; region: string | null};
+
+function sameAdministrativeLabel(before: string, after: string, resolved: ResolvedPlaceCandidate): boolean {
+  // Both spellings must identify the SAME structured provider component. Two
+  // different districts, or a province and its city, are not interchangeable.
+  const labels = {state: resolved.region, city: resolved.city, ...resolved.administrativeLabels};
+  return Object.entries(labels).some(([field, value]) => {
+    if (!value) return false;
+    const component = {...resolved, city: null, region: null, administrativeLabels: {[field]: value}};
+    return administrativeRegionMatches(before, component) && administrativeRegionMatches(after, component);
+  });
+}
+
+function sameSourceContext(context: SourceAreaLabel['sourceContext'], candidate: PlaceCandidate,
+  previous: HistoricalGeography, resolved: ResolvedPlaceCandidate, requirePreviousFields: boolean, legacyProviderContext = false): boolean {
+  const previousCode = continentCodeForCountry(previous.countryCode) ? previous.countryCode!.trim().toUpperCase() : null;
+  const nextCode = continentCodeForCountry(resolved.countryCode) ? resolved.countryCode!.trim().toUpperCase() : null;
+  if (previousCode && nextCode && previousCode !== nextCode) return false;
+  for (const field of ['city', 'region', 'country'] as const) {
+    const before = context[field], after = candidate[field];
+    if (before && !after && requirePreviousFields) return false;
+    if (!before || !after || foldForSearch(before) === foldForSearch(after)) continue;
+    // Verified ISO codes remain stable across China / CN / Chine labels.
+    if (field === 'country' && previousCode && previousCode === nextCode) continue;
+    if (field !== 'country' && sameAdministrativeLabel(before, after, resolved)) continue;
+    if (field === 'city' && legacyProviderContext && municipalityCityLabels(previous.countryCode, previous.region)
+      .some(city => foldForSearch(city) === foldForSearch(after))) continue;
+    return false;
+  }
+  const before = context.address;
+  if (!before) return true;
+  if (!candidate.address) return !requirePreviousFields;
+  return foldForSearch(before) === foldForSearch(candidate.address) || addressAgreement(before, candidate.address).match;
+}
+
+function sameSourceAreaBusiness(label: SourceAreaLabel, candidate: PlaceCandidate,
+  previous: HistoricalGeography, resolved: ResolvedPlaceCandidate): boolean {
+  return Boolean(candidate.name && sameSourceBusiness(label.candidateName, candidate.name) &&
+    sameSourceContext(label.sourceContext, candidate, previous, resolved, true));
+}
+
 async function upsertCanonicalPlace(
   tx: TxClient,
-  { ownerId, postId, resolved, scored, candidate, preserveExisting }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution; candidate: PlaceCandidate; preserveExisting:boolean },
+  { ownerId, postId, resolved, scored, candidate, preserveExisting, history }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution; candidate: PlaceCandidate; preserveExisting:boolean; history: PostPlaceHistory },
 ) {
   const precision = scored.precision as "EXACT" | "PROBABLE" | "APPROXIMATE";
+  const areaLabel = sourceAreaLabel(candidate, resolved, scored, postId);
+  if (history.exhausted) return null;
+  if (scored.reasons.includes('contextual_venue_area') && !areaLabel) return null;
+  if (areaLabel || history.places.some(place => readSourceAreaLabel(place.metadata))) {
+    const sourceName = areaLabel?.candidateName ?? candidate.name;
+    const identities = sourceName ? history.places.filter(place => {
+      const label = readSourceAreaLabel(place.metadata), verified = readSourceBusinessLabel(place.metadata);
+      const names = [place.displayName, label?.candidateName, verified?.candidateName,
+        ...place.evidence.filter(evidence => evidence.evidenceType !== 'USER_CORRECTION').map(evidence => evidence.normalizedValue)];
+      if (!names.some(name => name && sameSourceBusiness(name, sourceName))) return false;
+      const context = label?.sourceContext ?? place;
+      return sameSourceContext(context, candidate, place, resolved, false, !label);
+    }) : [];
+    if (identities.some(place => place.reviewStatus === 'REJECTED' || !sameSourceBusiness(place.displayName, sourceName!))) return null;
+    const precise = identities.filter(place => ['EXACT', 'PROBABLE'].includes(place.precision) && place.postLinks.length);
+    if (areaLabel && precise.length) return precise.length === 1 ? precise[0] : null;
+    if (!precise.length && identities.some(place => !place.postLinks.length && history.removedPlaceIds.has(place.id))) return null;
+    if (!areaLabel && identities.some(place => readSourceAreaLabel(place.metadata) &&
+      (place.isUserConfirmed || place.reviewStatus === 'CONFIRMED' || place.evidence.some(evidence => evidence.evidenceType === 'USER_CORRECTION')))) return null;
+  }
   // Exact/provider-verified places remain canonical. An approximate area is an
   // uncertainty envelope for one post, never a shared canonical destination.
   const providerPlaceId =
-    precision === "APPROXIMATE"
+    areaLabel ? `contextual-venue:${postId}:${areaLabel.candidateKey}` : precision === "APPROXIMATE"
       ? `${resolved.providerPlaceId}:post:${postId}`
       : resolved.providerPlaceId;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`place-identity:${ownerId}:${foldForSearch(resolved.city??'')}`},0))::text`;
@@ -393,6 +559,18 @@ async function upsertCanonicalPlace(
     },
   });
 
+  if (areaLabel && existing) {
+    // Area labels are source business names, not provider occupant identities.
+    // Manual states and removals dominate a later provider boundary refinement.
+    if (existing.isUserConfirmed || existing.reviewStatus === 'CONFIRMED' || existing.reviewStatus === 'REJECTED') return existing;
+    const priorArea = readSourceAreaLabel(existing.metadata);
+    if (!priorArea || !sameSourceBusiness(existing.displayName, priorArea.candidateName)) return null;
+    const link = await tx.postPlace.findUnique({where: {ownerId_postId_placeId: {ownerId, postId, placeId: existing.id}}, select: {id: true}});
+    if (!link && await tx.auditEvent.findFirst({where: {ownerId, tableName: 'post_places', operation: 'DELETE', AND: [
+      {beforeData: {path: ['post_id'], equals: postId}}, {beforeData: {path: ['place_id'], equals: existing.id}},
+    ]}, select: {id: true}})) return null;
+  }
+
   // scored.precision is never UNKNOWN here (UNKNOWN plans have best === null).
   const proposedLabel = sourceBusinessLabel(candidate, resolved, scored, postId);
   const existingLabel = existing ? readSourceBusinessLabel(existing.metadata) : null;
@@ -409,7 +587,7 @@ async function upsertCanonicalPlace(
   // Repeated aliases or a later unspecified category must not replace the first
   // source label with an address, change its spelling, or rewrite its provenance.
   const retainedLabel = existingLabel && resolved.providerName == null ? existingLabel : null;
-  const sourceLabel = retainedLabel ?? proposedLabel;
+  const sourceLabel = areaLabel ?? retainedLabel ?? proposedLabel;
   const displayName = retainedLabel && existing ? existing.displayName : sourceLabel?.candidateName ?? resolved.displayName;
   const descriptive = {
     displayName,
@@ -530,6 +708,7 @@ async function upsertPostPlace(
   });
   // A user-confirmed link dominates any automatic re-analysis: leave it intact.
   if (existing && (existing.isUserConfirmed || preserveExisting)) return null;
+  if (existing && scored.contextualArea && existing.precision !== 'APPROXIMATE') return null;
 
   const precision = scored.precision as "EXACT" | "PROBABLE" | "APPROXIMATE";
   if (!existing) {
@@ -564,24 +743,26 @@ async function supersedeAutomaticApproximatePrimary(
     ownerId,
     postId,
     persistedLinks,
+    preserveExisting,
   }: {
     ownerId: string;
     postId: string;
     persistedLinks: PersistedLink[];
+    preserveExisting: boolean;
   },
 ): Promise<void> {
-  if (!persistedLinks.some((link) => link.precision === "EXACT")) return;
-
-  await tx.postPlace.deleteMany({
-    where: {
-      ownerId,
-      postId,
-      isPrimary: true,
-      isUserConfirmed: false,
-      precision: "APPROXIMATE",
-      placeId: { notIn: persistedLinks.map((link) => link.placeId) },
-    },
+  const exact = persistedLinks.filter(link => link.precision === 'EXACT');
+  if (!exact.length) return;
+  const previous = await tx.postPlace.findMany({where: {ownerId, postId, isUserConfirmed: false, precision: 'APPROXIMATE',
+    placeId: {notIn: persistedLinks.map(link => link.placeId)}, place: {ownerId, isUserConfirmed: false, reviewStatus: 'UNREVIEWED',
+      evidence: {none: {ownerId, evidenceType: 'USER_CORRECTION'}}}}, include: {place: {select: {metadata: true, displayName: true, countryCode: true, region: true}}}});
+  const superseded = previous.filter(link => {
+    const label = readSourceAreaLabel(link.place.metadata);
+    if (!label) return !preserveExisting && link.isPrimary; // Preserve the legacy destination upgrade.
+    return label.sourcePostId === postId && sameSourceBusiness(link.place.displayName, label.candidateName) &&
+      exact.some(next => sameSourceAreaBusiness(label, next.candidate, link.place, next.resolved));
   });
+  if (superseded.length) await tx.postPlace.deleteMany({where: {ownerId, postId, id: {in: superseded.map(link => link.id)}, isUserConfirmed: false}});
 }
 
 // Assign exactly one primary link per post (design D5, enforced by a partial
