@@ -320,7 +320,7 @@ test.describe("globe Places continu", () => {
     await waitForCamera(page);
     expect(await page.evaluate(() => (window as MapWindow).__placesMap?.getZoom())).toBeLessThan(12);
     await detail.getByRole("button", { name: "Fermer le détail" }).click();
-    await page.getByRole("searchbox", { name: "Rechercher un lieu" }).fill("Carnet Pacifique");
+    await page.getByRole("combobox", { name: "Rechercher un lieu" }).fill("Carnet Pacifique");
     const areaButton = page.getByRole("button", { name: "Sélectionner Carnet Pacifique — Zone ~50 km" });
     await areaButton.focus();
     await page.keyboard.press("Enter");
@@ -425,7 +425,7 @@ test.describe("globe Places continu", () => {
     }
 
     // Explicit filtering and incoming place links still frame their target.
-    await page.getByRole("searchbox", { name: "Rechercher un lieu" }).fill("Santorin");
+    await page.getByRole("combobox", { name: "Rechercher un lieu" }).fill("Santorin");
     await expect.poll(async () => (await camera()).center.lng).toBeCloseTo(25.4615, 4);
     await waitForCamera(page);
     expect((await camera()).center.lat).toBeCloseTo(36.3932, 4);

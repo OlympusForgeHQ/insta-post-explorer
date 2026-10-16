@@ -36,7 +36,7 @@ describe("library multiselection", () => {
       ? Response.json({ items: [] }) : new Response(null, { status: 500 })));
     render(explorer());
     fireEvent.click(screen.getByRole("button", { name: "Sélectionner des publications" }));
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "failed search" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Rechercher dans la bibliothèque" }), { target: { value: "failed search" } });
     expect(await screen.findByRole("alert")).toHaveTextContent("Impossible d’actualiser");
     expect(screen.getByRole("button", { name: "Sélectionner les 2 publications affichées" })).toBeDisabled();
     for (const checkbox of screen.getAllByRole("checkbox")) expect(checkbox).toBeDisabled();
@@ -60,12 +60,12 @@ describe("library multiselection", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Grille masonry" })[0]);
     expect(screen.getAllByRole("checkbox", { checked: true })).toHaveLength(3);
 
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "new search" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Rechercher dans la bibliothèque" }), { target: { value: "new search" } });
     expect(screen.getByText("0 publication sélectionnée")).toBeVisible();
     expect(screen.getByRole("button", { name: "Supprimer la sélection" })).toBeDisabled();
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
     await waitFor(() => expect(screen.queryAllByRole("checkbox", { checked: true })).toHaveLength(0));
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Rechercher dans la bibliothèque" }), { target: { value: "" } });
     expect(screen.getByText("0 publication sélectionnée")).toBeVisible();
   });
 

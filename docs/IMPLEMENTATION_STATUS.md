@@ -1,5 +1,14 @@
 # Implementation Status
 
+## Recent searches — 16 October 2026
+
+The Posts and Places search bars offer five recent searches each, saved locally
+and recalled without changing existing live filters, routes or shortcuts. Safe
+storage fallback and keyboard/touch interactions are covered by focused tests;
+real desktop/mobile browser flows check persistence, recall and focus navigation.
+No schema, API, worker or Places-area-display change is included. See
+[acceptance criteria and verification](changes/2026-10-16-recent-searches.md).
+
 ## Contextual approximate places — 16 October 2026
 
 Implementation verified locally: precise retrieval followed by a verified

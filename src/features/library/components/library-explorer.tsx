@@ -3,11 +3,12 @@
 import { MotionPresence } from "@/components/motion-presence";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ArrowUp, Grid2X2, History, LayoutGrid, LogIn, LogOut, MapPin, Search, Settings2, SlidersHorizontal, Sparkles, SquareCheckBig, Upload, Wrench, X } from "lucide-react";
+import { ArrowUp, Grid2X2, History, LayoutGrid, LogIn, LogOut, MapPin, Settings2, SlidersHorizontal, Sparkles, SquareCheckBig, Upload, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThemeMenu } from "@/components/theme-menu";
+import { RecentSearchInput } from "@/components/recent-search-input";
 import { Brand } from "@/components/brand";
 import { FilterContent, MobileFilterDrawer, type TagFacet } from "@/features/library/components/filter-panel";
 import { BulkDeletePostsAlert } from "@/features/library/components/admin/bulk-delete-posts-alert";
@@ -412,18 +413,10 @@ export function LibraryExplorer({
     <div className="app-shell" ref={shellRef}>
       <header className="app-header">
         <Link className="brand" href="/" aria-label="Insta Post Explorer, accueil"><Brand compact /></Link>
-        <label className="global-search">
-          <Search aria-hidden="true" className="size-4" />
-          <span className="sr-only">Rechercher dans la bibliothèque</span>
-          <input
-            ref={searchRef}
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Rechercher parmi ${totalLibrary.toLocaleString("fr-FR")} souvenirs`}
-          />
-          <kbd>⌘ K</kbd>
-        </label>
+        <RecentSearchInput scope="posts" className="global-search" inputRef={searchRef}
+          value={query} onValueChange={setQuery} label="Rechercher dans la bibliothèque"
+          placeholder={`Rechercher parmi ${totalLibrary.toLocaleString("fr-FR")} souvenirs`}
+          showShortcut showClear={false} />
         <nav className="header-actions" aria-label="Actions principales">
           {/* Places is a permanent destination, on desktop and mobile alike. */}
           <Link className="header-tab places-tab" href="/places" aria-label="Places">

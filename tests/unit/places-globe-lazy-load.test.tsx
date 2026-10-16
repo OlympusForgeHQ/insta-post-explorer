@@ -142,6 +142,6 @@ describe("3D engine is never imported without a proven WebGL capability", () => 
 
     if (!expectMap) expect(state.mapImported).toBe(false);
     // Whatever the state, the rest of the page stays usable.
-    expect(screen.getByRole("searchbox", { name: "Rechercher un lieu" })).toBeDefined();
+    expect(screen.getByRole("combobox", { name: "Rechercher un lieu" })).toBeDefined();
   });
 });
