@@ -18,7 +18,14 @@ export type ScoringInput = {
   resolved: ResolvedPlaceCandidate;
 };
 
+export type ContextualVenueArea = {
+  level: "building" | "street" | "district" | "city";
+  sourceName: string;
+  missingDetails: string[];
+};
+
 export type ScoredResolution = {
+  contextualArea?: ContextualVenueArea;
   confidence: number;
   precision: PlacePrecisionOutcome;
   approximationRadiusMeters: number | null;

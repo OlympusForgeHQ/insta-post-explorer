@@ -477,3 +477,39 @@ describe("getConfiguredPlaceResolver", () => {
     expect(getConfiguredPlaceResolver()).toBeInstanceOf(GeoapifyPlaceResolver);
   });
 });
+
+
+describe('bounded neutral area fallback',()=>{
+ it('queries the source address without a unit and never transmits the business or evidence',async()=>{
+  const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[{place_id:'building-12',formatted:'12 Example Road, Paris',
+   street:'Example Road',housenumber:'12',city:'Paris',country:'France',country_code:'fr',lat:48.85,lon:2.35,result_type:'building',
+   rank:{confidence:1,match_type:'full_match'}}]}));
+  const candidate=restaurantCandidate({name:'Example Bakery',address:'Unit C, 12 Example Road',city:'Paris',country:'France',
+   evidence:[{type:'CAPTION',excerpt:'Private caption: Example Bakery, Unit C, 12 Example Road, Paris'}]});
+  const matches=await resolver(fetchMock).resolveApproximate({candidate,sourceTheme:'Restaurant'});
+  expect(matches).toHaveLength(1);expect(matches[0].providerName).toBeNull();expect(fetchMock).toHaveBeenCalledTimes(1);
+  const url=new URL(String(fetchMock.mock.calls[0][0]));expect(url.searchParams.get('text')).toBe('12 Example Road, Paris, France');
+  expect(url.href).not.toContain('Bakery');expect(url.href).not.toContain('Private');expect(url.href).not.toContain('Unit');
+ });
+ it('does not stop at a city returned by an address query when a district can narrow the envelope',async()=>{
+  const base={place_id:'paris',name:'Paris',formatted:'Paris, France',city:'Paris',country:'France',country_code:'fr',lat:48.85,lon:2.35,
+   result_type:'city',rank:{confidence:1,match_type:'full_match'},bbox:{lon1:2.2,lat1:48.8,lon2:2.5,lat2:48.9}};
+  const district={...base,place_id:'north',name:'North District',result_type:'district',district:'North District',bbox:{lon1:2.34,lat1:48.84,lon2:2.36,lat2:48.86}};
+  const fetchMock=vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({results:[base]})).mockResolvedValueOnce(jsonResponse({results:[district]}));
+  const candidate=restaurantCandidate({name:'Example Bakery',address:'12 Example Road',city:'Paris',region:'North District',country:'France',
+   evidence:[{type:'CAPTION',excerpt:'Example Bakery, 12 Example Road, North District, Paris'}]});
+  const results=await resolver(fetchMock).resolveApproximate({candidate,sourceTheme:'Restaurant'});
+  expect(fetchMock).toHaveBeenCalledTimes(2);expect(results.some(result=>result.providerPlaceId==='north')).toBe(true);
+ });
+ it('bounds retries over address, district and city and skips ungrounded or country-only candidates',async()=>{
+  const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[]}));const service=resolver(fetchMock);
+  const candidate=restaurantCandidate({name:'Example Bakery',address:'12 Example Road',city:'Paris',region:'North District',country:'France',
+   evidence:[{type:'CAPTION',excerpt:'Example Bakery, 12 Example Road, North District, Paris'}]});
+  expect(await service.resolveApproximate({candidate,sourceTheme:'Restaurant'})).toEqual([]);expect(fetchMock).toHaveBeenCalledTimes(3);
+  const urls=fetchMock.mock.calls.map(call=>new URL(String(call[0])));expect(urls.every(url=>!url.searchParams.has('name'))).toBe(true);
+  expect(urls.at(-1)?.searchParams.get('city')).toBe('Paris');expect(urls.at(-1)?.searchParams.has('state')).toBe(false);
+  fetchMock.mockClear();
+  for(const source of [{...candidate,city:null},{...candidate,evidence:[]}])expect(await service.resolveApproximate({candidate:source,sourceTheme:'Restaurant'})).toEqual([]);
+  expect(fetchMock).not.toHaveBeenCalled();
+ });
+});

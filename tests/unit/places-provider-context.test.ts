@@ -85,15 +85,19 @@ it('searches the POI catalog within a uniquely verified city boundary without tr
  const [plan]=await planAll([candidate],'Restaurant',new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://example.test',fetchImpl:fetchMock}));
  expect(plan.best?.resolved.providerPlaceId).toBe('venue');
  expect(plan.best?.resolved.category).toBe('catering.cafe');
- for(const [number,expected]of [['12',true],['14',false]]){
+ for(const number of ['12','14']){
   const [addressed]=await planAll([{...candidate,address:`${number} Main Street, London`}],'Restaurant',new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://example.test',fetchImpl:fetchMock}));
-  expect(Boolean(addressed.best)).toBe(expected);
+  if(number==='12')expect(addressed.best).toMatchObject({resolved:{providerPlaceId:'venue'},scored:{precision:'EXACT'}});
+  else expect(addressed.best).toMatchObject({resolved:{providerPlaceId:'london-boundary',providerResultType:'city'},
+   scored:{precision:'APPROXIMATE',contextualArea:{level:'city',sourceName:'Example Cafe'},reasons:expect.arrayContaining(['contextual_venue_area'])}});
+  // The mismatched numbered venue never becomes an exact or probable point.
+  if(number==='14')expect(addressed.best?.resolved.houseNumber).toBeNull();
  }
  expect(plan.best?.resolved.providerLocalityBoundary).toEqual({placeId:'london-boundary',name:'London'});
  const wrongCountry=vi.fn(async()=>new Response(JSON.stringify({results:[{...city,country:'Canada',country_code:'ca'}]})));
  const [wrong]=await planAll([candidate],'Restaurant',new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://example.test',fetchImpl:wrongCountry}));
  expect(wrong.best).toBeNull();
- expect(wrongCountry.mock.calls.length).toBeLessThanOrEqual(4);
+ expect(wrongCountry.mock.calls.length).toBeLessThanOrEqual(5); // One final neutral city lookup is allowed.
 });
 
 

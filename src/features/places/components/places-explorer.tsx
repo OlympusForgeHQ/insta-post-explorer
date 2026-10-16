@@ -32,6 +32,7 @@ import { PlaceDetailSheet } from "@/features/places/components/place-detail-shee
 import { PlaceAddressLink } from "@/features/places/components/place-address-link";
 import { PlacesMapA11yList, PlacesRenderer, type ResolvedPlacesView } from "@/features/places/components/places-renderer";
 import type { ScreenPoint } from "@/features/places/renderer-contract";
+import { formatApproximationRadius } from "@/features/places/map-areas";
 import dynamic from "next/dynamic";
 
 const PlacesPostPreviewDialog = dynamic(
@@ -121,7 +122,7 @@ export function PlacesExplorer({
 
   const mappable = useMemo(() => places.filter(isMappable), [places]);
   const visible = useMemo(() => filterPlaces(mappable, filters), [mappable, filters]);
-  const renderedPoints = useMemo(() => visible.filter((place) => place.precision !== "APPROXIMATE"), [visible]);
+  const approximateCount = useMemo(() => visible.filter(place => place.precision === "APPROXIMATE").length, [visible]);
   const selected = useMemo(
     () => visible.find((place) => place.id === selectedId) ?? places.find((place) => place.id === selectedId) ?? null,
     [visible, places, selectedId],
@@ -269,7 +270,7 @@ export function PlacesExplorer({
             filters, statistics, list, detail and summary — is shared. */}
         <PlacesRenderer
           view={resolvedView}
-          places={renderedPoints}
+          places={visible}
           selectedId={selectedId}
           onSelect={handleSelect}
           onOpenPost={handleOpenPost}
@@ -302,8 +303,8 @@ export function PlacesExplorer({
                 </span>
               )}
               <span className={cn("places-badge", `is-${hover.place.precision.toLowerCase()}`)}>
-                {hover.place.precision === "APPROXIMATE" && hover.place.approximationRadiusMeters
-                  ? `Zone ~${Math.round(hover.place.approximationRadiusMeters / 1000)} km`
+                {hover.place.precision === "APPROXIMATE"
+                  ? formatApproximationRadius(hover.place.approximationRadiusMeters)
                   : PRECISION_LABEL[hover.place.precision]}
               </span>
             </div>
@@ -317,7 +318,7 @@ export function PlacesExplorer({
           </div>
         ) : null}
 
-        <PlacesMapA11yList places={renderedPoints} selectedId={selectedId} onSelect={handleSelect} />
+        <PlacesMapA11yList places={visible} selectedId={selectedId} onSelect={handleSelect} />
 
         <MotionPresence present={filtersOpen}>
           <div className="places-panel" id="places-filters" role="dialog" aria-label="Filtres">
@@ -476,7 +477,7 @@ export function PlacesExplorer({
                       </span>
                       <span className="places-row-meta">
                         <span className={cn("places-badge", `is-${place.precision.toLowerCase()}`)}>
-                          {PRECISION_LABEL[place.precision]}
+                          {place.precision === "APPROXIMATE" ? formatApproximationRadius(place.approximationRadiusMeters) : PRECISION_LABEL[place.precision]}
                         </span>
                         <span className="places-row-count">{place.postCount} post(s)</span>
                       </span>
@@ -511,7 +512,7 @@ export function PlacesExplorer({
       <div className="places-summary">
         <div className="places-summary-count" role="status">
           <span><strong>{visible.length}</strong> lieu{visible.length > 1 ? "x" : ""}</span>
-          {truncated ? <span className="places-truncated">Parmi les 1 000 plus récents</span> : <span className="places-summary-caption">À explorer sur la carte</span>}
+          {truncated ? <span className="places-truncated">{approximateCount ? `${approximateCount} zone${approximateCount > 1 ? "s" : ""} · ` : "Parmi les "}1 000 plus récents</span> : <span className="places-summary-caption">{approximateCount ? `${approximateCount} zone${approximateCount > 1 ? "s" : ""} approximative${approximateCount > 1 ? "s" : ""}` : "À explorer sur la carte"}</span>}
         </div>
         <div className="places-summary-actions">
           <button type="button" className="places-footer-button" aria-label="Statistiques" aria-expanded={statsOpen} onClick={() => {

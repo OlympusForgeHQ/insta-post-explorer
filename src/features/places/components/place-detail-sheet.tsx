@@ -8,6 +8,7 @@ import { PLACE_CATEGORY_GROUPS } from "@/lib/places/categories";
 import { cn } from "@/lib/utils";
 import { confirmPlaceAction, loadPlacePostsAction, rejectPlaceAction, type PlacePostDetailDto } from "@/features/places/actions";
 import { PlaceAddressLink } from "@/features/places/components/place-address-link";
+import { formatApproximationRadius } from "@/features/places/map-areas";
 
 // Detail sheet for the selected place. Review writes call the internal Server
 // Actions (never the read-only external API); each action is guarded against
@@ -76,10 +77,6 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
     });
   };
 
-  const radiusKm =
-    place.precision === "APPROXIMATE" && place.approximationRadiusMeters
-      ? Math.round(place.approximationRadiusMeters / 1000)
-      : null;
   const selectedPost = posts?.find((post) => post.postId === selectedPostId) ?? null;
   const showPostSelector = posts === null || postsError || posts.length !== 1;
 
@@ -102,11 +99,15 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose }: SheetProps) {
 
       <div className="places-sheet-badges">
         <span className={cn("places-badge", `is-${place.precision.toLowerCase()}`)}>
-          {radiusKm ? `Zone ~${radiusKm} km` : PRECISION_LABEL[place.precision]}
+          {place.precision === "APPROXIMATE" ? formatApproximationRadius(place.approximationRadiusMeters) : PRECISION_LABEL[place.precision]}
         </span>
         {place.isUserConfirmed ? <span className="places-badge is-confirmed">Confirmé</span> : null}
         <span className="places-chip">{PLACE_CATEGORY_GROUPS.find(group => group.key === place.categoryGroup)?.label ?? "Divers"}</span>
       </div>
+
+      {place.precision === "APPROXIMATE" ? (
+        <p className="places-sheet-meta">Emplacement approximatif : le centre de la zone n’indique pas une adresse précise.</p>
+      ) : null}
 
       <p className="places-sheet-meta">
         {place.postCount} post(s) associé(s)

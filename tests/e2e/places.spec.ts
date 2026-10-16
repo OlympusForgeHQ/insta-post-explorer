@@ -121,7 +121,8 @@ test.describe("page Places avec le harnais local", () => {
     expect(post).toBeDefined();
 
     await page.goto("/?q=Caf%C3%A9%20du%20Globe%20Paris");
-    await page.locator(`[data-post-id="${post.id}"]`).click();
+    await expect(page.locator(".posts-masonry")).toHaveAttribute("data-masonry-ready", "true");
+    await page.getByRole("button", { name: "Ouvrir la publication de visual_harness" }).click();
     const postDetail = page.getByRole("dialog");
     await expect(postDetail.getByRole("link", { name: "Voir dans Places" })).toBeVisible();
     await expect(postDetail.getByRole("link", { name: /dans Google Maps/ })).toContainText("12 rue de l'Église & Café");

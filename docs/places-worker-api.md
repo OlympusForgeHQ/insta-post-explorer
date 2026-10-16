@@ -19,7 +19,8 @@ Commands are strict JSON with an `action` field:
 - `complete`: `jobId`, `leaseToken`, `result`. Validates strict candidates, media
   coverage and evidence; resolves geographically; locks and rechecks the current
   input and lease; persists atomically with audit action `places.worker.complete`.
-- `preview`: `postId`, `inputHash`, `result`. Same validation/resolution, no writes.
+- `preview`: `postId`, `inputHash`, `result`. Same validation/resolution, no place/link writes; provider quota reservations remain audited.
+- `reprocess`: `postId`, `sourceJobId`, `inputHash`, `expectedCompletionHash`, fresh complete `result`, `commit` (default false). Explicitly re-evaluate one completed NEEDS_REVIEW source under the current resolution policy, preserving its original history. See below.
 - `fail`: `jobId`, `leaseToken`, bounded `code`. Transient failures retry within
   three attempts; invalid/oversized media or invalid output fail visibly.
 
@@ -42,6 +43,26 @@ worker requests. Keep places, evidence and the database mutation journal on
 rollback. Do not replay the repository's historical production migrations.
 
 ## Contextual resolution and bounded recovery
+
+Policy `provider-context-v6` keeps precise resolution first. If no exact/probable
+site can be established, a separately verified geographic anchor can represent
+a source-named venue as APPROXIMATE: building, street, district or city, with a
+conservative radius. The provider verifies the anchor, not the business's presence
+at an exact pin. Contradictory anchor geography is rejected. Source names, source
+addresses and evidence remain available in provenance; independent venues never
+collapse into one city record. These automatic zones do not enter confirmed memory.
+
+The additive `reprocess` action accepts a complete fresh worker result, unlike
+`recover`, which requires the original payload and preserves its evidence. It is
+bound to an owner/post/source job, current input hash and the source completion
+request hash. Only NEEDS_REVIEW multimodal jobs qualify. One committed reprocess
+per source/current policy is allowed; an identical replay returns the receipt,
+while changed payloads conflict before provider calls. Eligibility, media coverage,
+source state and active leases are rechecked before committing. The new analysis
+uses `places-policy-reprocess-v1` and audit action `places.worker.policy_reprocess`.
+Existing original jobs and decisions remain historical evidence. Source review-job
+counts are historical, not a count of newly unresolved locations. No automatic
+consumer invokes this operator-only action and no global backfill is enabled.
 
 `prepare.categoryRules` includes contextual geography instructions for existing
 worker clients. `inferredFields` marks inferred city/country/region; evidence stays

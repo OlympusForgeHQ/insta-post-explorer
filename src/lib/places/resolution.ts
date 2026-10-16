@@ -2,7 +2,7 @@ import { scoreResolvedCandidate, type ScoringInput, type ScoredResolution } from
 import {foldForSearch} from '@/lib/import/normalize';
 import {administrativeRegionMatches} from '@/lib/places/administrative-context';
 
-export const RESOLUTION_POLICY_VERSION = 'provider-context-v5';
+export const RESOLUTION_POLICY_VERSION = 'provider-context-v6';
 export const PLACE_CONTEXT_RULES = `Infer missing country, city or region from the combined post context and geographic knowledge when the identity is coherent. These fields need not appear literally in the post. Mark deduced fields in inferredFields and retain the original source excerpts unchanged. Do not override explicit contradictory context or invent a branch address. Split distinct branch addresses into separate candidates. A chain account alone does not identify a branch. Never output coordinates or provider IDs. Before declaring a venue name unknown, review visible branding/signage and ordinary-sounding phrases in speech that could be a business name. Treat such a phrase only as a tentative identity when independent source context corroborates that role; generic praise alone never establishes branding. Keep verbatim evidence and let the geographic provider verify identity.
 For locationScope, inspect the FULL caption, all OCR, audio, Instagram location and other supplied context at fusion. CITY is only for a generic recommendation of a named business in an explicitly named city with no address, neighborhood, street, station, landmark, branch qualifier or other narrower discriminator anywhere in the recommendation. The owner wants every independently verified shop in that city for this generic case. A chain account alone, missing address or inferred city does not prove CITY. Record SPECIFIC if any narrower context exists, even when address is null; otherwise UNKNOWN. Bind evidenceIndex to existing literal evidence. Retain narrower context in evidence; never shorten it away to obtain CITY. The generic CITY path requires a CAPTION proof covering the complete literal caption, with the city mentioned separately from the business/account name. A city embedded only in an account or hashtag never proves city scope. Extra caption wording or narrower Instagram location remains conservative. Do not invent branches or enumerate addresses: the server verifies actual branches. Preserve existing explicit multiple-location recommendations.`;
 
@@ -14,7 +14,14 @@ function addressUnitsCorroborated(source:string|null,provider:string|null):boole
   const key=(match:RegExpMatchArray)=>`${foldForSearch(match[1]).replace(/\.$/u,'')}:${foldForSearch(match[2])}`;
   const units=(address:string|null)=>(address??'').split(/[,;]/u).flatMap(component=>{
     const match=component.trim().match(unit);
-    return match?[key(match)]:[];
+    if(match)return [key(match)];
+    // Explicit numbered interior levels carry the same location constraint as
+    // a unit. Keep the separately verified GB ground-floor address rule intact.
+    const floor=component.trim().match(/^(?:(first|second|third|\d+(?:st|nd|rd|th)?)\s+floor|(?:floor|level)\s+(\d+))$/iu);
+    if(!floor)return [];
+    const level=(floor[1]??floor[2]).toLowerCase().replace(/^(first|second|third)$/u,value=>({first:'1',second:'2',third:'3'})[value]!)
+      .replace(/(\d+)(?:st|nd|rd|th)$/u,'$1');
+    return [`floor:${level}`];
   });
   const supplied=new Set(units(provider));
   return units(source).every(identifier=>supplied.has(identifier));

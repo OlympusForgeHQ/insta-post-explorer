@@ -50,4 +50,7 @@ export type ResolvedPlaceCandidate = {
 
 export interface PlaceResolver {
   resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]>;
+  // Used only after precise retrieval fails. Returns raw geographic anchors,
+  // never renamed businesses or coordinates inferred by the model.
+  resolveApproximate?(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]>;
 }
