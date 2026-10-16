@@ -3,7 +3,7 @@ import { getConfiguredOwnerId } from '@/auth/config';
 import { externalApiError, externalApiErrorResponse, externalApiJson } from '@/contracts/api/error';
 import { workerCommandSchema } from '@/lib/places/worker-contract';
 import { readBoundedJsonBody, RequestBodyTooLargeError, UnsupportedMediaTypeError } from '@/server/http';
-import { claimPlacesJob, completePlacesJob, enqueuePlacesPosts, failPlacesJob, heartbeatPlacesJob, preparePlacesPost, previewPlacesResult, retryPlacesJob, recoverPlacesResult } from '@/server/places/worker';
+import { claimPlacesJob, completePlacesJob, enqueuePlacesPosts, failPlacesJob, heartbeatPlacesJob, preparePlacesPost, previewPlacesResult, retryPlacesJob, recoverPlacesResult, reprocessPlacesResult } from '@/server/places/worker';
 export const runtime='nodejs';
 export const maxDuration=300;
 export async function POST(request:Request){
@@ -20,6 +20,7 @@ export async function POST(request:Request){
       case 'complete':return externalApiJson(await completePlacesJob(ownerId,command));
       case 'preview':return externalApiJson(await previewPlacesResult(ownerId,command));
       case 'recover':return externalApiJson(await recoverPlacesResult(ownerId,command));
+      case 'reprocess':return externalApiJson(await reprocessPlacesResult(ownerId,command));
       case 'fail':return externalApiJson(await failPlacesJob(ownerId,command));
     }
   }catch(error){

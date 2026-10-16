@@ -15,7 +15,7 @@ type CapturedMap = {
   jumpTo(options: { center: [number, number]; zoom: number; bearing?: number; pitch?: number }): void;
   once(event: string, listener: () => void): void;
   project(coordinates: [number, number]): { x: number; y: number };
-  queryRenderedFeatures(options: { layers: string[] }): Array<{
+  queryRenderedFeatures(pointOrOptions: { layers: string[] } | { x: number; y: number }, options?: { layers: string[] }): Array<{
     geometry?: { coordinates?: unknown };
     properties?: { id?: string };
   }>;
@@ -275,7 +275,7 @@ test.describe("globe Places continu", () => {
     await expect(page.getByText("Tuiles locales de démonstration")).toBeVisible();
   });
 
-  test("charge les 182 points dans la source MapLibre du globe", async ({ page }) => {
+  test("charge les 180 points et les deux zones dans leurs sources MapLibre", async ({ page }) => {
     await prepareMapCapture(page);
     await page.goto("/places");
     await waitForMap(page);
@@ -288,10 +288,60 @@ test.describe("globe Places continu", () => {
           return data?.features?.length ?? 0;
         }),
       )
-      .toBe(182);
+      .toBe(180);
+    await expect.poll(() => page.evaluate(() => {
+      const source = (window as MapWindow).__placesMap?.getSource("places-areas");
+      return (source?.serialize().data as { features?: unknown[] } | undefined)?.features?.length ?? 0;
+    })).toBe(2);
   });
 
-  test("affiche le callout puis sélectionne un point isolé", async ({ page }) => {
+  test("sélectionne une vraie zone sans épingle et cadre son rayon, y compris à l’antiméridien", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await prepareMapCapture(page);
+    await page.goto("/places?q=Carnet%20Shanghai");
+    await waitForMap(page);
+    await waitForInitialViewport(page);
+    await expect(page.locator(".places-summary")).toContainText("1 lieu");
+    await expect.poll(() => page.evaluate(() => (window as MapWindow).__placesMap?.queryRenderedFeatures({ layers: ["places-area-fill"] }).length ?? 0)).toBeGreaterThan(0);
+    const area = await page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap!;
+      const point = map.project([121.47, 31.23]);
+      const canvas = map.getCanvas().getBoundingClientRect();
+      return { x: canvas.x + point.x, y: canvas.y + point.y, pins: map.queryRenderedFeatures({ layers: ["places-pins"] }).length };
+    });
+    expect(area.pins).toBe(0);
+    await expect(page.locator("[data-map-preview-id]")).toHaveCount(0);
+    await page.mouse.click(area.x, area.y);
+    const detail = page.getByRole("dialog", { name: "Détail de Carnet Shanghai" });
+    await expect(detail).toBeVisible();
+    await expect(detail).toContainText("Zone ~10 km");
+    await waitForCamera(page);
+    expect(await page.evaluate(() => (window as MapWindow).__placesMap?.getZoom())).toBeLessThan(12);
+    await detail.getByRole("button", { name: "Fermer le détail" }).click();
+    await page.getByRole("searchbox", { name: "Rechercher un lieu" }).fill("Carnet Pacifique");
+    const areaButton = page.getByRole("button", { name: "Sélectionner Carnet Pacifique — Zone ~50 km" });
+    await areaButton.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog", { name: "Détail de Carnet Pacifique" })).toBeVisible();
+    await waitForCamera(page);
+    const camera = await page.evaluate(() => {
+      const map = (window as MapWindow).__placesMap!;
+      return { center: map.getCenter(), zoom: map.getZoom(), areas: map.queryRenderedFeatures({ layers: ["places-area-fill"] }).length,
+        bothSides: [179.7, 180.1].map(longitude => map.queryRenderedFeatures(map.project([longitude, -17]), { layers: ["places-area-fill"] })
+          .some(feature => feature.properties?.id === "places-visual-date-line-area")),
+      };
+    });
+    expect(Math.abs(camera.center.lng)).toBeGreaterThan(179);
+    expect(camera.zoom).toBeGreaterThan(4);
+    expect(camera.zoom).toBeLessThan(12);
+    expect(camera.areas).toBeGreaterThan(0);
+    expect(camera.bothSides).toEqual([true, true]);
+  });
+
+  test("affiche le callout sans miniature puis sélectionne un point isolé", async ({ page }) => {
+    // Pins with usable thumbnails expand their image instead of showing a
+    // second callout. Exercise the fallback by failing only post thumbnails.
+    await page.route("**/places/earth-dark.png", route => route.abort());
     await prepareMapCapture(page);
     await page.goto("/places");
     await waitForMap(page);

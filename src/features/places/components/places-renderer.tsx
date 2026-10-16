@@ -7,6 +7,7 @@ import { Globe2, MapPin } from "lucide-react";
 
 import type { PlacesRendererProps } from "@/features/places/renderer-contract";
 import { WEBGL_FALLBACK_MESSAGE } from "@/lib/places/webgl";
+import { formatApproximationRadius } from "@/features/places/map-areas";
 
 // What the shell has *resolved*, not what the URL asked for. `probing` is the
 // state where the user asked for the globe but the WebGL probe has not answered
@@ -116,7 +117,7 @@ export function PlacesMapA11yList({
           }}
           type="button"
           tabIndex={-1}
-          aria-label={`Sélectionner ${place.displayName}`}
+          aria-label={`Sélectionner ${place.displayName}${place.precision === "APPROXIMATE" ? ` — ${formatApproximationRadius(place.approximationRadiusMeters)}` : ""}`}
           aria-pressed={selectedId === place.id}
           onKeyDown={(event) => handleButtonKeyDown(index, event)}
           onClick={() => onSelect(place.id)}

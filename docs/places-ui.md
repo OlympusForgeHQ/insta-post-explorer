@@ -54,8 +54,9 @@ file alone. MapLibre is imported lazily on the client (`next/dynamic`, `ssr: fal
 because it needs browser APIs at runtime.
 
 MapLibre's native GeoJSON source provides clustering, while a GeoJSON layer renders
-the exact/probable pins. Approximate results remain available in the list and review
-flows but never reach the map or globe (REQ-001). Category emojis are rasterized as
+the exact/probable pins. Under the owner's 16 October approximate-location request,
+approximate results render as geographic zones on the same map/globe and remain
+available in the list and review flows. Category emojis are rasterized as
 local MapLibre images, so pin rendering does not depend on a remote glyph endpoint.
 The renderer always declares MapLibre's native `globe` projection. It is a sphere
 when zoomed out and naturally becomes a Mercator-like close-up as the user zooms;
@@ -67,7 +68,7 @@ Rendering rules:
 | --- | --- |
 | `EXACT` | pin, green |
 | `PROBABLE` | pin, amber |
-| `APPROXIMATE` | not rendered on the map or globe; remains available in list/review |
+| `APPROXIMATE` | selectable zone proportional to the radius, without an exact center pin; shared list/detail show approximate precision |
 | `UNKNOWN` | creates no Place, so it never reaches the map |
 
 `REJECTED` places are excluded from the map and the list. Clusters keep the map

@@ -154,16 +154,20 @@ afterEach(() => {
 
 // The 2D/3D switch was removed: MapLibre's globe projection becomes Mercator as
 // the user zooms in, so there is one continuous view. What remains worth proving
-// here is the WebGL gate and that approximate places never reach the renderer.
+// here is the WebGL gate and that areas and pins share selection and counts.
 describe("Places renderer gating", () => {
-  it("keeps approximate places out of the map and globe renderer", async () => {
+  it("includes approximate areas in the renderer, keyboard selection, detail and counts", async () => {
     stubWebGl(true);
     renderExplorer("map", PLACES_WITH_APPROXIMATE);
     await waitFor(() => expect(screen.getByTestId("maplibre-canvas")).toBeDefined());
 
     const renderedPlaces = mapProps.at(-1)?.places as { id: string; precision: string }[];
-    expect(renderedPlaces.map((place) => place.id)).toEqual(["p1", "p2"]);
-    expect(renderedPlaces.every((place) => place.precision !== "APPROXIMATE")).toBe(true);
+    expect(renderedPlaces.map((place) => place.id)).toEqual(["p1", "p2", "p4"]);
+    expect(screen.getByRole("status")).toHaveTextContent("3 lieux");
+    fireEvent.click(screen.getByRole("button", { name: /Sélectionner Approximate place.*Zone ~10 km/ }));
+    const detail = screen.getByRole("dialog", { name: "Détail de Approximate place" });
+    expect(detail).toHaveTextContent("Zone ~10 km");
+    expect(mapProps.at(-1)?.selectedId).toBe("p4");
   });
 
   it("keeps the list usable without mounting MapLibre when WebGL2 is refused", async () => {

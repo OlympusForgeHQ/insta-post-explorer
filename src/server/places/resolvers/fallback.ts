@@ -5,6 +5,9 @@ import type {GoogleHintSource} from './google';
 
 export class FallbackPlaceResolver implements PlaceResolver {
   constructor(private readonly primary:PlaceResolver,private readonly secondary:GoogleHintSource){}
+  async resolveApproximate(input:PlaceResolutionInput){
+    return this.primary.resolveApproximate?.(input)??[];
+  }
   async resolve(input:PlaceResolutionInput){
     const results=await this.primary.resolve(input);
     if(results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))return results;

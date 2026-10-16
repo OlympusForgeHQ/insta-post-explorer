@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FeatureCollection, Point } from "geojson";
 import type { GeoJSONSource, Map as MapLibreMap, MapLayerMouseEvent, StyleSpecification } from "maplibre-gl";
 
@@ -8,6 +8,7 @@ import { PLACE_CATEGORY_GROUPS } from "@/lib/places/categories";
 import type { PlacesRendererProps } from "@/features/places/renderer-contract";
 import type { PlacesMapItem } from "@/server/places/map-view";
 import { PlacesMapPreviews } from "@/features/places/components/places-map-previews";
+import { buildPlacesAreasGeoJson, placeViewportBounds } from "@/features/places/map-areas";
 
 // MapLibre is loaded lazily on the client only. Everything engine-specific stays
 // in this component; the rest of Places talks to it through the shared renderer
@@ -34,6 +35,8 @@ const RASTER_LAYER_ID = "places-raster";
 const EARTH_SOURCE_ID = "placesEarth";
 const EARTH_LAYER_ID = "places-earth";
 const PLACES_SOURCE_ID = "places";
+const AREAS_SOURCE_ID = "places-areas";
+const AREA_LAYER_ID = "places-area-fill";
 const CLUSTER_LAYER_ID = "places-clusters";
 const CLUSTER_COUNT_LAYER_ID = "places-cluster-count";
 const PIN_LAYER_ID = "places-pins";
@@ -205,6 +208,8 @@ export function PlacesMap({
   const hoveredPlaceIdRef = useRef<string | null>(null);
   const renderRef = useRef<() => void>(() => undefined);
   const [readyMap, setReadyMap] = useState<MapLibreMap | null>(null);
+  // Selection only changes paint properties, not the bounded geographic mesh.
+  const areas = useMemo(() => buildPlacesAreasGeoJson(places, null), [places]);
 
   useEffect(() => {
     placesRef.current = places;
@@ -218,11 +223,15 @@ export function PlacesMap({
     if (!map || !readyRef.current) return;
     const placesSource = map.getSource(PLACES_SOURCE_ID) as GeoJSONSource | undefined;
     placesSource?.setData(buildPlacesGeoJson(places, selectedId));
+    const areasSource = map.getSource(AREAS_SOURCE_ID) as GeoJSONSource | undefined;
+    areasSource?.setData({ ...areas, features: areas.features.map(feature => ({
+      ...feature, properties: { ...feature.properties, selected: feature.properties.id === selectedId },
+    })) });
     if (hoveredPlaceIdRef.current && !places.some((place) => place.id === hoveredPlaceIdRef.current)) {
       hoveredPlaceIdRef.current = null;
       handlersRef.current.onHover(null, null);
     }
-  }, [places, selectedId]);
+  }, [places, selectedId, areas]);
 
   useEffect(() => {
     renderRef.current = render;
@@ -296,6 +305,23 @@ export function PlacesMap({
       map.once("load", () => {
         if (cancelled) return;
         map.setProjection({ type: "globe" });
+        map.addSource(AREAS_SOURCE_ID, {
+          type: "geojson",
+          data: buildPlacesAreasGeoJson(placesRef.current, selectedIdRef.current),
+        });
+        // Areas are real meter-based geometry, never screen-sized pins. Draw
+        // them below precise locations so overlapping pins retain priority.
+        map.addLayer({
+          id: AREA_LAYER_ID,
+          type: "fill",
+          source: AREAS_SOURCE_ID,
+          layout: { "fill-sort-key": ["case", ["get", "selected"], 1, 0] },
+          paint: {
+            "fill-color": "#7c3aed",
+            "fill-opacity": ["case", ["get", "selected"], 0.28, 0.14],
+            "fill-antialias": false,
+          },
+        });
         map.addSource(PLACES_SOURCE_ID, {
           type: "geojson",
           data: buildPlacesGeoJson(placesRef.current, null),
@@ -355,7 +381,7 @@ export function PlacesMap({
           paint: { "icon-opacity": 1 },
         });
 
-        const interactiveLayers = [PIN_LAYER_ID, PIN_ICON_LAYER_ID];
+        const interactiveLayers = [PIN_LAYER_ID, PIN_ICON_LAYER_ID, AREA_LAYER_ID];
         const clickLayers = [...interactiveLayers, CLUSTER_LAYER_ID];
         const interactiveFeature = (event: MapLayerMouseEvent) =>
           event.features?.find(
@@ -460,6 +486,10 @@ export function PlacesMap({
       const placesChanged = framedPlacesRef.current?.map !== map || framedPlacesRef.current.places !== places;
       framedPlacesRef.current = { map, places };
       if (selected) {
+        if (selected.precision === "APPROXIMATE") {
+          map.fitBounds(placeViewportBounds(selected), { padding: 72, maxZoom: 15, duration: reduceMotion ? 0 : 450 });
+          return;
+        }
         map.easeTo({
           center: [selected.longitude, selected.latitude],
           zoom: Math.max(map.getZoom(), 12),
@@ -475,7 +505,11 @@ export function PlacesMap({
       // Fitting every place is what puts the camera far enough out for `globe`
       // to show a sphere on first load; zooming in flattens it by itself.
       const bounds = new LngLatBounds();
-      for (const place of places) bounds.extend([place.longitude, place.latitude]);
+      for (const place of places) {
+        const [southWest, northEast] = placeViewportBounds(place);
+        bounds.extend(southWest);
+        bounds.extend(northEast);
+      }
       if (!bounds.isEmpty()) {
         map.fitBounds(bounds, { padding: 56, maxZoom: 13, duration: reduceMotion ? 0 : 450 });
       }
