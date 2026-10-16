@@ -69,6 +69,10 @@ provider cooldowns, cleanup-failure backoff and concurrent claim/fail admission.
 No code-review blocker remains. The release package contains only Places/runtime,
 its existing zod dependency and transcription script; no DB client or credentials.
 
+CI uses the Google cache of the official PostgreSQL image. Registry metadata was
+checked against Docker Hub: both serve the identical manifest digest for
+`postgres:16-alpine`. This changes only the ephemeral CI database image source.
+
 Live deployment and six-job recovery receipts are recorded privately under
 `.tmp/places-resilience-20261016/`. Completion requires full real-video transcription,
 recovered terminal job receipts, protected-data comparison and restored deployment

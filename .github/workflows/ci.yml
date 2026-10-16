@@ -32,8 +32,8 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        # Docker Official Image mirror avoids shared Docker Hub pull quotas.
-        image: public.ecr.aws/docker/library/postgres:16-alpine
+        # Use the Google cache of the Docker Official Image for CI pulls.
+        image: mirror.gcr.io/library/postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -101,8 +101,8 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        # Docker Official Image mirror avoids shared Docker Hub pull quotas.
-        image: public.ecr.aws/docker/library/postgres:16-alpine
+        # Use the Google cache of the Docker Official Image for CI pulls.
+        image: mirror.gcr.io/library/postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
