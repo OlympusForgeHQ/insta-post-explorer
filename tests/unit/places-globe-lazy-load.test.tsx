@@ -1,9 +1,11 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlacesStatsDto } from "@/contracts/api/places";
 import type { WebGlState } from "@/features/places/capabilities";
 import type { PlacesMapItem } from "@/server/places/map-view";
+import { clearRecentSearches, readRecentSearches } from "@/lib/recent-searches";
 
 // FR-I-12 proof: the shared MapLibre renderer must never be requested before WebGL2 is proven.
 const state = vi.hoisted(() => ({ mapImported: false, webgl: "unknown" as WebGlState }));
@@ -144,4 +146,36 @@ describe("3D engine is never imported without a proven WebGL capability", () => 
     // Whatever the state, the rest of the page stays usable.
     expect(screen.getByRole("combobox", { name: "Rechercher un lieu" })).toBeDefined();
   });
+});
+
+it("keeps typed Places queries and their history current before deferred renders finish", () => {
+  state.webgl = "unsupported";
+  clearRecentSearches("places");
+  renderExplorer("map");
+  const input = screen.getByRole("combobox", { name: "Rechercher un lieu" });
+  act(() => input.focus());
+
+  act(() => {
+    for (const term of ["Paris", "Rome", "Tokyo", "Lyon", "Lille", "Bruxelles"]) {
+      // Flush each discrete input event, keeping concurrent transitions pending.
+      flushSync(() => { fireEvent.change(input, { target: { value: term } }); });
+      expect(input).toHaveValue(term);
+      flushSync(() => { fireEvent.keyDown(input, { key: "Enter" }); });
+    }
+  });
+  expect(readRecentSearches("places")).toEqual(["Bruxelles", "Lille", "Lyon", "Tokyo", "Rome"]);
+
+  act(() => {
+    flushSync(() => { fireEvent.change(input, { target: { value: "Liège" } }); });
+    flushSync(() => { fireEvent.change(input, { target: { value: "" } }); });
+    expect(input).toHaveValue("");
+  });
+  expect(readRecentSearches("places")[0]).toBe("Liège");
+  act(() => {
+    flushSync(() => { fireEvent.change(input, { target: { value: "Dubai" } }); });
+    flushSync(() => { fireEvent.blur(input); });
+  });
+  expect(readRecentSearches("places")[0]).toBe("Dubai");
+  expect(document.querySelector(".places-summary-count")).toHaveTextContent("1 lieu");
+  expect(new URLSearchParams(window.location.search).get("q")).toBe("Dubai");
 });

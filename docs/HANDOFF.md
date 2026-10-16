@@ -2,6 +2,10 @@
 
 ## Recent searches — 16 October 2026
 
+Production verification caught and corrected a Places input transition race: the
+search text updates immediately while result filtering remains deferred. The final
+release receipts are under `.tmp/recent-searches-transition-20261016/`.
+
 Posts and Places now share a recent-search input, with separate browser-local
 histories capped at five normalized terms. Recall works with touch, pointer and
 keyboard; Enter, blur and clearing preserve completed terms without collecting
