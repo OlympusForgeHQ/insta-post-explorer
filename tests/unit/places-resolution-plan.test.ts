@@ -6,6 +6,84 @@ import type {PlaceCandidate} from '@/lib/places/candidates';
 import type {ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
 
 describe('geographic identity selection',()=>{
+  const municipalCandidate:PlaceCandidate={name:'Example Bakery',city:'Shanghai',region:'Jing’An',country:'China',address:'12 Example Road',
+    category:'patisserie',confidence:.8,evidence:[{type:'CAPTION',excerpt:'Example Bakery, 12 Example Road, Jing’An, Shanghai'}]};
+  const municipalVenue:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'example-shanghai',displayName:'Example Bakery',providerName:'Example Bakery',
+    city:"Jing'an District",region:'Shanghai',country:'China',countryCode:'CN',address:"12 Example Road, Jing'an District, Shanghai, China",
+    street:'Example Road',houseNumber:'12',localityNames:["Jing'an District",'Shanghai'],
+    administrativeLabels:{city:"Jing'an District",state:'Shanghai',district:"Jing'an District"},
+    latitude:31.2,longitude:121.4,providerResultType:'amenity',providerRank:1,providerMatchType:'full_match',category:null,attribution:null};
+
+  it.each([
+    {label:'matching district spelling',region:'Jing’An',district:"Jing'an District",accepted:true},
+    {label:'matching district suffix',region:"Jing'an District",district:'Jing’An',accepted:true},
+    {label:'different district',region:'Huangpu District',district:"Jing'an District",accepted:false},
+    {label:'different administrative level',region:'Jingan District',district:'Jingan Subdistrict',accepted:false},
+    {label:'district only in the street',region:'Huangpu District',district:null,accepted:false},
+  ])('requires structured corroboration for an explicit district: $label',async({label,region,district,accepted})=>{
+    const source={...municipalCandidate,region};
+    const venue={...municipalVenue,city:'Shanghai',localityNames:['Shanghai'],
+      administrativeLabels:{city:'Shanghai',state:'Shanghai',...(district?{district}:{})},
+      ...(label==='district only in the street'?{address:'12 Example Road, Huangpu District Road, Shanghai, China'}:{})};
+    const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[venue]});
+    expect(plan.best?.scored.precision??'UNKNOWN').toBe(accepted?'EXACT':'UNKNOWN');
+    if(!accepted)expect(plan.reasons).toContain('region_not_corroborated');
+    expect(venue.region).toBe('Shanghai');
+  });
+
+  it('keeps a missing explicit district unresolved even when the provider omits its state',async()=>{
+    const venue={...municipalVenue,city:'Shanghai',region:null,localityNames:['Shanghai'],administrativeLabels:undefined};
+    const [plan]=await planAll([municipalCandidate],'Restaurant',{resolve:async()=>[venue]});
+    expect(plan.best).toBeNull();expect(plan.reasons).toContain('region_not_corroborated');
+  });
+
+  it('does not corroborate an explicit district with a bare state or city of the same name',async()=>{
+    const source={...municipalCandidate,city:'New York',region:'New York District',country:'United States'};
+    const venue={...municipalVenue,city:'New York',region:'New York',country:'United States',countryCode:'US',localityNames:['New York'],
+      administrativeLabels:{city:'New York',state:'New York'},address:'12 Example Road, New York, United States'};
+    const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[venue]});
+    expect(plan.best).toBeNull();expect(plan.reasons).toContain('region_not_corroborated');
+  });
+
+  it.each(['different_occupant','missing_name','unverified_unit','wrong_unit','wrong_country','zero_confidence'] as const)('does not let administrative agreement bypass %s',async scenario=>{
+    const source={...municipalCandidate,...(['unverified_unit','wrong_unit'].includes(scenario)?{address:'12 Example Road, Unit 2',region:'Shanghai'}:{})};
+    const venue={...municipalVenue,
+      ...(scenario==='different_occupant'?{providerName:'Different Tenant'}:{}),
+      ...(scenario==='missing_name'?{providerName:null,displayName:'12 Example Road',providerResultType:'building',providerRank:.13,providerBuildingConfidence:0}:{}),
+      ...(scenario==='wrong_unit'?{address:'12 Example Road, Unit 3, Shanghai, China'}:{}),
+      ...(scenario==='wrong_country'?{country:'Japan',countryCode:'JP'}:{}),
+      ...(scenario==='zero_confidence'?{providerRank:0,providerStreetConfidence:0,providerBuildingConfidence:0}:{}),
+    };
+    const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[venue]});
+    expect(plan.best).toBeNull();
+  });
+
+  it('retains a provider-verified unit without changing canonical administrative labels',async()=>{
+    const source={...municipalCandidate,address:'12 Example Road, Unit 2'};
+    const venue={...municipalVenue,address:'12 Example Road, Unit 2, Shanghai, China'};
+    const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[venue]});
+    expect(plan.best?.scored.precision).toBe('EXACT');
+    expect(plan.best?.resolved).toEqual(venue);
+  });
+
+  it.each([
+    {label:'street wording',street:'Flat Rock Road',source:'12 Flat Rock Road',provider:'12 Flat Rock Road, Shanghai',accepted:true},
+    {label:'complete unit identifier',street:'Example Road',source:'12 Example Road, Unit 2 B',provider:'12 Example Road, Unit 2, Shanghai',accepted:false},
+    {label:'business wording',street:'Example Road',source:'12 Example Road, Unit 2',provider:'Unit 2 Cafe, 12 Example Road, Shanghai',accepted:false},
+    {label:'source business wording',street:'Example Road',source:'Unit 2 Cafe, 12 Example Road',provider:'12 Example Road, Shanghai',accepted:true},
+    {label:'leading letter unit',street:'Example Road',source:'Unit C, 12 Example Road',provider:'12 Example Road, Unit C, Shanghai',accepted:true},
+    {label:'missing leading letter unit',street:'Example Road',source:'Unit C, 12 Example Road',provider:'12 Example Road, Shanghai',accepted:false},
+    {label:'missing alphanumeric unit',street:'Example Road',source:'12 Example Road, Unit A12',provider:'12 Example Road, Shanghai',accepted:false},
+    {label:'missing fraction unit',street:'Example Road',source:'12 Example Road, Unit 2/3',provider:'12 Example Road, Shanghai',accepted:false},
+    {label:'missing suite range',street:'Example Road',source:'12 Example Road, Suite 100-102',provider:'12 Example Road, Shanghai',accepted:false},
+    {label:'semicolon separated unit',street:'Example Road',source:'12 Example Road, Shanghai; Unit C',provider:'12 Example Road, Shanghai; Unit C',accepted:true},
+  ])('uses whole unit components without confusing $label',async({street,source,provider,accepted})=>{
+    const candidate={...municipalCandidate,address:source};
+    const venue={...municipalVenue,street,address:provider};
+    const [plan]=await planAll([candidate],'Restaurant',{resolve:async()=>[venue]});
+    expect(plan.best?.scored.precision??'UNKNOWN').toBe(accepted?'EXACT':'UNKNOWN');
+  });
+
   it('infers absent country from a matching venue and city without a model confidence threshold',async()=>{
     const candidate:PlaceCandidate={name:'Example Café',city:'Paris',region:null,country:null,address:null,
       category:'cafe',confidence:.3,evidence:[{type:'CAPTION',excerpt:'Example Café Paris'}]};

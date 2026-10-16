@@ -26,6 +26,9 @@ export type ResolvedPlaceCandidate = {
   houseNumber?: string | null;
   // Locality labels explicitly present in the provider address, not nearby areas.
   localityNames?: string[];
+  // Preserve structured hierarchy without replacing canonical city/region or
+  // mixing administrative labels into the provider's business-name aliases.
+  administrativeLabels?: Partial<Record<'city'|'state'|'county'|'district'|'suburb'|'municipality',string>>;
   providerLocalityBoundary?: {placeId:string;name:string};
   category: string | null;
   address: string | null;

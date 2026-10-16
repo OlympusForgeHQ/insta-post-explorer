@@ -1,5 +1,17 @@
 # Operational Handoff
 
+## Administrative context during Places resolution — 16 October 2026
+
+Geoapify's structured district and municipality labels are kept as geographic
+context. A closed, China-only municipality rule prevents a containing city from
+being mistaken for a conflicting district. Explicit districts and address units
+still require corroboration; administrative labels never establish business
+identity. Canonical provider labels and manual protections are preserved.
+
+The resolution policy is versioned independently of inference. This is a web/API
+change with no migration, new provider, extra request or historical reanalysis.
+See [requirements and verification](changes/2026-10-16-places-administrative-context.md).
+
 ## Places consumer resilience — 16 October 2026
 
 ASR loads the staged public model offline from its service cache before claiming

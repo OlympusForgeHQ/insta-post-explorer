@@ -6,6 +6,7 @@ import { foldForSearch } from "@/lib/import/normalize";
 import { distanceMeters } from "@/lib/places/distance";
 import {decidePlaceResolution} from '@/lib/places/resolution';
 import {entityNamesAgree} from '@/lib/places/scoring';
+import {municipalityCityLabels} from '@/lib/places/administrative-context';
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
@@ -77,6 +78,10 @@ const geoapifyResultSchema = z
     postcode: z.string().nullish(),
     city: z.string().nullish(),
     state: z.string().nullish(),
+    county: z.string().nullish(),
+    district: z.string().nullish(),
+    suburb: z.string().nullish(),
+    municipality: z.string().nullish(),
     country: z.string().nullish(),
     country_code: z.string().nullish(),
     lat: z.number(),
@@ -391,7 +396,9 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'ge
       .slice(0,128).flatMap(([,value])=>(value as string).split(';').map(name=>name.trim()).filter(Boolean)),
     street: result.street ?? null,
     houseNumber: result.housenumber ?? null,
-    localityNames: [...new Set([result.city,...postalLocalities].filter((value):value is string=>Boolean(value)))],
+    localityNames: [...new Set([result.city,...postalLocalities,...municipalityCityLabels(result.country_code??null,result.state??null)].filter((value):value is string=>Boolean(value)))],
+    administrativeLabels: Object.fromEntries((['city','state','county','district','suburb','municipality'] as const)
+      .flatMap(key=>result[key]?[ [key,result[key]] ]:[])),
     category: result.category ?? result.categories?.slice().sort((a,b)=>b.length-a.length)[0] ?? null,
     address: result.formatted ?? null,
     city: result.city ?? null,

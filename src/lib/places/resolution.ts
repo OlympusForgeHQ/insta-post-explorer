@@ -1,9 +1,24 @@
 import { scoreResolvedCandidate, type ScoringInput, type ScoredResolution } from '@/lib/places/scoring';
 import {foldForSearch} from '@/lib/import/normalize';
+import {administrativeRegionMatches} from '@/lib/places/administrative-context';
 
-export const RESOLUTION_POLICY_VERSION = 'provider-context-v4';
+export const RESOLUTION_POLICY_VERSION = 'provider-context-v5';
 export const PLACE_CONTEXT_RULES = `Infer missing country, city or region from the combined post context and geographic knowledge when the identity is coherent. These fields need not appear literally in the post. Mark deduced fields in inferredFields and retain the original source excerpts unchanged. Do not override explicit contradictory context or invent a branch address. Split distinct branch addresses into separate candidates. A chain account alone does not identify a branch. Never output coordinates or provider IDs. Before declaring a venue name unknown, review visible branding/signage and ordinary-sounding phrases in speech that could be a business name. Treat such a phrase only as a tentative identity when independent source context corroborates that role; generic praise alone never establishes branding. Keep verbatim evidence and let the geographic provider verify identity.
 For locationScope, inspect the FULL caption, all OCR, audio, Instagram location and other supplied context at fusion. CITY is only for a generic recommendation of a named business in an explicitly named city with no address, neighborhood, street, station, landmark, branch qualifier or other narrower discriminator anywhere in the recommendation. The owner wants every independently verified shop in that city for this generic case. A chain account alone, missing address or inferred city does not prove CITY. Record SPECIFIC if any narrower context exists, even when address is null; otherwise UNKNOWN. Bind evidenceIndex to existing literal evidence. Retain narrower context in evidence; never shorten it away to obtain CITY. The generic CITY path requires a CAPTION proof covering the complete literal caption, with the city mentioned separately from the business/account name. A city embedded only in an account or hashtag never proves city scope. Extra caption wording or narrower Instagram location remains conservative. Do not invent branches or enumerate addresses: the server verifies actual branches. Preserve existing explicit multiple-location recommendations.`;
+
+function addressUnitsCorroborated(source:string|null,provider:string|null):boolean {
+  // A numbered street does not corroborate an explicit unit. Only standalone
+  // address components with numeric/alphabetic identifiers participate; street
+  // and business names such as "Flat Rock Road" or "Unit 2 Cafe" do not.
+  const unit=/^(unit|suite|flat|apartment|apt\.?)\s+(?:#\s*)?([0-9]+\s[a-z]|[a-z0-9]+(?:[-/][a-z0-9]+)*)$/iu;
+  const key=(match:RegExpMatchArray)=>`${foldForSearch(match[1]).replace(/\.$/u,'')}:${foldForSearch(match[2])}`;
+  const units=(address:string|null)=>(address??'').split(/[,;]/u).flatMap(component=>{
+    const match=component.trim().match(unit);
+    return match?[key(match)]:[];
+  });
+  const supplied=new Set(units(provider));
+  return units(source).every(identifier=>supplied.has(identifier));
+}
 
 // The legacy comparison layer provides normalized agreements and conflicts.
 // Its weighted confidence is diagnostic only: acceptance follows identity rules.
@@ -30,7 +45,8 @@ export function decidePlaceResolution(input: ScoringInput): ScoredResolution {
 
   const {candidate, resolved} = input;
   if(candidate.address && resolved.address && !has('address_match'))return outcome('UNKNOWN','address_not_corroborated');
-  if(candidate.region && resolved.region && !candidate.inferredFields?.includes('region') && foldForSearch(candidate.region)!==foldForSearch(resolved.region))return outcome('UNKNOWN','region_not_corroborated');
+  if(candidate.region&&!candidate.inferredFields?.includes('region')&&!administrativeRegionMatches(candidate.region,resolved))return outcome('UNKNOWN','region_not_corroborated');
+  if(!addressUnitsCorroborated(candidate.address,resolved.address))return outcome('UNKNOWN','address_unit_unverified');
   if(has('named_country_destination'))return outcome('APPROXIMATE','named_country_destination');
   if(has('provider_geographic_area'))return outcome('APPROXIMATE','provider_geographic_area');
   const type = resolved.providerResultType ?? '';
