@@ -14,6 +14,7 @@ import {
 import type { PlaceResolutionInput } from "@/server/places/resolvers/types";
 import { scoreResolvedCandidate } from "@/lib/places/scoring";
 import {entityNamesAgree} from '@/lib/places/scoring';
+import {decidePlaceResolution} from '@/lib/places/resolution';
 
 const SECRET_KEY = "super-secret-geoapify-key";
 
@@ -75,6 +76,39 @@ function resolver(fetchImpl: typeof fetch) {
 }
 
 describe("GeoapifyPlaceResolver", () => {
+  it.each([
+    ['Shanghai','Shanghai','CN',true],
+    ['Beijing','北京市','CN',true],
+    ['Tianjin','Tianjin','CN',true],
+    ['Chongqing','Chongqing','CN',true],
+    ['New York','New York','US',false],
+    ['Shanghai','Shanghai','US',false],
+    ['Guangzhou','Guangdong','CN',false],
+    ['Beijing','Hebei','CN',false],
+    ['Shanghai','Shanghai',null,false],
+  ] as const)('uses only verified Chinese municipality context for %s / %s / %s',async(city,state,countryCode,accepted)=>{
+    const providerCity=countryCode==='US'?'Albany':'Example District';
+    const country=countryCode==='US'?'United States':'China';
+    const candidate=restaurantCandidate({name:'Example Bakery',address:'12 Example Road',city,region:'Example District',country});
+    const row={place_id:'municipal-bakery',name:'Example Bakery',formatted:`12 Example Road, ${providerCity}, ${state}, ${country}`,
+      address_line2:`12 Example Road, ${providerCity}, ${state}, ${country}`,street:'Example Road',housenumber:'12',
+      city:providerCity,state,county:'Example County',district:'Example District',suburb:'Example Subdistrict',municipality:state,
+      country,country_code:countryCode,lat:31.2,lon:121.4,result_type:'amenity',rank:{confidence:1,match_type:'full_match'}};
+    const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[row]}));
+    const [match]=await resolver(fetchMock).resolve({candidate,sourceTheme:'Restaurant'});
+    const decision=decidePlaceResolution({candidate,resolved:match});
+    expect(decision.precision).toBe(accepted?'EXACT':'UNKNOWN');
+    expect(match).toMatchObject({city:providerCity,region:state,providerName:'Example Bakery',administrativeLabels:{
+      city:providerCity,state,county:'Example County',district:'Example District',suburb:'Example Subdistrict',municipality:state,
+    }});
+    expect(match.providerNameAliases).toEqual([]);
+    if(accepted){
+      expect(match.localityNames).toContain(city);
+      expect(decision.reasons).not.toContain('city_contradiction');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }else expect(decision.reasons).toContain('city_contradiction');
+  });
+
   it('recognizes omitted generic venue descriptors without conflating different business types',()=>{
     expect(entityNamesAgree('Miel Bakery','Miel')).toBe(true);
     expect(entityNamesAgree('Café Sakura','Sakura')).toBe(true);
