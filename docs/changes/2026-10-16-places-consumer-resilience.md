@@ -73,6 +73,10 @@ CI uses the Google cache of the official PostgreSQL image. Registry metadata was
 checked against Docker Hub: both serve the identical manifest digest for
 `postgres:16-alpine`. This changes only the ephemeral CI database image source.
 
+The caption-translation browser scenario waits for the existing client-grid
+readiness signal before clicking a post and explicitly verifies dialog opening.
+This avoids a pre-hydration click race while preserving every translation assertion.
+
 Live deployment and six-job recovery receipts are recorded privately under
 `.tmp/places-resilience-20261016/`. Completion requires full real-video transcription,
 recovered terminal job receipts, protected-data comparison and restored deployment
