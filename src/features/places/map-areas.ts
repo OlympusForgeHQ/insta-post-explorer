@@ -139,5 +139,5 @@ export function placeViewportBounds(place: PlacesMapItem): Bounds {
 export function formatApproximationRadius(radiusMeters: number | null): string {
   if (radiusMeters === null || !Number.isFinite(radiusMeters) || radiusMeters <= 0) return "Zone approximative";
   const value = radiusMeters < 1000 ? Math.max(1, Math.round(radiusMeters)) : radiusMeters / 1000;
-  return `Zone ~${value.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} ${radiusMeters < 1000 ? "m" : "km"}`;
+  return `Zone approximative · rayon ~${value.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} ${radiusMeters < 1000 ? "m" : "km"}`;
 }

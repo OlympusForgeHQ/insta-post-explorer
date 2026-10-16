@@ -1,5 +1,18 @@
 # Implementation Status
 
+## Approximate zone presentation — 17 October 2026
+
+Approximate Places are now explored from a dedicated Zones button using the
+existing list drawer. The resting map has no approximate outlines; a selection
+shows only its verified geographic extent with a restrained fill and solid border.
+The camera leaves room for the detail and adapts to viewport resizing. Keyboard
+focus, return, filtered selections and panel exclusivity are handled consistently.
+
+The Apple Design direction comes from Iris's code review. No provider, data,
+schema, worker or synchronization change. See [scope and fresh evidence](changes/2026-10-17-places-zone-presentation.md).
+Actual deployment and production verification are recorded privately under
+`.tmp/places-zone-design-20261017/`; this entry does not imply release completion.
+
 ## Recent searches — 16 October 2026
 
 Production verification caught and corrected a Places input transition race: the

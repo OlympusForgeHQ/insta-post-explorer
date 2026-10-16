@@ -3,8 +3,8 @@
 import { MotionPresence } from "@/components/motion-presence";
 import { RecentSearchInput } from "@/components/recent-search-input";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { BarChart3, Check, ListFilter, MapPin, Search, SlidersHorizontal, X } from "lucide-react";
+import { useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { BarChart3, Check, CircleDashed, ListFilter, MapPin, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { PLACE_CATEGORY_GROUPS } from "@/lib/places/categories";
 import { PLACES_ELIGIBLE_THEMES } from "@/lib/places/eligibility";
@@ -85,6 +85,15 @@ export function PlacesExplorer({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+  const [listMode, setListMode] = useState<"all" | "zones">("all");
+  const drawerId = useId();
+  const listTriggerRef = useRef<HTMLButtonElement>(null);
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
+  const drawerHeadingRef = useRef<HTMLHeadingElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const listScrollRef = useRef({ all: 0, zones: 0 });
+  const detailReturnFocusRef = useRef<HTMLElement | null>(null);
+  const detailFallbackFocusRef = useRef<HTMLElement | null>(null);
   const [hover, setHover] = useState<{ place: PlacesMapItem; x: number; y: number } | null>(null);
   const [countryQuery, setCountryQuery] = useState("");
   // The view the user asked for. What actually renders can differ when the
@@ -124,12 +133,24 @@ export function PlacesExplorer({
   const mappable = useMemo(() => places.filter(isMappable), [places]);
   const deferredFilters = useDeferredValue(filters);
   const visible = useMemo(() => filterPlaces(mappable, deferredFilters), [mappable, deferredFilters]);
-  const approximateCount = useMemo(() => visible.filter(place => place.precision === "APPROXIMATE").length, [visible]);
+  const approximatePlaces = useMemo(() => visible.filter(place => place.precision === "APPROXIMATE"), [visible]);
+  const listedPlaces = listMode === "zones" ? approximatePlaces : visible;
   const selected = useMemo(
-    () => visible.find((place) => place.id === selectedId) ?? places.find((place) => place.id === selectedId) ?? null,
-    [visible, places, selectedId],
+    () => visible.find((place) => place.id === selectedId) ?? null,
+    [visible, selectedId],
   );
   const activeFilterCount = countActiveFilters(filters);
+
+  // Retain valid deep links, and drop an excluded selection once results and
+  // controls describe the same scope, including restored URL filters.
+  if (deferredFilters === filters && selectedId && !selected) setSelectedId(null);
+
+  useLayoutEffect(() => {
+    if (!detailFallbackFocusRef.current) detailFallbackFocusRef.current = listTriggerRef.current;
+    if (!listOpen) return;
+    drawerHeadingRef.current?.focus({ preventScroll: true });
+    if (listRef.current) listRef.current.scrollTop = listScrollRef.current[listMode];
+  }, [listOpen, listMode]);
 
   // Countries actually present, so a filter can never be empty by construction.
   const countries = useMemo(() => collectCountries(mappable), [mappable]);
@@ -189,9 +210,14 @@ export function PlacesExplorer({
     startTransition(() => setFilters({ ...EMPTY_FILTERS }));
   }, []);
 
-  const handleSelect = useCallback((placeId: string) => {
+  const handleSelect = useCallback((placeId: string, trigger?: HTMLElement) => {
+    detailReturnFocusRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    detailFallbackFocusRef.current = listTriggerRef.current;
     setSelectedId(placeId);
     setHover(null);
+    setListOpen(false);
+    setFiltersOpen(false);
+    setStatsOpen(false);
   }, []);
 
   const handleHover = useCallback((place: PlacesMapItem | null, point: ScreenPoint | null) => {
@@ -210,24 +236,30 @@ export function PlacesExplorer({
   };
 
   const toggleFilters = useCallback(() => {
-    setFiltersOpen((open) => {
-      if (!open) {
-        setListOpen(false);
-        setStatsOpen(false);
-      }
-      return !open;
-    });
+    if (!filtersOpen) {
+      setListOpen(false);
+      setStatsOpen(false);
+      setSelectedId(null);
+      setHover(null);
+    }
+    setFiltersOpen(!filtersOpen);
+  }, [filtersOpen]);
+
+  const closeList = useCallback(() => {
+    setListOpen(false);
+    drawerTriggerRef.current?.focus({ preventScroll: true });
   }, []);
 
-  const toggleList = useCallback(() => {
-    setListOpen((open) => {
-      if (!open) {
-        setFiltersOpen(false);
-        setStatsOpen(false);
-      }
-      return !open;
-    });
-  }, []);
+  const toggleList = (mode: "all" | "zones", trigger: HTMLElement) => {
+    if (listOpen && listMode === mode) { closeList(); return; }
+    drawerTriggerRef.current = trigger;
+    setListMode(mode);
+    setListOpen(true);
+    setSelectedId(null);
+    setHover(null);
+    setFiltersOpen(false);
+    setStatsOpen(false);
+  };
 
   // Keep the lazily loaded dialog mounted after its first opening so Radix can
   // complete exits, without loading its media chunk on an ordinary map visit.
@@ -433,23 +465,32 @@ export function PlacesExplorer({
         </MotionPresence>
 
         <MotionPresence present={listOpen}>
-          <aside className="places-drawer" aria-label="Liste des lieux">
+          <aside id={drawerId} className={cn("places-drawer", listMode === "zones" && "is-zones")}
+            aria-label={listMode === "zones" ? "Zones approximatives" : "Liste des lieux"}
+            onKeyDown={event => {
+              if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeList(); }
+            }}>
             <header>
-              <h2>
-                {visible.length} lieu{visible.length > 1 ? "x" : ""}
+              <h2 ref={drawerHeadingRef} tabIndex={-1}>
+                {listMode === "zones" ? `Zones approximatives (${listedPlaces.length})` : `${listedPlaces.length} lieu${listedPlaces.length > 1 ? "x" : ""}`}
               </h2>
-              <button type="button" className="places-icon-button" aria-label="Fermer la liste" onClick={() => setListOpen(false)}>
+              <button type="button" className="places-icon-button" aria-label="Fermer la liste" onClick={closeList}>
                 <X size={15} aria-hidden="true" />
               </button>
             </header>
-            <ul className="places-list">
-              {visible.map((place) => (
+            {truncated ? <p className="places-drawer-caption">Parmi les 1 000 lieux les plus récents chargés.</p> : null}
+            <ul ref={listRef} className="places-list" onScroll={event => { listScrollRef.current[listMode] = event.currentTarget.scrollTop; }}>
+              {listedPlaces.map((place) => (
                 <li key={place.id}>
                   <button
                     type="button"
                     className={cn("places-row", place.id === selectedId && "is-selected")}
                     data-place-id={place.id}
-                    onClick={() => handleSelect(place.id)}
+                    onClick={event => {
+                      handleSelect(place.id, event.currentTarget);
+                      detailFallbackFocusRef.current = drawerTriggerRef.current;
+                    }}
                   >
                     <span className="places-row-thumb" aria-hidden="true">
                       {place.previewThumbnailUrl ? (
@@ -475,7 +516,7 @@ export function PlacesExplorer({
                   {place.address ? <div className="places-row-address"><PlaceAddressLink place={place} /></div> : null}
                 </li>
               ))}
-              {visible.length === 0 ? <li className="places-empty">Aucun lieu ne correspond à ces filtres.</li> : null}
+              {listedPlaces.length === 0 ? <li className="places-empty">{listMode === "zones" ? "Aucune zone approximative ne correspond à ces filtres." : "Aucun lieu ne correspond à ces filtres."}</li> : null}
             </ul>
           </aside>
         </MotionPresence>
@@ -485,6 +526,8 @@ export function PlacesExplorer({
           <PlaceDetailSheet
             place={selected}
             isAdmin={isAdmin}
+            returnFocusRef={detailReturnFocusRef}
+            fallbackFocusRef={detailFallbackFocusRef}
             onClose={() => setSelectedId(null)}
           />
         ) : null}
@@ -501,17 +544,24 @@ export function PlacesExplorer({
       <div className="places-summary">
         <div className="places-summary-count" role="status">
           <span><strong>{visible.length}</strong> lieu{visible.length > 1 ? "x" : ""}</span>
-          {truncated ? <span className="places-truncated">{approximateCount ? `${approximateCount} zone${approximateCount > 1 ? "s" : ""} · ` : "Parmi les "}1 000 plus récents</span> : <span className="places-summary-caption">{approximateCount ? `${approximateCount} zone${approximateCount > 1 ? "s" : ""} approximative${approximateCount > 1 ? "s" : ""}` : "À explorer sur la carte"}</span>}
+          {truncated ? <span className="places-truncated">Parmi les 1 000 plus récents</span> : <span className="places-summary-caption">À explorer sur la carte</span>}
         </div>
         <div className="places-summary-actions">
+          <button type="button" className={cn("places-footer-button places-zones-button", listOpen && listMode === "zones" && "is-active")}
+            aria-expanded={listOpen && listMode === "zones"} aria-controls={drawerId}
+            onClick={event => toggleList("zones", event.currentTarget)}>
+            <CircleDashed size={18} aria-hidden="true" /> Zones approximatives ({approximatePlaces.length})
+          </button>
           <button type="button" className="places-footer-button" aria-label="Statistiques" aria-expanded={statsOpen} onClick={() => {
             setStatsOpen(open => !open);
             setFiltersOpen(false);
             setListOpen(false);
+            if (!statsOpen) { setSelectedId(null); setHover(null); }
           }}>
             <BarChart3 size={18} aria-hidden="true" /><span className="places-stats-label">Statistiques</span>
           </button>
-          <button type="button" className={cn("places-footer-button places-list-button", listOpen && "is-active")} aria-expanded={listOpen} onClick={toggleList}>
+          <button ref={listTriggerRef} type="button" className={cn("places-footer-button places-list-button", listOpen && listMode === "all" && "is-active")}
+            aria-expanded={listOpen && listMode === "all"} aria-controls={drawerId} onClick={event => toggleList("all", event.currentTarget)}>
             <ListFilter size={18} aria-hidden="true" /> Liste
           </button>
         </div>
