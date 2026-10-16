@@ -1,4 +1,6 @@
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim AS build
+ARG NODE_IMAGE=public.ecr.aws/docker/library/node:24-bookworm-slim
+
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY services/worker/package.json services/worker/package.json
@@ -6,13 +8,13 @@ RUN npm ci
 COPY services/worker services/worker
 RUN npm run worker:build
 
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim AS production-dependencies
+FROM ${NODE_IMAGE} AS production-dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY services/worker/package.json services/worker/package.json
 RUN npm ci --omit=dev --workspace services/worker --include-workspace-root=false
 
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/* \
