@@ -182,6 +182,18 @@ function placeIdFromFeature(feature: { properties?: Record<string, unknown> } | 
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
+function frameApproximatePlace(map: MapLibreMap, place: PlacesMapItem, duration: number): void {
+  const { clientWidth: width, clientHeight: height } = map.getContainer();
+  if (!width || !height) return;
+  // Reserve the detail footprint; compact sheets occupy at most 45% of the map.
+  const padding = width >= 760
+    ? { top: 48, right: 48, bottom: 48, left: 430 }
+    : { top: 36, right: 36, left: 36, bottom: Math.round(height * 0.48) + 24 };
+  // The virtual keyboard can briefly collapse the map below its reserved space.
+  if (width <= padding.left + padding.right || height <= padding.top + padding.bottom) return;
+  map.fitBounds(placeViewportBounds(place), { padding, maxZoom: 15, duration });
+}
+
 export function PlacesMap({
   places,
   selectedId,
@@ -210,9 +222,11 @@ export function PlacesMap({
   const hoveredPlaceIdRef = useRef<string | null>(null);
   const renderRef = useRef<() => void>(() => undefined);
   const [readyMap, setReadyMap] = useState<MapLibreMap | null>(null);
-  // Selection only changes paint properties, not the bounded geographic mesh.
-  const areas = useMemo(() => buildPlacesAreasGeoJson(places, null), [places]);
-  const areaOutlines = useMemo(() => buildPlacesAreaOutlinesGeoJson(places, null), [places]);
+  // Approximate locations are discovered through the Zones list. Only the
+  // selected extent needs a geographic mesh, even with hundreds of results.
+  const selectedAreas = useMemo(() => places.filter(place => place.id === selectedId && place.precision === "APPROXIMATE"), [places, selectedId]);
+  const areas = useMemo(() => buildPlacesAreasGeoJson(selectedAreas, selectedId), [selectedAreas, selectedId]);
+  const areaOutlines = useMemo(() => buildPlacesAreaOutlinesGeoJson(selectedAreas, selectedId), [selectedAreas, selectedId]);
 
   useEffect(() => {
     placesRef.current = places;
@@ -227,15 +241,13 @@ export function PlacesMap({
     const placesSource = map.getSource(PLACES_SOURCE_ID) as GeoJSONSource | undefined;
     placesSource?.setData(buildPlacesGeoJson(places, selectedId));
     const areasSource = map.getSource(AREAS_SOURCE_ID) as GeoJSONSource | undefined;
-    areasSource?.setData({ ...areas, features: areas.features.map(feature => ({
-      ...feature, properties: { ...feature.properties, selected: feature.properties.id === selectedId },
-    })) });
+    areasSource?.setData(areas);
     const outlinesSource = map.getSource(AREA_OUTLINES_SOURCE_ID) as GeoJSONSource | undefined;
-    outlinesSource?.setData({ ...areaOutlines, features: areaOutlines.features.map(feature => ({
-      ...feature, properties: { ...feature.properties, selected: feature.properties.id === selectedId },
-    })) });
-    if (hoveredPlaceIdRef.current && !places.some((place) => place.id === hoveredPlaceIdRef.current)) {
+    outlinesSource?.setData(areaOutlines);
+    if (hoveredPlaceIdRef.current && !places.some((place) => place.id === hoveredPlaceIdRef.current
+      && (place.precision !== "APPROXIMATE" || place.id === selectedId))) {
       hoveredPlaceIdRef.current = null;
+      map.getCanvas().style.cursor = "";
       handlersRef.current.onHover(null, null);
     }
   }, [places, selectedId, areas, areaOutlines]);
@@ -305,7 +317,15 @@ export function PlacesMap({
       // also the way back to north, so it ships with rotation or not at all.
       map.addControl(new maplibre.NavigationControl({ showCompass: vector }), "top-right");
       if (typeof ResizeObserver !== "undefined") {
-        resizeObserver = new ResizeObserver(() => map.resize());
+        resizeObserver = new ResizeObserver(() => {
+          map.resize();
+          const selected = placesRef.current.find(place => place.id === selectedIdRef.current);
+          if (readyRef.current && selected?.precision === "APPROXIMATE") {
+            // Rotation and responsive footer wrapping change the free map area.
+            // Reframe immediately instead of leaving the extent under the sheet.
+            frameApproximatePlace(map, selected, 0);
+          }
+        });
         resizeObserver.observe(container);
       }
 
@@ -314,11 +334,11 @@ export function PlacesMap({
         map.setProjection({ type: "globe" });
         map.addSource(AREAS_SOURCE_ID, {
           type: "geojson",
-          data: buildPlacesAreasGeoJson(placesRef.current, selectedIdRef.current),
+          data: buildPlacesAreasGeoJson([], null),
         });
         map.addSource(AREA_OUTLINES_SOURCE_ID, {
           type: "geojson",
-          data: buildPlacesAreaOutlinesGeoJson(placesRef.current, selectedIdRef.current),
+          data: buildPlacesAreaOutlinesGeoJson([], null),
         });
         // Areas are real meter-based geometry, never screen-sized pins. Draw
         // them below precise locations so overlapping pins retain priority.
@@ -331,7 +351,7 @@ export function PlacesMap({
           filter: ["==", ["get", "selected"], true],
           paint: {
             "fill-color": "#7c3aed",
-            "fill-opacity": 0.16,
+            "fill-opacity": 0.10,
             "fill-antialias": false,
           },
         });
@@ -339,13 +359,11 @@ export function PlacesMap({
           id: AREA_OUTLINE_LAYER_ID,
           type: "line",
           source: AREA_OUTLINES_SOURCE_ID,
+          filter: ["==", ["get", "selected"], true],
           paint: {
             "line-color": "#7c3aed",
-            "line-width": ["case", ["get", "selected"], 2.5, 2],
-            "line-opacity": ["interpolate", ["linear"], ["zoom"],
-              2, ["case", ["get", "selected"], 0.85, 0.16],
-              8, ["case", ["get", "selected"], 0.85, 0.38]],
-            "line-dasharray": [2, 2],
+            "line-width": 1.5,
+            "line-opacity": 0.65,
           },
         });
         map.addSource(PLACES_SOURCE_ID, {
@@ -513,7 +531,7 @@ export function PlacesMap({
       framedPlacesRef.current = { map, places };
       if (selected) {
         if (selected.precision === "APPROXIMATE") {
-          map.fitBounds(placeViewportBounds(selected), { padding: 72, maxZoom: 15, duration: reduceMotion ? 0 : 450 });
+          frameApproximatePlace(map, selected, reduceMotion ? 0 : 450);
           return;
         }
         map.easeTo({
