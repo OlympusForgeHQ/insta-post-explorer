@@ -1,5 +1,18 @@
 # Operational Handoff
 
+## Recent searches — 16 October 2026
+
+Posts and Places now share a recent-search input, with separate browser-local
+histories capped at five normalized terms. Recall works with touch, pointer and
+keyboard; Enter, blur and clearing preserve completed terms without collecting
+intermediate typing. The popup uses existing motion and has keyboard-accessible
+history clearing. No provider, database, worker, sync or Places-zone behavior changes.
+
+See [scope and validation](changes/2026-10-16-recent-searches.md). Private release
+receipts live under `.tmp/recent-searches-20261016/`; those receipts determine the
+actual deployment state. Dotted map outlines remain approximate geographic areas,
+including older areas; the selected area alone receives the filled highlight.
+
 ## Contextual approximate places — 16 October 2026
 
 The owner authorizes placing source-identified venues within a verified approximate

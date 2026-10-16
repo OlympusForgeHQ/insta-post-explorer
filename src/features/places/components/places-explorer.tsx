@@ -1,6 +1,7 @@
 "use client";
 
 import { MotionPresence } from "@/components/motion-presence";
+import { RecentSearchInput } from "@/components/recent-search-input";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { BarChart3, Check, ListFilter, MapPin, Search, SlidersHorizontal, X } from "lucide-react";
@@ -236,22 +237,9 @@ export function PlacesExplorer({
     <section className="places-shell" aria-label="Lieux sauvegardés">
         {/* Top control bar: search + a single filters button. */}
         <div className="places-topbar">
-          <div className="places-search">
-            <Search aria-hidden="true" size={15} />
-            <input
-              ref={searchRef}
-              type="search"
-              value={filters.q}
-              placeholder="Rechercher un lieu, une ville, un pays…"
-              aria-label="Rechercher un lieu"
-              onChange={(event) => patch({ q: event.target.value })}
-            />
-            {filters.q ? (
-              <button type="button" className="places-search-clear" aria-label="Effacer la recherche" onClick={() => patch({ q: "" })}>
-                <X size={14} aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
+          <RecentSearchInput scope="places" className="places-search" inputRef={searchRef}
+            value={filters.q} onValueChange={q => patch({ q })} label="Rechercher un lieu"
+            placeholder="Rechercher un lieu, une ville, un pays…" />
           <button
             type="button"
             className={cn("places-button", activeFilterCount > 0 && "is-active")}

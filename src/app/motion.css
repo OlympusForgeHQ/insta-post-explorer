@@ -35,11 +35,11 @@
 :is(.detail-dialog, .filter-drawer, .stats-dialog, .import-dialog, .map-post-dialog)[data-state="closed"] {
   animation: motion-panel-out var(--motion-exit) ease forwards; pointer-events: none;
 }
-:is(.menu-content, .author-suggestions) {
+:is(.menu-content, .author-suggestions, .recent-search-popover) {
   transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-popover-content-transform-origin, top right));
 }
-:is(.menu-content, .author-suggestions)[data-state="open"] { animation: motion-menu-in var(--motion-content) var(--motion-arrive) backwards; }
-:is(.menu-content, .author-suggestions)[data-state="closed"] { animation: motion-menu-out var(--motion-exit) ease forwards; pointer-events: none; }
+:is(.menu-content, .author-suggestions, .recent-search-popover)[data-state="open"] { animation: motion-menu-in var(--motion-content) var(--motion-arrive) backwards; }
+:is(.menu-content, .author-suggestions, .recent-search-popover)[data-state="closed"] { animation: motion-menu-out var(--motion-exit) ease forwards; pointer-events: none; }
 
 .motion-presence { display: contents; }
 .motion-presence[data-motion-state="open"] > * { animation: motion-panel-in var(--motion-panel) var(--motion-arrive) backwards; }
