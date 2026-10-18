@@ -15,6 +15,7 @@ import type { PlaceResolutionInput } from "@/server/places/resolvers/types";
 import { scoreResolvedCandidate } from "@/lib/places/scoring";
 import {entityNamesAgree} from '@/lib/places/scoring';
 import {decidePlaceResolution} from '@/lib/places/resolution';
+import {selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 
 const SECRET_KEY = "super-secret-geoapify-key";
 
@@ -480,6 +481,33 @@ describe("getConfiguredPlaceResolver", () => {
 
 
 describe('bounded neutral area fallback',()=>{
+ it.each([true,false])('re-verifies an address-bound administrative hint before accepting it: verified=%s',async verified=>{
+  const raw={place_id:'example-neighbourhood',name:'Examplechō',city:'Shibuya',district:'Examplechō',country:'Japan',country_code:'jp',
+   formatted:'Examplechō, Shibuya, Japan',lat:35.66,lon:139.70,result_type:'suburb',
+   rank:{confidence:.71875,match_type:'full_match'},bbox:{lon1:139.69,lat1:35.65,lon2:139.71,lat2:35.67}};
+  const city={...raw,place_id:'shibuya-area',name:'Shibuya',district:undefined,result_type:'city',rank:{confidence:1,match_type:'full_match'},
+   bbox:{lon1:139.66,lat1:35.64,lon2:139.73,lat2:35.70}};
+  const fetchMock=vi.fn<typeof fetch>(async(url)=>{
+   const params=new URL(String(url)).searchParams;
+   if(params.get('type')==='locality')return jsonResponse({results:[{...raw,rank:{...raw.rank,confidence:verified?1:.71875}}]});
+   if(params.get('type')==='city')return jsonResponse({results:[city]});
+   return jsonResponse({results:[raw]});
+  });
+  const candidate=restaurantCandidate({name:'Example Bakery',address:'1F 12-3 Examplecho, Shibuya City, Tokyo',city:'Shibuya City',region:'Tokyo',country:'Japan',
+   evidence:[{type:'CAPTION',excerpt:'Example Bakery, 1F 12-3 Examplecho, Shibuya City, Tokyo'}]});
+  const source=structuredClone(candidate);
+  const results=await resolver(fetchMock).resolveApproximate({candidate,sourceTheme:'Restaurant'});
+  const best=selectContextualVenueArea(candidate,results);
+  expect(best?.resolved.providerPlaceId).toBe(verified?'example-neighbourhood':'shibuya-area');
+  expect(best?.resolved.providerRank).toBe(1);expect(best?.scored.contextualArea?.level).toBe(verified?'district':'city');
+  const urls=fetchMock.mock.calls.map(([url])=>new URL(String(url)));
+  expect(urls).toHaveLength(verified?2:3);
+  expect(urls[0].searchParams.get('text')).toBe('12-3 Examplecho, Shibuya, Tokyo, Japan');
+  expect(urls[1].searchParams.get('text')).toBe('Examplechō, Shibuya, Japan');
+  expect(urls[1].searchParams.get('type')).toBe('locality');
+  expect(urls.every(url=>!url.searchParams.has('name')&&!url.href.includes('Bakery'))).toBe(true);
+  expect(candidate).toEqual(source);
+ });
  it('queries the source address without a unit and never transmits the business or evidence',async()=>{
   const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[{place_id:'building-12',formatted:'12 Example Road, Paris',
    street:'Example Road',housenumber:'12',city:'Paris',country:'France',country_code:'fr',lat:48.85,lon:2.35,result_type:'building',

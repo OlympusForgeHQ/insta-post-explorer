@@ -1,6 +1,47 @@
 import {foldForSearch} from '@/lib/import/normalize';
 import type {ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
 
+export const isJapaneseCountry=(country:string|null)=>Boolean(country&&['jp','japan','japon','日本'].includes(foldForSearch(country)));
+
+// These are administrative suffixes, not translations or parent-city aliases.
+// In particular Shibuya and Tokyo must remain different location identities.
+export function japaneseMunicipalityName(value:string):string {
+  return value.trim().replace(/(?:\s+(?:city|ward)|[-\s](?:ku|shi))$/iu,'').replace(/(?<=\p{Script=Han})[区市]$/u,'');
+}
+
+export function japaneseMunicipalityMatches(left:string,right:string,countryCode:string|null):boolean {
+  const level=(value:string)=>/(?:\s+city|[-\s]shi|\p{Script=Han}市)$/iu.test(value.trim())?'city'
+    :/(?:\s+ward|[-\s]ku|\p{Script=Han}区)$/iu.test(value.trim())?'ward':null;
+  const leftLevel=level(left),rightLevel=level(right);
+  // A bare provider city can corroborate "City", but cannot establish that a
+  // same-named ward is that municipality rather than a child administration.
+  return countryCode?.toUpperCase()==='JP'&&!(leftLevel&&rightLevel&&leftLevel!==rightLevel)
+    &&!((leftLevel==='ward'||rightLevel==='ward')&&leftLevel!==rightLevel)
+    &&foldForSearch(japaneseMunicipalityName(left))===foldForSearch(japaneseMunicipalityName(right));
+}
+
+// A source region can be a prefecture even when a geocoder omits its state.
+// Missing parent context is unknown; a different explicit parent still conflicts.
+const japanesePrefectures=new Set(('Aichi Akita Aomori Chiba Ehime Fukui Fukuoka Fukushima Gifu Gunma Hiroshima Hokkaido Hyogo Ibaraki Ishikawa Iwate Kagawa Kagoshima Kanagawa Kochi Kumamoto Kyoto Mie Miyagi Miyazaki Nagano Nagasaki Nara Niigata Oita Okayama Okinawa Osaka Saga Saitama Shiga Shimane Shizuoka Tochigi Tokushima Tokyo Tottori Toyama Wakayama Yamagata Yamaguchi Yamanashi').toLowerCase().split(' '));
+export function japanesePrefectureName(value:string):string|null {
+  const name=foldForSearch(value).replace(/(?:\s+(?:prefecture|metropolis)|[-\s](?:ken|to|fu))$/u,'');
+  return japanesePrefectures.has(name)?name:null;
+}
+
+export function japaneseFloor(value:string,countryCode:string|null):string|null {
+  const match=countryCode?.toUpperCase()==='JP'?value.trim().match(/^(B)?(\d{1,3})F$/iu):null;
+  return match?`${match[1]?'-':''}${Number(match[2])}`:null;
+}
+
+export function addressComponents(address:string|null,countryCode:string|null=null):string[] {
+  return (address??'').split(/[,;]/u).map(value=>value.trim()).filter(Boolean).flatMap(part=>{
+    // Split only a floor prefix followed by a complete numbered address. A
+    // business or street called "1F Cafe" is not an interior qualifier.
+    const match=countryCode?.toUpperCase()==='JP'?part.match(/^((?:B)?\d{1,3}F)\s+(\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)*\s+\p{L}.*)$/iu):null;
+    return match?[match[1],match[2]]:[part];
+  });
+}
+
 const municipalityNames=[
   ['Beijing','北京','北京市'],
   ['Tianjin','天津','天津市'],
@@ -27,6 +68,8 @@ export function municipalityCityLabels(countryCode:string|null,state:string|null
 }
 
 export function administrativeRegionMatches(region:string,resolved:ResolvedPlaceCandidate):boolean {
+  const prefecture=resolved.countryCode==='JP'?japanesePrefectureName(region):null;
+  if(prefecture)return [resolved.region,resolved.administrativeLabels?.state].some(label=>label&&japanesePrefectureName(label)===prefecture);
   const source=administrativeName(region);
   if(!source.name)return false;
   // Only structured administrative fields participate. Names of businesses,

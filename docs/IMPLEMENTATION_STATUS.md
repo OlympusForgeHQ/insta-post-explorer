@@ -1,5 +1,21 @@
 # Implementation Status
 
+## Japanese source addresses in Places — 18 October 2026
+
+The resolution policy `provider-context-v7` separates Japanese floor qualifiers
+from complete ordered block identifiers, compares compatible municipality labels,
+and refines a source-address district hint with an independent geographic lookup.
+A hint cannot establish a location: only a verified provider area with bounds can
+be saved as an approximate source venue. Parent/child municipalities, other named
+businesses and conflicting address components remain distinct.
+
+This is a web/API resolution fix; no model, consumer, synchronization, schema or
+dependency change. A single-post recovery uses the existing caption batch services
+with separate provenance and preserves the original multimodal analysis and manual
+corrections. See [requirements and validation](changes/2026-10-18-places-japanese-context.md).
+Private release and recovery receipts under `.tmp/places-review-20261018/`
+determine the actual production state.
+
 ## Approximate zone presentation — 17 October 2026
 
 Approximate Places are now explored from a dedicated Zones button using the

@@ -151,7 +151,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v6'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v7'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
@@ -247,4 +247,47 @@ it('does not truncate an area whose bounds cross the date line',async()=>{
  expect(plan.best?.scored.approximationRadiusMeters).toBeGreaterThan(40_000);
  expect(plan.best?.scored.approximationRadiusMeters).toBeLessThan(50_000);
  const [outside]=await planAll([source],'Restaurant',{resolve:async()=>[{...area,longitude:178}]});expect(outside.best).toBeNull();
+});
+
+describe('Japanese municipality and interior context',()=>{
+ const candidate:PlaceCandidate={name:'Example Bakery',city:'Shibuya City',region:'Tokyo',country:'Japan',address:'1F 12-3 Examplecho, Shibuya City, Tokyo',
+  category:'patisserie',confidence:.8,evidence:[{type:'CAPTION',excerpt:'Example Bakery, 1F 12-3 Examplecho, Shibuya City, Tokyo'}]};
+ const area:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'example-neighbourhood',providerName:'Examplechō',displayName:'Examplechō',
+  city:'Shibuya',region:null,country:'Japan',countryCode:'JP',address:'Examplechō, Shibuya, Japan',administrativeLabels:{city:'Shibuya',district:'Examplechō'},
+  latitude:35.66,longitude:139.70,providerResultType:'suburb',providerRank:1,providerMatchType:'full_match',category:null,attribution:null,
+  providerBounds:{lon1:139.69,lat1:35.65,lon2:139.71,lat2:35.67}};
+ it.each(['Shibuya City','Shibuya-shi','Shibuya'])('accepts a verified source-address district under the same Japanese municipality: %s',async city=>{
+  const source={...candidate,city,address:`1F 12-3 Examplecho, ${city}, Tokyo`,evidence:[{type:'CAPTION' as const,excerpt:`Example Bakery, 1F 12-3 Examplecho, ${city}, Tokyo`}]};
+  const saved=structuredClone(area);
+  const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[area]});
+  expect(plan.best?.scored.contextualArea?.level).toBe('district');
+  expect(plan.best?.resolved).toEqual(saved);expect(plan.candidate).toEqual(source);
+ });
+ it('does not use another municipality, prefecture, country or caption-only district as an anchor',async()=>{
+  for(const resolved of [{...area,city:'Toshima',administrativeLabels:{city:'Toshima',district:'Examplechō'}},
+   {...area,region:'Miyagi Prefecture'},{...area,country:'France',countryCode:'FR'},
+   {...area,providerName:'Othercho',administrativeLabels:{city:'Shibuya',district:'Othercho'}},
+   {...area,providerRank:.71875}]){
+   const [plan]=await planAll([{...candidate,evidence:[...candidate.evidence,{type:'CAPTION',excerpt:'Another bakery in Othercho, Shibuya City'}]}],'Restaurant',{resolve:async()=>[resolved]});
+   expect(plan.best).toBeNull();
+  }
+  const [parent]=await planAll([candidate],'Restaurant',{resolve:async()=>[{...area,providerName:'Tokyo',city:'Tokyo',providerResultType:'city'}]});
+  expect(parent.best).toBeNull();
+  for(const suffix of ['Road','Plaza']){
+   const source={...candidate,address:`1F 12-3 Examplecho ${suffix}, Shibuya City, Tokyo`,
+    evidence:[{type:'CAPTION' as const,excerpt:`Example Bakery, 1F 12-3 Examplecho ${suffix}, Shibuya City, Tokyo`}]};
+   expect((await planAll([source],'Restaurant',{resolve:async()=>[area]}))[0].best).toBeNull();
+  }
+ });
+ it('keeps a Japanese floor unresolved within a verified building and rejects conflicting floors or block numbers',async()=>{
+  const building={...area,providerPlaceId:'example-building',providerName:null,displayName:'12-3 Examplecho',providerResultType:'building',
+   region:'Tokyo',address:'12-3 Examplecho, Shibuya, Tokyo, Japan',street:'Examplecho',houseNumber:'12-3',providerBounds:null};
+  const [plan]=await planAll([candidate],'Restaurant',{resolve:async()=>[building]});
+  expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'building',missingDetails:expect.arrayContaining(['floor'])}});
+  for(const resolved of [{...building,address:'2F 12-3 Examplecho, Shibuya, Tokyo, Japan'},
+   {...building,houseNumber:'12-4'},{...building,houseNumber:'1-12-3'},
+   {...building,providerName:'Different Tenant'}]){
+   expect((await planAll([candidate],'Restaurant',{resolve:async()=>[resolved]}))[0].best).toBeNull();
+  }
+ });
 });
