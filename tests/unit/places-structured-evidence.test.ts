@@ -2,6 +2,7 @@
 import {describe,it,expect,vi} from 'vitest';
 vi.mock('server-only',()=>({}));
 import {decidePlaceResolution} from '@/lib/places/resolution';
+import {addressAgreement} from '@/lib/places/scoring';
 import {planAll} from '@/server/places/analysis';
 import {isSupportedRecovery} from '@/lib/places/recovery';
 import type {PlaceCandidate} from '@/lib/places/candidates';
@@ -11,6 +12,37 @@ const venue:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'example
 // Structured provider fields must resolve presentation differences without
 // making another street/number or another occupant interchangeable.
 describe('structured place evidence',()=>{
+ it('compares whole Japanese block numbers and requires the explicitly supplied floor',()=>{
+  expect(addressAgreement('1-12-3 Examplecho, Shibuya','12-3 Examplecho, Shibuya').match).toBe(false);
+  expect(addressAgreement('12-3 Examplecho, Shibuya','3 Examplecho, Shibuya').match).toBe(false);
+  for(const [number,floor] of [['12-3','1F'],['1-12-3','B1F']]){
+   const c={...candidate,city:'Shibuya City',region:'Tokyo',country:'Japan',address:`${floor} ${number} Examplecho, Shibuya City, Tokyo`};
+   const p={...venue,city:'Shibuya',region:'Tokyo',country:'Japan',countryCode:'JP',address:`${floor} ${number} Examplecho, Shibuya, Tokyo, Japan`,street:'Examplecho',houseNumber:number};
+   expect(decidePlaceResolution({candidate:c,resolved:p}).precision).toBe('EXACT');
+   for(const address of [`2F ${number} Examplecho, Shibuya, Tokyo, Japan`,`${number} Examplecho, Shibuya, Tokyo, Japan`]){
+    expect(decidePlaceResolution({candidate:c,resolved:{...p,address}}).precision).toBe('UNKNOWN');
+   }
+   for(const houseNumber of ['3','12-4','2-12-3','12-3-1',...(number==='1-12-3'?['12-3']:[])]){
+    expect(decidePlaceResolution({candidate:c,resolved:{...p,houseNumber}}).precision).toBe('UNKNOWN');
+   }
+  }
+ });
+ it('does not use Japanese municipality suffix aliases without a verified Japanese country',()=>{
+  for(const countryCode of ['FR',null]){
+   const country=countryCode==='FR'?'France':'Japan';
+   const c={...candidate,address:null,region:null,city:'Shibuya City',country};
+   const p={...venue,address:null,region:null,city:'Shibuya',country,countryCode};
+   const decision=decidePlaceResolution({candidate:c,resolved:p});
+   expect(decision.precision).toBe('UNKNOWN');expect(decision.reasons).toContain('city_contradiction');
+  }
+  for(const [city,providerCity] of [['Kawasaki Ward','Kawasaki City'],['Kawasaki-ku','Kawasaki-shi'],['川崎区','川崎市'],
+   ['Kawasaki Ward','Kawasaki'],['Kawasaki-ku','Kawasaki'],['川崎区','川崎'],['Kawasaki','Kawasaki Ward']]){
+   const c={...candidate,address:null,region:null,city,country:'Japan'};
+   const p={...venue,address:null,region:null,city:providerCity,country:'Japan',countryCode:'JP'};
+   const decision=decidePlaceResolution({candidate:c,resolved:p});
+   expect(decision.precision).toBe('UNKNOWN');expect(decision.reasons).toContain('city_contradiction');
+  }
+ });
  it('compares explicitly matching GB ground floors without losing the complete street number',()=>{
   const c={...candidate,address:'Ground Floor, 24 Example Street, London'};
   const p={...venue,address:'Example Bakery, Ground Floor 24 Example Street, London, United Kingdom',street:'Example Street',houseNumber:'Ground Floor 24',localityNames:['London']};

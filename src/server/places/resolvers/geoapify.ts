@@ -6,11 +6,11 @@ import { foldForSearch } from "@/lib/import/normalize";
 import { distanceMeters } from "@/lib/places/distance";
 import {decidePlaceResolution} from '@/lib/places/resolution';
 import {entityNamesAgree} from '@/lib/places/scoring';
-import {municipalityCityLabels} from '@/lib/places/administrative-context';
+import {isJapaneseCountry,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
-import {approximateAddress, approximateDistrict, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {addressDistrictHint,approximateAddress, approximateDistrict, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 
 // Geoapify geographic resolver behind the replaceable PlaceResolver interface.
 // It turns a textual candidate into provider-verified coordinates and a provider
@@ -240,20 +240,24 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     // Three bounded neutral geocoding queries at most. They contain geographic
     // fields only, never captions, source identifiers, business names or Google
     // coordinates. Each response is still checked against the unchanged source.
-    const queries:Array<{candidate:PlaceCandidate;level:number}>=[];
-    if(address)queries.push({candidate:{...candidate,name:null,address},level:0});
-    const district=approximateDistrict(candidate);
-    if(district)queries.push({candidate:{...candidate,name:null,address:district,region:null},level:2});
-    queries.push({candidate:{...candidate,name:null,address:null,region:null},level:3});
     const results:ResolvedPlaceCandidate[]=[];
-    for(const [index,query] of queries.entries()){
-      results.push(...await this.search(query.candidate));
-      const best=selectContextualVenueArea(candidate,results);
-      const level=best?.scored.contextualArea?.level;
-      // A coarse response to the address query must not prevent the remaining
-      // district query from finding a smaller, still verified envelope.
-      if(level&&!queries.slice(index+1).some(next=>next.level<({building:0,street:1,district:2,city:3})[level]))break;
+    if(address){
+      results.push(...await this.search({...candidate,name:null,address}));
+      if(['building','street'].includes(selectContextualVenueArea(candidate,results)?.scored.contextualArea?.level??''))return results;
     }
+    // A weak administrative match is only a name hint. Re-query it without the
+    // parent region, then evaluate the fresh raw response at the normal threshold.
+    const hints=[...new Map(results.flatMap(result=>{
+      const name=addressDistrictHint(candidate,result);return name?[[foldForSearch(name),name] as const]:[];
+    })).values()];
+    const district=approximateDistrict(candidate)??(hints.length===1?hints[0]:null);
+    if(district){
+      results.push(...await this.search({...candidate,name:null,address:district,region:null},undefined,'locality'));
+      if(['building','street','district'].includes(selectContextualVenueArea(candidate,results)?.scored.contextualArea?.level??''))return results;
+    }
+    const japanese=isJapaneseCountry(candidate.country);
+    const region=japanese&&candidate.region&&japanesePrefectureName(candidate.region)?candidate.region:null;
+    results.push(...await this.search({...candidate,name:null,address:null,region},undefined,japanese?'city':undefined));
     return results;
   }
 
@@ -297,8 +301,8 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     return corroborated.length ? corroborated : addressResults;
   }
 
-  private async search(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"]): Promise<ResolvedPlaceCandidate[]> {
-    const response = await this.fetchWithRetry(this.buildUrl(candidate,proximity));
+  private async search(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"],type?:'locality'|'city'): Promise<ResolvedPlaceCandidate[]> {
+    const response = await this.fetchWithRetry(this.buildUrl(candidate,proximity,type));
 
     let payload: unknown;
     try {
@@ -375,8 +379,14 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   // Address candidates use Geoapify's free-form address alternative. Other
   // candidates retain the structured request. The API key travels in the query
   // string but is never logged, and the full caption is never included.
-  private buildUrl(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"]): string {
+  private buildUrl(source: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"],type?:'locality'|'city'): string {
+    const city=source.city&&isJapaneseCountry(source.country)?japaneseMunicipalityName(source.city):source.city;
+    // Retrieval normalization changes neither source evidence nor provider labels.
+    // Replace only a complete locality component, never a street or business name.
+    const candidate=city!==source.city?{...source,city,address:source.address?.split(/[,;]/u).map(part=>
+      foldForSearch(part.trim())===foldForSearch(source.city!)?city:part.trim()).join(', ')??null}:source;
     const params = new URLSearchParams();
+    if(type)params.set('type',type);
     if(candidate.category==='voyage'&&!candidate.address&&!candidate.city&&!candidate.region&&candidate.country&&
       (!candidate.name||foldForSearch(candidate.name)===foldForSearch(candidate.country))){
       // A country is the target entity, not a business named after that country.
