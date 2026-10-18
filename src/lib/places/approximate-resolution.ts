@@ -122,11 +122,14 @@ export function addressDistrictHint(candidate:PlaceCandidate,resolved:ResolvedPl
   const comparison=scoreResolvedCandidate({candidate:{...candidate,name:null,address:null,region:null,category:'city'},resolved});
   if(!comparison.reasons.includes('city_match')||comparison.reasons.some(reason=>reason.endsWith('_contradiction'))||
     (candidate.country&&!comparison.reasons.includes('country_match')))return null;
-  const components=addressParts(approximateAddress(candidate)).map(part=>words(part.replace(/^\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)*\s+/iu,'')));
-  return [resolved.providerName,...(resolved.providerNameAliases??[])].find((name):name is string=>Boolean(name&&words(name).length>=3&&
+  const components=addressParts(approximateAddress(candidate)).map(part=>part.replace(/^\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)*\s+/iu,''));
+  const hint=[resolved.providerName,...(resolved.providerNameAliases??[])].find((name):name is string=>Boolean(name&&words(name).length>=3&&
     ![candidate.city,candidate.region,candidate.country].some(geography=>geography&&(words(name!)===words(geography)||japaneseMunicipalityMatches(name!,geography,resolved.countryCode)))&&
     ![candidate.name,groundedVenueName(candidate)].some(identity=>identity&&words(identity)===words(name!))&&
-    components.includes(words(name!))&&literalProof(name!,candidate)))??null;
+    components.some(component=>words(component)===words(name!))&&literalProof(name!,candidate)));
+  // Matching may fold accents, but retrieval preserves the source spelling:
+  // a provider's transliteration can produce a different geocoding result.
+  return hint?components.find(component=>words(component)===words(hint))??null:null;
 }
 
 // The provider point must lie inside its own bounds. Angular latitude +

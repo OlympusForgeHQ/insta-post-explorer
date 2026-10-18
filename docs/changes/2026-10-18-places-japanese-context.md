@@ -48,9 +48,9 @@ state.
 - The failing reproduction exposed seven targeted failures before implementation.
   Review added negative regressions for a district name embedded in a street and
   for ward/parent-city labels, including a provider omitting its city suffix.
-- 186 focused resolver, planning, scoring and evidence tests pass. Independent
+- 188 focused resolver, planning, scoring and evidence tests pass. Independent
   review found no remaining blocking issue after both boundary cases were fixed.
-- Full lint and TypeScript checks pass. The local application suite passes 613
+- Full lint and TypeScript checks pass. The local application suite passes 615
   tests; 259 PostgreSQL cases are skipped locally and must run in CI against the
   disposable database before merge.
 - The first sandboxed test run could not capture child-process output (EPERM).
@@ -64,7 +64,11 @@ state.
 | JP-3 | Resolver request bounds, fresh district rank, shared-caption/street-name negatives, raw-response preservation |
 | JP-4 | Existing persistence/manual safeguards unchanged; policy assertion updated; full PostgreSQL CI required |
 
-The Node 24 production build passes. The private offline replay selects a
-verified district only after the independent lookup; the exact generated query
-still requires live verification. Release and scoped recovery receipts remain
+A live query check also reproduced a provider transliteration failure: the
+provider's accented locality label returned a weak result, while the complete
+source-address spelling returned a full administrative match. Refinement now
+retains that source spelling (including its original accents/case); provider
+fields remain unchanged. The existing resolver regression covers both outcomes.
+The Node 24 production build passes, and the private offline replay selects a
+verified district only after the independent lookup. Release and scoped recovery receipts remain
 private; these checks do not imply deployment or corrected production data.
