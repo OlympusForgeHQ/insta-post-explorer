@@ -2,6 +2,7 @@ import { foldForSearch } from "@/lib/import/normalize";
 import { continentCodeForCountry } from "@/lib/places/continents";
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
+import {addressComponents,japaneseFloor,japaneseMunicipalityMatches} from '@/lib/places/administrative-context';
 
 // Deterministic resolution scoring (design section 6). A textual candidate and
 // its provider-verified resolution are combined into a bounded confidence and a
@@ -134,6 +135,7 @@ function countryAgreement(candidateValue: string | null, resolved: ResolvedPlace
 
 function cityAgreement(candidateValue: string | null, resolvedValue: string | null, countryCode: string | null = null) {
   if (candidateValue && resolvedValue) {
+    if(japaneseMunicipalityMatches(candidateValue,resolvedValue,countryCode))return {match:1,contradiction:false};
     // London is often source context for a POI whose provider locality is the
     // City of London or Greater London. This is directional and GB-only; it
     // does not make those areas interchangeable or verify a different POI.
@@ -171,10 +173,13 @@ function likelyHouseNumber(value: string): string | null {
   // Ignore postal codes and ordinal district names; a number must introduce
   // a street/address segment, rather than appear anywhere in formatted text.
   const cleaned = value.replace(/\b\d{1,3}(?:st|nd|rd|th|er|e|eme|ème)\b/gi, '');
+  // Preserve the complete compound identifier even for callers without country
+  // context (including deduplication). A suffix is not the same address.
+  const number='\\d{1,6}[a-z]?(?:[-/]\\d{1,6}[a-z]?)*';
   for (const [index, segment] of cleaned.split(',').entries()) {
-    const leading = segment.match(/^\s*(\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)?)\s+\p{L}/iu)?.[1];
+    const leading = segment.match(new RegExp(`^\\s*(${number})\\s+\\p{L}`,'iu'))?.[1];
     if (leading && !(index > 0 && /^\d{4,6}$/.test(leading))) return leading.toLowerCase();
-    const trailing = segment.match(/\p{L}\s+(\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)?)\s*$/iu)?.[1];
+    const trailing = segment.match(new RegExp(`\\p{L}\\s+(${number})\\s*$`,'iu'))?.[1];
     if (trailing) return trailing.toLowerCase();
   }
   return null;
@@ -207,7 +212,12 @@ export function addressAgreement(candidateValue: string | null, resolvedValue: s
 }
 
 function providerAddressAgreement(candidateValue: string | null, resolved: ResolvedPlaceCandidate): AddressAgreement {
-  const fallback = addressAgreement(candidateValue, resolved.address);
+  // Floors are checked independently by the decision layer. They may not
+  // become house numbers or hide a different block/building identifier.
+  const numberedAddress=(value:string|null)=>value===null?null:addressComponents(value,resolved.countryCode)
+    .filter(part=>japaneseFloor(part,resolved.countryCode)===null).join(', ');
+  if(resolved.countryCode==='JP')candidateValue=numberedAddress(candidateValue);
+  const fallback = addressAgreement(candidateValue,resolved.countryCode==='JP'?numberedAddress(resolved.address):resolved.address);
   if (!candidateValue || !resolved.street || !resolved.houseNumber) return fallback;
   // Some GB records place an explicit ground-floor qualifier in housenumber.
   // Compare it separately only when the source asserts that same floor. Keep
@@ -275,6 +285,7 @@ function round4(value: number): number {
 
 function explicitlyNamesCity(candidate: ScoringInput['candidate']): boolean {
   if (!['voyage', 'city'].includes(candidate.category) || candidate.address || !candidate.name || !candidate.city) return false;
+  if(normalizedEquals(candidate.name,candidate.city))return true;
   const name = foldForSearch(candidate.name)
     .replace(/^(?:ville de|village de|city of|village of)\s+/u, '')
     .replace(/\s+(?:ville|city|village)$/u, '');

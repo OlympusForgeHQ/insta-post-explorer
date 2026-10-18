@@ -1,6 +1,6 @@
 import {foldForSearch} from '@/lib/import/normalize';
 import type {PlaceCandidate} from '@/lib/places/candidates';
-import {administrativeRegionMatches, municipalityCityLabels} from '@/lib/places/administrative-context';
+import {addressComponents,administrativeRegionMatches,isJapaneseCountry,japaneseFloor,japaneseMunicipalityMatches,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
 import {distanceMeters} from '@/lib/places/distance';
 import {decidePlaceResolution, RESOLUTION_POLICY_VERSION} from '@/lib/places/resolution';
 import {scoreResolvedCandidate, type ContextualVenueArea, type ScoredResolution} from '@/lib/places/scoring';
@@ -18,7 +18,8 @@ const literalProof = (value:string,candidate:PlaceCandidate) => {
 function cityAliases(candidate:PlaceCandidate):readonly string[] {
   if(!candidate.city)return [];
   const mayBeChina=!candidate.country||['cn','china','chine','中国','中國'].includes(foldForSearch(candidate.country));
-  return [candidate.city,...(mayBeChina?municipalityCityLabels('CN',candidate.city):[])];
+  return [candidate.city,...(mayBeChina?municipalityCityLabels('CN',candidate.city):[]),
+    ...(isJapaneseCountry(candidate.country)?[japaneseMunicipalityName(candidate.city)]:[])];
 }
 
 // Keep only a whole source name or a fully evidenced bilingual component. A
@@ -57,17 +58,20 @@ export function canApproximateVenue(candidate:PlaceCandidate):boolean {
 
 const unitComponent=/^(?:unit|suite|flat|apartment|apt\.?)\s+(?:#\s*)?([0-9]+\s[a-z]|[a-z0-9]+(?:[-/][a-z0-9]+)*)$/iu;
 const floorComponent=/^(?:(?:ground|first|second|third|\d+(?:st|nd|rd|th)?)\s+floor|floor\s+\d+|level\s+\d+)$/iu;
-function addressParts(address:string|null) { return (address??'').split(/[,;]/u).map(value=>value.trim()).filter(Boolean); }
+function addressParts(address:string|null,countryCode:string|null=null) { return addressComponents(address,countryCode); }
 function units(address:string|null) {return addressParts(address).flatMap(part=>{
   const match=part.match(unitComponent);return match?[words(match[1])]:[];
 });}
 
-function conflictingInterior(source:string|null,provider:string|null):boolean {
+function conflictingInterior(source:string|null,provider:string|null,countryCode:string|null):boolean {
   const sourceUnits=units(source),providerUnits=units(provider);
   if(sourceUnits.length&&providerUnits.length&&sourceUnits.some(unit=>!providerUnits.includes(unit)))return true;
-  const floors=(address:string|null)=>addressParts(address).filter(part=>floorComponent.test(part)).map(part=>
-    words(part).replace(/\bground\b/u,'0').replace(/\bfirst\b/u,'1').replace(/\bsecond\b/u,'2').replace(/\bthird\b/u,'3')
-      .replace(/(\d+)(?:st|nd|rd|th)\b/u,'$1').replace(/\b(?:floor|level)\b/gu,'').trim());
+  const floors=(address:string|null)=>addressParts(address,countryCode).flatMap(part=>{
+    const japanese=japaneseFloor(part,countryCode);
+    if(japanese!==null)return [japanese];
+    return floorComponent.test(part)?[words(part).replace(/\bground\b/u,'0').replace(/\bfirst\b/u,'1').replace(/\bsecond\b/u,'2').replace(/\bthird\b/u,'3')
+      .replace(/(\d+)(?:st|nd|rd|th)\b/u,'$1').replace(/\b(?:floor|level)\b/gu,'').trim()]:[];
+  });
   const a=floors(source),b=floors(provider);
   return a.length>0&&b.length>0&&a.some(floor=>!b.includes(floor));
 }
@@ -85,13 +89,14 @@ function conflictingAdministrativeContext(candidate:PlaceCandidate,resolved:Reso
   const labels=[['state',resolved.region],['city',resolved.city],...Object.entries(resolved.administrativeLabels??{})];
   return regions.some(region=>{
     if(administrativeRegionMatches(region,resolved))return false;
-    const level=administrativeLevel(region);
+    const level=resolved.countryCode==='JP'&&japanesePrefectureName(region)?'state':administrativeLevel(region);
     return labels.some(([field,label])=>label&&(level?level===(administrativeLevel(label)??field):['state','district','county'].includes(field!)));
   });
 }
 
 export function approximateDistrict(candidate:PlaceCandidate):string|null {
-  const district=candidate.region&&!candidate.inferredFields?.includes('region')&&candidate.region!==candidate.city&&literalProof(candidate.region,candidate)
+  const district=candidate.region&&!(isJapaneseCountry(candidate.country)&&japanesePrefectureName(candidate.region))&&
+    !candidate.inferredFields?.includes('region')&&candidate.region!==candidate.city&&literalProof(candidate.region,candidate)
     ?candidate.region:addressParts(candidate.address).find(part=>['district','county'].includes(administrativeLevel(part)??''));
   return district&&literalProof(district,candidate)?district:null;
 }
@@ -100,10 +105,31 @@ export function approximateDistrict(candidate:PlaceCandidate):string|null {
 // neighbourhoods and unfamiliar components remain part of the verification.
 export function approximateAddress(candidate:PlaceCandidate):string|null {
   if(!candidate.address)return null;
-  const parts=addressParts(candidate.address).filter(part=>!unitComponent.test(part)&&!floorComponent.test(part))
+  const countryCode=isJapaneseCountry(candidate.country)?'JP':null;
+  const parts=addressParts(candidate.address,countryCode).filter(part=>!unitComponent.test(part)&&!floorComponent.test(part)&&japaneseFloor(part,countryCode)===null)
     .map(part=>part.replace(/^no\.?\s*(?=\d)/iu,''));
   if(!parts.length||!parts.some(part=>/\d/u.test(part)&&literalProof(part,candidate)))return null;
   return parts.join(', ');
+}
+
+// An administrative result may supply a retrieval hint even when the complete
+// address query was weak. It must name geography in this candidate's address;
+// other recommendations in a shared caption and POI names cannot contribute.
+export function addressDistrictHint(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate):string|null {
+  if(resolved.provider!=='geoapify'||!candidate.address||!candidate.city||
+    !['district','suburb','neighbourhood','quarter'].includes(resolved.providerResultType??'')||
+    conflictingAdministrativeContext(candidate,resolved))return null;
+  const comparison=scoreResolvedCandidate({candidate:{...candidate,name:null,address:null,region:null,category:'city'},resolved});
+  if(!comparison.reasons.includes('city_match')||comparison.reasons.some(reason=>reason.endsWith('_contradiction'))||
+    (candidate.country&&!comparison.reasons.includes('country_match')))return null;
+  const components=addressParts(approximateAddress(candidate)).map(part=>part.replace(/^\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)*\s+/iu,''));
+  const hint=[resolved.providerName,...(resolved.providerNameAliases??[])].find((name):name is string=>Boolean(name&&words(name).length>=3&&
+    ![candidate.city,candidate.region,candidate.country].some(geography=>geography&&(words(name!)===words(geography)||japaneseMunicipalityMatches(name!,geography,resolved.countryCode)))&&
+    ![candidate.name,groundedVenueName(candidate)].some(identity=>identity&&words(identity)===words(name!))&&
+    components.some(component=>words(component)===words(name!))&&literalProof(name!,candidate)));
+  // Matching may fold accents, but retrieval preserves the source spelling:
+  // a provider's transliteration can produce a different geocoding result.
+  return hint?components.find(component=>words(component)===words(hint))??null:null;
 }
 
 // The provider point must lie inside its own bounds. Angular latitude +
@@ -130,7 +156,9 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
   if(candidate.country&&!comparison.reasons.includes('country_match'))return null;
   // A translated Chinese municipality name cannot locate a foreign namesake
   // when the source omitted its country.
-  if(!independentCityProof(candidate.city!,candidate)&&!municipalityCityLabels(resolved.countryCode,candidate.city)
+  const japaneseCityProof=resolved.countryCode==='JP'&&isJapaneseCountry(candidate.country)&&
+    independentCityProof(japaneseMunicipalityName(candidate.city!),candidate);
+  if(!independentCityProof(candidate.city!,candidate)&&!japaneseCityProof&&!municipalityCityLabels(resolved.countryCode,candidate.city)
     .some(city=>independentCityProof(city,candidate)))return null;
   const reportedType=resolved.providerResultType??'';
   const sourceDistrict=approximateDistrict(candidate);
@@ -147,7 +175,7 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
   if(['building','house','housenumber'].includes(type)){
     // A named POI/occupant is never used as a proxy for the source business.
     if(resolved.providerName!=null||resolved.providerNameAliases?.length||resolved.category?.startsWith('public_transport')||
-      conflictingAdministrativeContext(candidate,resolved)||conflictingInterior(candidate.address,resolved.address))return null;
+      conflictingAdministrativeContext(candidate,resolved)||conflictingInterior(candidate.address,resolved.address,resolved.countryCode))return null;
     const address=approximateAddress(candidate);
     if(!address)return null;
     const sourceUnits=units(candidate.address),providerUnits=units(resolved.address);
@@ -155,7 +183,7 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
     if(decision.precision!=='EXACT'||!decision.reasons.includes('verified_street_address'))return null;
     level='building';radius=radius===null?100:Math.max(50,radius);
     if(sourceUnits.length&&!sourceUnits.every(unit=>providerUnits.includes(unit)))missingDetails.push('unit');
-    if(addressParts(candidate.address).some(part=>floorComponent.test(part)))missingDetails.push('floor');
+    if(addressParts(candidate.address,resolved.countryCode).some(part=>floorComponent.test(part)||japaneseFloor(part,resolved.countryCode)!==null))missingDetails.push('floor');
   }else if(type==='street'){
     // A numbered address may be represented by its source street envelope,
     // provided the complete street wording is independently corroborated.
@@ -167,7 +195,7 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
     level='street';radius=Math.max(100,radius);missingDetails.push('street_number');
   }else if(['district','suburb','neighbourhood','quarter'].includes(type)){
     const name=resolved.providerName??resolved.displayName.split(',')[0];
-    const district=approximateDistrict(candidate);
+    const district=approximateDistrict(candidate)??addressDistrictHint(candidate,resolved);
     // A shared caption can mention several neighbourhoods. Only the district
     // attached to this candidate may narrow its envelope.
     if(radius===null||resolved.providerRank!==1||!district||!literalProof(name,candidate)||
