@@ -1,5 +1,15 @@
 # Implementation Status
 
+## Argos Discord read integration — 19 October 2026
+
+The read-only integration slice is implemented and activated with the existing
+API and Argos bot, using a native skill and Python client instead of MCP. All 14
+read commands are available. Six HTTP/CLI tests, 615 runnable application tests,
+lint, typecheck and build pass; 259 DB-dependent tests were skipped. Production
+HTTP reads and the native Argos terminal path pass. Sensitive write operations
+and a real Discord conversation remain outside this verification. See
+[evidence](changes/2026-10-19-discord-api-access.md).
+
 ## Japanese source addresses in Places — 18 October 2026
 
 The resolution policy `provider-context-v7` separates Japanese floor qualifiers
