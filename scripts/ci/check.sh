@@ -12,6 +12,8 @@ while IFS= read -r script; do
     [ -z "$script" ] || bash -n "$script"
 done < <(git ls-files '*.sh')
 
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s services/api-client -p 'test_*.py'
+
 npm run lint
 npm run typecheck
 npm run worker:typecheck

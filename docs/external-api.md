@@ -118,7 +118,13 @@ authentication details.
 
 ## Hermes / MCP integration
 
-The MCP server (a later phase) is a separate client of this API. It calls
+Argos can use every existing read endpoint through the dependency-free
+[API client and Discord skill](../services/api-client/README.md). Its `catalog`
+command documents filters and bounded pagination. The existing Discord bot's
+terminal and native skills are sufficient; no MCP is needed for this integration.
+Installation does not activate an unconfigured server key.
+
+The MCP server (if needed by a different client) would be a separate client of this API. It calls
 `/api/v1` with the Bearer key and must never share the database or R2
 credentials. Expected tool mapping:
 
