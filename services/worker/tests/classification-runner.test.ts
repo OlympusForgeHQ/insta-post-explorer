@@ -28,12 +28,13 @@ describe('Independent classification job lifecycle',()=>{
   finally{await rm(state,{recursive:true,force:true});}
  });
  it.each(['success','review','busy','stale','stop','asr','decode','timeout'])('handles %s with owned lease and cleanup',async scenario=>{
-  const root=await mkdtemp(path.join(tmpdir(),'classification-test-'));const calls:Record<string,unknown>[]=[];const abort=new AbortController();
+  const root=await mkdtemp(path.join(tmpdir(),'classification-test-'));const calls:Record<string,unknown>[]=[];const logs:Record<string,unknown>[]=[];const abort=new AbortController();
   const api={call:async(c:Record<string,unknown>)=>{calls.push(c);if(c.action==='claim')return claim;if(c.action==='complete'&&scenario==='stale')throw Error('CLASSIFICATION_INPUT_STALE');return {ok:true};}};
-  try{const summary=await runClassificationOnce({api,workdirs:createTempWorkdirManager({root,maxAgeMs:3600000}),analyze:async(_prepared,dir)=>{await writeFile(path.join(dir,'private.txt'),'source');if(scenario==='busy')throw Error('INFERENCE_BUSY');if(scenario==='asr')throw Error('ASR_UNAVAILABLE');if(scenario==='decode')throw Error('MEDIA_DECODE_FAILED');if(scenario==='timeout')throw Error('WORKER_TIMEOUT');if(scenario==='stop'){abort.abort();throw Error('WORKER_STOPPING');}return scenario==='review'?{...result,status:'NEEDS_REVIEW',mainTheme:null,tags:[]}:result;}},abort.signal);
+  try{const summary=await runClassificationOnce({api,log:event=>logs.push(event),workdirs:createTempWorkdirManager({root,maxAgeMs:3600000}),analyze:async(_prepared,dir)=>{await writeFile(path.join(dir,'private.txt'),'source');if(scenario==='busy')throw Error('INFERENCE_BUSY');if(scenario==='asr')throw Error('ASR_UNAVAILABLE');if(scenario==='decode')throw Error('MEDIA_DECODE_FAILED');if(scenario==='timeout')throw Error('WORKER_TIMEOUT');if(scenario==='stop'){abort.abort();throw Error('WORKER_STOPPING');}return scenario==='review'?{...result,status:'NEEDS_REVIEW',mainTheme:null,tags:[]}:result;}},abort.signal);
    expect(summary.status).toBe(scenario==='success'?'SUCCEEDED':scenario==='review'?'NEEDS_REVIEW':scenario==='stale'?'CANCELLED':'FAILED');
    expect(calls.filter(c=>c.action==='complete')).toHaveLength(['success','review','stale'].includes(scenario)?1:0);
    if(['busy','stop','asr','decode','timeout'].includes(scenario))expect(calls.find(c=>c.action==='fail')?.code).toBe(scenario==='busy'?'INFERENCE_BUSY':scenario==='stop'?'WORKER_STOPPING':scenario==='timeout'?'WORKER_TIMEOUT':'MEDIA_UNAVAILABLE');
+   if(scenario==='asr'||scenario==='decode')expect(logs.find(event=>event.stage==='classification_failed')).toMatchObject({code:'MEDIA_UNAVAILABLE',reason:scenario==='asr'?'ASR_UNAVAILABLE':'MEDIA_DECODE_FAILED'});
    expect(await readdir(root)).toEqual([]);
   }finally{await rm(root,{recursive:true,force:true});}
  });

@@ -1,5 +1,36 @@
 # Operational Handoff
 
+## Transcription tails and empty Places fusion — 20 October 2026
+
+The shared transcriber discards only a terminal sequence wholly beyond decoded
+audio, retaining all valid speech and rejecting malformed or inconsistent timing.
+Classification logs now distinguish sanitized local-media causes while keeping the
+existing API failure contract. Places reviews an empty fusion once when earlier
+stages proposed candidates, and explicitly supports a verified geographic area for
+an unnamed recommended stay. No automatic union, new provider or schema change.
+
+See [scope, safeguards and evidence](changes/2026-10-20-worker-media-and-destinations.md).
+Deployment and the two-post recovery are recorded privately under
+`.tmp/places-review-20261020/`; this note does not imply they are complete.
+
+
+## Argos Discord access — 19 October 2026
+
+The existing external read API is activated for Argos with a dedicated private
+key; its digest alone is configured on the web runtime. Argos uses the standard-
+library client and native `insta-explorer` skill, with all 14 read commands and
+bounded pagination. No MCP, new bot, data/schema change or worker restart.
+
+Real HTTP authentication, reads, native skill discovery and Argos's terminal
+path passed. The same production image/revision and other containers were
+preserved, and original web deployment controls restored. No Discord message
+or model conversation was used as a test. See
+[scope, proof and limitations](changes/2026-10-19-discord-api-access.md).
+The implementation is tracked on `feat/discord-api-access`; Karim authorized
+publication and PR merge into `develop` on 19 October. Installed access is
+functional. Future write operations and the rest of historical phase J are
+not authorized or declared complete by this read integration.
+
 ## Japanese source addresses in Places — 18 October 2026
 
 The resolution policy `provider-context-v7` separates Japanese floor qualifiers
