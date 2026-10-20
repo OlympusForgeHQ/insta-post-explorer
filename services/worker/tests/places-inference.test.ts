@@ -1,11 +1,79 @@
 import { expect, it, vi } from 'vitest';
 import { HermesPlacesInference } from '../src/places/inference.js';
 import type { PreparedPost } from '../src/places/api.js';
+import { groundPlacesEvidence } from '../src/places/evidence.js';
 
 const prepared:PreparedPost={input:{post_id:'post',input_hash:'hash',caption:'Untrusted cafe caption'},media:[],categoryRules:'Use owner categories only',outputSchema:{type:'object',additionalProperties:false,required:['candidates'],properties:{candidates:{type:'array',items:{type:'object',additionalProperties:false,required:['name','category'],properties:{name:{type:'string'},category:{enum:['cafe']}}}}}}};
 const valid='{"candidates":[{"name":"Cafe","category":"cafe"}]}';
 const invalid='{"candidates":[{"name":"Cafe","category":"cafe","evidenceNote":"unexpected"}]}';
 const reply=(content:string,model='insta-places',finishReason='stop')=>Response.json({model,choices:[{message:{content},finish_reason:finishReason}],usage:{prompt_tokens:10,completion_tokens:5}});
+const empty='{"candidates":[]}';
+
+it.each([
+ {source:'caption',region:'Lapland',caption:'Located in Finnish Lapland, this unique hotel lets you watch the aurora from your bed.'},
+ {source:'ocr',region:null,caption:'Stay in this unique hotel in Finland and watch the aurora from your bed.'},
+])('rechecks empty fusion after a $source proposal and retains a source-grounded destination',async({source,region,caption})=>{
+ const candidate={name:null,address:null,city:null,region,country:'Finland',category:'voyage',categoryReason:'The source recommends a stay without identifying the hotel.',confidence:.8,evidence:[{type:'CAPTION',excerpt:caption}]};
+ const destinationPrepared:PreparedPost={...prepared,input:{...prepared.input,caption},outputSchema:{
+  type:'object',additionalProperties:false,required:['candidates'],properties:{candidates:{type:'array',items:{
+   type:'object',additionalProperties:false,required:Object.keys(candidate),properties:{
+    name:{type:['string','null']},address:{type:['string','null']},city:{type:['string','null']},region:{type:['string','null']},country:{type:['string','null']},
+    category:{enum:['voyage']},categoryReason:{type:'string'},confidence:{type:'number'},evidence:{type:'array',items:{type:'object',additionalProperties:false,required:['type','excerpt'],properties:{type:{enum:['CAPTION']},excerpt:{type:'string'}}}},
+   },
+  }}}},
+ };
+ const data={post:destinationPrepared.input,captionCandidates:source==='caption'?[candidate]:[],ocrCandidates:source==='ocr'?[[candidate]]:[],transcripts:[],mediaCoverage:[]};
+ const request=vi.fn<typeof fetch>().mockResolvedValueOnce(reply(empty)).mockResolvedValueOnce(reply(JSON.stringify({candidates:[candidate]})));
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(destinationPrepared,'fusion',data,[],new AbortController().signal,
+  candidates=>groundPlacesEvidence(candidates,caption,[]));
+ expect(result).toEqual({candidates:[candidate],usage:{inputTokens:20,outputTokens:10}});
+ expect(request).toHaveBeenCalledTimes(2);
+ const bodies=request.mock.calls.map(([,init])=>JSON.parse(init!.body as string));
+ expect(bodies[1].messages.slice(0,2)).toEqual(bodies[0].messages);
+ expect(bodies[1].messages).toHaveLength(3);
+ expect(request.mock.calls[1][1]!.signal).toBe(request.mock.calls[0][1]!.signal);
+});
+
+it.each(['incidental_landmark','comparison','author_only'] as const)('allows an empty reviewed result when the proposal is %s',async scenario=>{
+ const caption={incidental_landmark:'Bake this cake at home near the Eiffel Tower.',comparison:'This view looks like Lapland, but no location is given.',author_only:'Photo via @wildaboutlapland.'}[scenario];
+ const data={post:{...prepared.input,caption},captionCandidates:[{name:'Lapland',category:'voyage'}],ocrCandidates:[]};
+ const request=vi.fn<typeof fetch>(async()=>reply(empty));
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'fusion',data,[],new AbortController().signal);
+ expect(result).toEqual({candidates:[],usage:{inputTokens:20,outputTokens:10}});
+ expect(request).toHaveBeenCalledTimes(2);
+});
+
+it.each(['caption','ocr','fusion'] as const)('does not review an empty %s result without lost fusion proposals',async stage=>{
+ const data={captionCandidates:stage==='fusion'?[]:[{name:'Cafe',category:'cafe'}],ocrCandidates:[[]]};
+ const request=vi.fn<typeof fetch>(async()=>reply(empty));
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,stage,data,[],new AbortController().signal);
+ expect(result).toEqual({candidates:[],usage:{inputTokens:10,outputTokens:5}});
+ expect(request).toHaveBeenCalledOnce();
+});
+
+it.each(['schema','evidence','deadline'] as const)('keeps the original %s protection on an empty-fusion review',async scenario=>{
+ const runtime=retryRuntime();
+ const request=vi.fn<typeof fetch>(async()=>{
+  if(request.mock.calls.length===1){if(scenario==='deadline')runtime.advance(360_000);return reply(empty);}
+  return reply(scenario==='schema'?'{"candidates":[{"name":"Cafe","category":"cafe","latitude":1}]}':valid);
+ });
+ const validate=(candidates:Record<string,unknown>[])=>{
+  if(candidates.length)throw Error('PLACES_EVIDENCE_INVALID');
+  return candidates;
+ };
+ await expect(new HermesPlacesInference('http://hermes.test/v1','private',request,runtime).analyze(prepared,'fusion',
+  {captionCandidates:[{name:'Cafe',category:'cafe'}],ocrCandidates:[]},[],new AbortController().signal,validate))
+  .rejects.toThrow(scenario==='schema'?'INVALID_RESULT':scenario==='evidence'?'PLACES_EVIDENCE_INVALID':'INFERENCE_FAILED');
+ expect(request).toHaveBeenCalledTimes(scenario==='deadline'?1:2);
+});
+
+it('shares the existing follow-up allowance between format repair and empty-fusion review',async()=>{
+ const request=vi.fn<typeof fetch>().mockResolvedValueOnce(reply(invalid)).mockResolvedValueOnce(reply(empty));
+ const result=await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'fusion',
+  {captionCandidates:[{name:'Cafe',category:'cafe'}],ocrCandidates:[]},[],new AbortController().signal);
+ expect(result).toEqual({candidates:[],usage:{inputTokens:20,outputTokens:10}});
+ expect(request).toHaveBeenCalledTimes(2);
+});
 
 it('repairs semantically invalid evidence once from original sources without trusting the rejected response',async()=>{
  const request=vi.fn().mockResolvedValueOnce(reply(valid)).mockResolvedValueOnce(reply('{"candidates":[{"name":"Verified Cafe","category":"cafe"}]}'));

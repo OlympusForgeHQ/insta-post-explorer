@@ -50,7 +50,7 @@ class TranscriptionTimingTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.transcribe([segment(0, 1)], 1)
 
-    def transcribe(self, segments, duration):
+    def transcribe(self, segments, duration, diagnostics=None):
         model = Mock()
         # The pre-VAD timeline remains authoritative when silence is removed.
         model.transcribe.return_value = (iter(segments), SimpleNamespace(
@@ -59,6 +59,7 @@ class TranscriptionTimingTests(unittest.TestCase):
         with patch.dict(sys.modules, {'faster_whisper': SimpleNamespace(WhisperModel=Mock(return_value=model))}), \
              patch.object(sys, 'argv', ['transcribe.py', '--audio', '/local/audio.wav',
                                         '--cache', '/local/model-cache']), \
+             contextlib.redirect_stderr(diagnostics if diagnostics is not None else io.StringIO()), \
              contextlib.redirect_stdout(output):
             transcriber.main()
         return json.loads(output.getvalue())['segments']
@@ -71,6 +72,48 @@ class TranscriptionTimingTests(unittest.TestCase):
                 self.assertEqual(rows, [{'startMs': round(start * 1000),
                                          'endMs': round(duration * 1000),
                                          'text': 'Closing recommendation.'}])
+
+    def test_discards_only_terminal_out_of_audio_text_and_preserves_valid_speech(self):
+        duration = 46.6503125
+        for tail_start in [duration, 46.74]:
+            with self.subTest(tail_start=tail_start):
+                diagnostics = io.StringIO()
+                rows = self.transcribe([
+                    segment(0, 3.66, ' First words. '),
+                    segment(44.74, 46.74, 'Closing words.'),
+                    segment(tail_start, 48.74, 'Unanchored tail.'),
+                    segment(48.74, 50.74, 'Another unanchored tail.'),
+                ], duration, diagnostics)
+                self.assertEqual(rows, [
+                    {'startMs': 0, 'endMs': 3660, 'text': 'First words.'},
+                    {'startMs': 44740, 'endMs': 46650, 'text': 'Closing words.'},
+                ])
+                self.assertEqual(json.loads(diagnostics.getvalue()),
+                                 {'stage': 'asr_tail_discarded', 'discardedSegments': 2})
+
+    def test_rejects_corrupt_or_unanchored_tail_instead_of_hiding_it(self):
+        cases = [
+            [segment(0, 1), segment(10, 12), segment(2, 3)],
+            [segment(0, 1), segment(10, 12),
+             segment(2, 3, no_speech_prob=0.9, avg_logprob=-2)],
+            [segment(0, 1), segment(12, 11)],
+            [segment(0, 1), segment(10, float('inf'))],
+            [segment(0, 1, ' '), segment(10, 12)],
+            [segment(0, 1, no_speech_prob=0.9, avg_logprob=-2), segment(10, 12)],
+        ]
+        for rows in cases:
+            with self.subTest(rows=rows):
+                with self.assertRaisesRegex(ValueError, 'TRANSCRIPT_TIMING_INVALID'):
+                    self.transcribe(rows, 10)
+
+    def test_segment_limit_counts_suppressed_silence_and_discarded_tail(self):
+        for discarded in [
+            segment(10, 12),
+            segment(2, 3, no_speech_prob=0.9, avg_logprob=-2),
+        ]:
+            with self.subTest(discarded=discarded):
+                with self.assertRaisesRegex(ValueError, 'TRANSCRIPT_LIMIT'):
+                    self.transcribe([segment(0, 1)] + [discarded] * 2000, 10)
 
     def test_rejects_invalid_bounds_before_rounding_or_clipping(self):
         invalid = [(-0.0001, 1, 10), (2.0002, 2.0001, 10),

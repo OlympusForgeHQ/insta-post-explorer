@@ -54,21 +54,34 @@ def main():
     if not math.isfinite(duration) or duration <= 0:
         raise ValueError('TRANSCRIPT_DURATION_INVALID')
     result = []
-    for segment in segments:
+    discarded_tail = 0
+    for count, segment in enumerate(segments, start=1):
+        # Bound the generator even when silence or out-of-audio text is discarded.
+        if count > 2000:
+            raise ValueError('TRANSCRIPT_LIMIT')
+        if (not math.isfinite(segment.start) or not math.isfinite(segment.end)
+                or segment.start < 0 or segment.end < segment.start):
+            raise ValueError('TRANSCRIPT_TIMING_INVALID')
+        # Whisper can emit a terminal tail beyond the decoded audio. Discard it
+        # without moving unsupported text into the recording. An in-range return
+        # after that tail is inconsistent timing, not a recoverable overshoot.
+        if segment.start >= duration:
+            discarded_tail += 1
+            continue
+        if discarded_tail:
+            raise ValueError('TRANSCRIPT_TIMING_INVALID')
         # Whisper's no-speech and confidence filters suppress silent hallucinations.
         if segment.no_speech_prob > 0.6 and segment.avg_logprob < -1:
             continue
-        # Reject invalid timing before rounding; never move text from beyond the
-        # audio back inside it. Only an overlapping segment's end can be clipped.
-        if (not math.isfinite(segment.start) or not math.isfinite(segment.end)
-                or segment.start < 0 or segment.end < segment.start
-                or segment.start >= duration):
-            raise ValueError('TRANSCRIPT_TIMING_INVALID')
+        # Only an overlapping segment's end can be clipped.
         result.append({'startMs': round(segment.start * 1000),
                        'endMs': round(min(segment.end, duration) * 1000),
                        'text': segment.text.strip()})
-        if len(result) > 2000:
-            raise ValueError('TRANSCRIPT_LIMIT')
+    if discarded_tail:
+        if not any(row['text'] for row in result):
+            raise ValueError('TRANSCRIPT_TIMING_INVALID')
+        sys.stderr.write(json.dumps({'stage': 'asr_tail_discarded',
+                                     'discardedSegments': discarded_tail}) + '\n')
     print(json.dumps({'segments': result}, ensure_ascii=False))
 
 

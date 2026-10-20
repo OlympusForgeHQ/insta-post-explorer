@@ -1,5 +1,19 @@
 # Implementation Status
 
+## Transcription tails and empty Places fusion — 20 October 2026
+
+The shared transcriber discards only a terminal sequence wholly beyond decoded
+audio, retaining all valid speech and rejecting malformed or inconsistent timing.
+Classification logs now distinguish sanitized local-media causes while keeping the
+existing API failure contract. Places reviews an empty fusion once when earlier
+stages proposed candidates, and explicitly supports a verified geographic area for
+an unnamed recommended stay. No automatic union, new provider or schema change.
+
+See [scope, safeguards and evidence](changes/2026-10-20-worker-media-and-destinations.md).
+Deployment and the two-post recovery are recorded privately under
+`.tmp/places-review-20261020/`; this note does not imply they are complete.
+
+
 ## Argos Discord read integration — 19 October 2026
 
 The read-only integration slice is implemented and activated with the existing
