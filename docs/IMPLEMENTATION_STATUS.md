@@ -1,5 +1,17 @@
 # Implementation Status
 
+## Complementary place address research — 20 October 2026
+
+The optional server resolver now verifies independently researched addresses
+before retaining a broad geographic approximation. Policy v8 keeps web address
+proof separate from provider building identity and source post evidence. Durable
+request caps, bounded response/deadline handling and manual-history protections
+use existing services and tables. No dependency, migration or consumer change.
+
+See [acceptance criteria and verification](changes/2026-10-20-places-complementary-retrieval.md).
+Actual production enablement and the scoped recovery are recorded privately in
+`.tmp/places-complementary-20261020/`; this entry alone does not assert deployment.
+
 ## Transcription tails and empty Places fusion — 20 October 2026
 
 The shared transcriber discards only a terminal sequence wholly beyond decoded

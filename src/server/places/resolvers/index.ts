@@ -4,6 +4,9 @@ import { GeoapifyPlaceResolver } from "@/server/places/resolvers/geoapify";
 import {GooglePlacesSearch} from './google';
 import {FallbackPlaceResolver} from './fallback';
 import {reserveGoogleRequest} from './google-budget';
+import {ComplementaryPlaceResolver} from './complementary';
+import {OpenRouterPlaceAddressResearch} from './web-search';
+import {reserveWebSearchRequest} from './web-search-budget';
 import type { PlaceResolver } from "@/server/places/resolvers/types";
 
 // Configured resolver selection. Reads server-only environment variables and
@@ -58,8 +61,17 @@ export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:strin
     maxRetryDelayMs: parseBoundedInt(process.env.PLACES_RESOLVER_RETRY_MAX_MS, 8_000, 0, 60_000),
   });
   const googleKey = process.env.GOOGLE_PLACES_API_KEY?.trim();
-  return googleKey && context ? new FallbackPlaceResolver(geoapify,new GooglePlacesSearch({apiKey:googleKey,
+  const primary = googleKey && context ? new FallbackPlaceResolver(geoapify,new GooglePlacesSearch({apiKey:googleKey,
     reserveRequest:()=>reserveGoogleRequest(context.ownerId,context.postId)})) : geoapify;
+  const researchKey=process.env.OPENROUTER_API_KEY?.trim();
+  if(process.env.PLACES_WEB_SEARCH_ENABLED!=='1'||!context||!researchKey)return primary;
+  // A failed optional research path must stay bounded and leave the existing
+  // approximate fallback available. Only neutral postal geocoding is used here.
+  const addressGeocoder=new GeoapifyPlaceResolver({apiKey,baseUrl,timeoutMs:8000,maxAttempts:1,maxResults:5});
+  return new ComplementaryPlaceResolver(primary,addressGeocoder,new OpenRouterPlaceAddressResearch({
+    apiKey:researchKey,model:process.env.PLACES_WEB_SEARCH_MODEL?.trim()||'deepseek/deepseek-v4.1-flash',
+    reserveRequest:()=>reserveWebSearchRequest(context.ownerId,context.postId),
+  }));
 }
 
 export { GeoapifyPlaceResolver, GeoapifyResolverError } from "@/server/places/resolvers/geoapify";

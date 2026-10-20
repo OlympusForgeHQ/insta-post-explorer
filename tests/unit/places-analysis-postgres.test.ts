@@ -80,6 +80,13 @@ function anonymousBuilding(overrides: Partial<ResolvedPlaceCandidate> = {}): Res
     street: "Main Street", houseNumber: "10", providerPlaceId: "geo-anonymous-building", ...overrides});
 }
 
+function researchedBuilding(name: string): ResolvedPlaceCandidate {
+  return anonymousBuilding({webResearch:{name,streetAddress:'10 Main Street',city:'Dubai',country:'United Arab Emirates',postalCode:null,
+    sources:[{url:'https://bakery.example/locations',excerpt:`${name}, 10 Main Street, Dubai, United Arab Emirates`},
+      {url:'https://city.example/bakeries',excerpt:`${name}, 10 Main Street, Dubai, United Arab Emirates`}],
+    researchedAt:'2026-10-20T12:00:00.000Z'}});
+}
+
 function contextualArea(name: string, overrides: Partial<ResolvedPlaceCandidate> = {}): import('@/server/places/analysis').CandidatePlan {
   return {candidate: candidate({name}), best: {resolved: resolved({providerPlaceId: 'geo-dubai-area',
     displayName: 'Dubai', providerName: 'Dubai', providerResultType: 'city', address: null, ...overrides}),
@@ -157,6 +164,83 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
       providerDisplayName: "10 Main Street, Dubai, United Arab Emirates"}});
     expect(await prisma.placeEvidence.findFirstOrThrow({where: {placeId: place.id, evidenceType: "PROVIDER_MATCH"}}))
       .toMatchObject({normalizedValue: "geoapify:geo-anonymous-building", metadata: {reasons: expect.arrayContaining(["verified_street_address"])}});
+  });
+
+  it('persists web address proof separately, retains usage, and gives two occupants independent stable identities',async()=>{
+    await seedPost('web-address',OWNER_A,'Restaurant');
+    const source=candidate({name:'Maison Étoile',category:'patisserie'});
+    const provider=researchedBuilding(source.name!);
+    const before=structuredClone(source);
+    const plans=await analysis.planAll([source],'Restaurant',new FakeResolver({'Maison Étoile':[provider]}));
+    const job=await jobs.createMetadataAnalysisJob({ownerId:OWNER_A,postId:'web-address'});
+    await prisma.placeAnalysisJob.update({where:{id:job.id},data:{result:{googleUsage:{requests:1},webSearchUsage:{requests:1,limit:20}}}});
+    const write=()=>prisma.$transaction(tx=>analysis.persistMetadataAnalysis(tx,{ownerId:OWNER_A,postId:'web-address',jobId:job.id,plans}));
+    await write();
+    const first=await prisma.place.findFirstOrThrow({where:{ownerId:OWNER_A}});
+    expect(first).toMatchObject({displayName:'Maison Étoile',precision:'EXACT',provider:'geoapify',address:provider.address,
+      metadata:{sourceProviderPlaceId:'geo-anonymous-building',label:{source:'web_research_verified_address',
+        candidateName:'Maison Étoile',sourcePostId:'web-address',providerName:null,providerDisplayName:provider.displayName}}});
+    expect(first.providerPlaceId).not.toBe(provider.providerPlaceId);
+    expect(await prisma.placeEvidence.findFirstOrThrow({where:{placeId:first.id,evidenceType:'PROVIDER_MATCH'}}))
+      .toMatchObject({normalizedValue:'geoapify:geo-anonymous-building',metadata:{webResearch:provider.webResearch,
+        reasons:expect.arrayContaining(['verified_web_address'])}});
+    expect(await prisma.placeEvidence.findMany({where:{placeId:first.id,evidenceType:'CAPTION'},select:{excerpt:true}}))
+      .toEqual([{excerpt:source.evidence[0].excerpt}]);
+    expect((await prisma.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id}})).result)
+      .toMatchObject({googleUsage:{requests:1},webSearchUsage:{requests:1,limit:20},decisions:[{candidate:{address:null}}]});
+    await write();
+    expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(1);
+    expect(await prisma.placeEvidence.count({where:{analysisJobId:job.id}})).toBe(2);
+    expect(source).toEqual(before);
+    await seedPost('web-other-occupant',OWNER_A,'Restaurant');
+    await persistPlans('web-other-occupant',await analysis.planAll([candidate({name:'Other Bakery'})],'Restaurant',
+      new FakeResolver({'Other Bakery':[researchedBuilding('Other Bakery')]})));
+    const places=await prisma.place.findMany({where:{ownerId:OWNER_A},orderBy:{displayName:'asc'}});
+    expect(places.map(place=>place.displayName)).toEqual(['Maison Étoile','Other Bakery']);
+    expect(new Set(places.map(place=>place.providerPlaceId)).size).toBe(2);
+  });
+
+  it.each(['automatic','removed','rejected','renamed','confirmed'] as const)(
+    'preserves an existing source-address identity when researched evidence arrives: %s',async protection=>{
+      const name='Maison Étoile',postId=`legacy-web-${protection}`;
+      await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,commit:true,record:await businessRecord(postId,name),
+        resolver:new FakeResolver({[name]:[anonymousBuilding()]})});
+      const original=await prisma.place.findFirstOrThrow({where:{ownerId:OWNER_A}});
+      const link=await prisma.postPlace.findFirstOrThrow({where:{postId}});
+      if(protection==='removed')await prisma.postPlace.delete({where:{id:link.id}});
+      if(protection==='rejected')await prisma.place.update({where:{id:original.id},data:{reviewStatus:'REJECTED'}});
+      if(protection==='renamed')await prisma.place.update({where:{id:original.id},data:{displayName:'Owner correction'}});
+      if(protection==='confirmed')await prisma.place.update({where:{id:original.id},data:{isUserConfirmed:true,reviewStatus:'CONFIRMED'}});
+      const before=await prisma.place.findUniqueOrThrow({where:{id:original.id}});
+      for(let replay=0;replay<2;replay++)await persistPlans(postId,await analysis.planAll([candidate({name})],'Restaurant',
+        new FakeResolver({[name]:[researchedBuilding(name)]})));
+      expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(1);
+      expect(await prisma.postPlace.count({where:{postId}})).toBe(protection==='removed'?0:1);
+      if(protection!=='automatic')expect(await prisma.place.findUniqueOrThrow({where:{id:original.id}})).toEqual(before);
+    });
+
+  it('replaces only the matching automatic zone after independent web address verification',async()=>{
+    await seedPost('web-area-upgrade',OWNER_A,'Restaurant');
+    const first=contextualArea('Alpha Bakery'),other=contextualArea('Beta Cafe');
+    await persistPlans('web-area-upgrade',[first,other]);
+    const plans=await analysis.planAll([first.candidate],'Restaurant',new FakeResolver({'Alpha Bakery':[researchedBuilding('Alpha Bakery')]}));
+    await persistPlans('web-area-upgrade',plans,true);
+    const links=await prisma.postPlace.findMany({where:{postId:'web-area-upgrade'},include:{place:true}});
+    expect(links.map(link=>[link.place.displayName,link.precision]).sort()).toEqual([['Alpha Bakery','EXACT'],['Beta Cafe','APPROXIMATE']]);
+  });
+
+  it('does not bypass a confirmed source address when research returns a new geographic provider identity',async()=>{
+    const name='Maison Étoile',postId='confirmed-new-geo-id';
+    await analysis.analyzeCandidateBatchRecord({ownerId:OWNER_A,commit:true,record:await businessRecord(postId,name),
+      resolver:new FakeResolver({[name]:[anonymousBuilding()]})});
+    const original=await prisma.place.findFirstOrThrow({where:{ownerId:OWNER_A}});
+    await prisma.place.update({where:{id:original.id},data:{isUserConfirmed:true,reviewStatus:'CONFIRMED'}});
+    const before=await prisma.place.findUniqueOrThrow({where:{id:original.id}});
+    const result={...researchedBuilding(name),providerPlaceId:'new-building-entry'};
+    await persistPlans(postId,await analysis.planAll([candidate({name})],'Restaurant',new FakeResolver({[name]:[result]})));
+    expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(1);
+    expect(await prisma.postPlace.count({where:{postId}})).toBe(1);
+    expect(await prisma.place.findUniqueOrThrow({where:{id:original.id}})).toEqual(before);
   });
 
   it.each(["automatic", "confirmed", "legacy_category_review", "preserveExisting"])("refuses a different occupant before canonical early returns (%s)", async (protection) => {
