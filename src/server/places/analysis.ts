@@ -280,10 +280,11 @@ export async function persistMetadataAnalysis(
   // Capture source identities before rebuilding this job's evidence. Otherwise
   // a removed or renamed exact place would disappear from the fallback guard.
   const persistencePlans = plans.flatMap(plan => plan.branches ?? [plan]);
-  const history = await loadPostPlaceHistory(tx, ownerId, postId, persistencePlans.some(plan => plan.best?.scored.contextualArea),
+  const history = await loadPostPlaceHistory(tx, ownerId, postId, persistencePlans.some(plan => plan.best?.scored.contextualArea || plan.best?.resolved.webResearch),
     persistencePlans.flatMap(plan => plan.best ? [plan.best.resolved.city] : []));
   const areaNames = plans.flatMap(plan => (plan.branches ?? [plan]).flatMap(branch =>
-    branch.best?.scored.contextualArea?.sourceName ? [branch.best.scored.contextualArea.sourceName] : []));
+    branch.best?.scored.contextualArea?.sourceName ? [branch.best.scored.contextualArea.sourceName]
+      : branch.best?.resolved.webResearch && branch.candidate.name ? [branch.candidate.name] : []));
   // A conflicting rename must keep its original source identity across every
   // replay. New refused evidence is unlinked, so this retained set cannot grow.
   const retainedIdentityIds = history.places.filter(place => areaNames.some(name =>
@@ -369,7 +370,7 @@ export async function persistMetadataAnalysis(
   const status: AnalyzeRecordStatus =
     resolvedCount < plans.length ? "NEEDS_REVIEW" : "SUCCEEDED";
   const prior=await tx.placeAnalysisJob.findUniqueOrThrow({where:{id:jobId},select:{result:true}});
-  const usage=prior.result&&typeof prior.result==='object'&&!Array.isArray(prior.result)?prior.result.googleUsage:undefined;
+  const priorResult=prior.result&&typeof prior.result==='object'&&!Array.isArray(prior.result)?prior.result:null;
 
   await tx.placeAnalysisJob.update({
     where: { id: jobId },
@@ -380,7 +381,8 @@ export async function persistMetadataAnalysis(
       errorCode: null,
       errorMessage: null,
       result: {
-        ...(usage?{googleUsage:usage}:{}),
+        ...(priorResult?.googleUsage!==undefined?{googleUsage:priorResult.googleUsage}:{}),
+        ...(priorResult?.webSearchUsage!==undefined?{webSearchUsage:priorResult.webSearchUsage}:{}),
         placesPersisted: persistedPlaceIds.size,
         linksPersisted: persistedLinks.length,
         evidencePersisted,
@@ -408,7 +410,19 @@ export async function persistMetadataAnalysis(
 
 // A verified address can locate a source-named business without the provider
 // claiming to know its occupant. Keep that distinction in the label provenance.
-function sourceBusinessLabel(candidate: PlaceCandidate, resolved: ResolvedPlaceCandidate, scored: ScoredResolution, postId: string) {
+type SourceBusinessLabel = {
+  source: 'source_candidate_verified_address' | 'web_research_verified_address';
+  candidateName: string;
+  sourcePostId: string;
+  providerName: string | null;
+  providerDisplayName: string;
+};
+
+function sourceBusinessLabel(candidate: PlaceCandidate, resolved: ResolvedPlaceCandidate, scored: ScoredResolution, postId: string): SourceBusinessLabel | null {
+  if (candidate.name?.trim() && resolved.webResearch && scored.precision==='EXACT' && scored.reasons.includes('verified_web_address')) {
+    return {source:'web_research_verified_address',candidateName:candidate.name.trim(),sourcePostId:postId,
+      providerName:resolved.providerName??null,providerDisplayName:resolved.displayName};
+  }
   if (resolved.providerName !== null || !['building', 'house', 'housenumber'].includes(resolved.providerResultType ?? '') ||
     scored.precision !== 'EXACT' || !scored.reasons.includes('verified_street_address') ||
     !['restaurant', 'cafe', 'patisserie', 'lodging'].includes(candidate.category) || !candidate.name?.trim()) return null;
@@ -422,14 +436,15 @@ function sameSourceBusiness(left: string, right: string): boolean {
   return entityNamesAgree(left, right) || entityNamesAgree(right, left);
 }
 
-function readSourceBusinessLabel(metadata: Prisma.JsonValue) {
+function readSourceBusinessLabel(metadata: Prisma.JsonValue): SourceBusinessLabel | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
   const label = metadata.label;
-  if (!label || typeof label !== 'object' || Array.isArray(label) || label.source !== 'source_candidate_verified_address' ||
+  if (!label || typeof label !== 'object' || Array.isArray(label) ||
+    (label.source !== 'source_candidate_verified_address' && label.source !== 'web_research_verified_address') ||
     typeof label.candidateName !== 'string' || !label.candidateName.trim() || typeof label.sourcePostId !== 'string' ||
-    label.providerName !== null || typeof label.providerDisplayName !== 'string') return null;
-  return { source: 'source_candidate_verified_address' as const, candidateName: label.candidateName,
-    sourcePostId: label.sourcePostId, providerName: null, providerDisplayName: label.providerDisplayName };
+    (label.providerName !== null && typeof label.providerName !== 'string') || typeof label.providerDisplayName !== 'string') return null;
+  return { source: label.source, candidateName: label.candidateName,
+    sourcePostId: label.sourcePostId, providerName: label.providerName, providerDisplayName: label.providerDisplayName };
 }
 
 type SourceAreaLabel = {
@@ -517,9 +532,11 @@ async function upsertCanonicalPlace(
 ) {
   const precision = scored.precision as "EXACT" | "PROBABLE" | "APPROXIMATE";
   const areaLabel = sourceAreaLabel(candidate, resolved, scored, postId);
+  const proposedLabel = sourceBusinessLabel(candidate, resolved, scored, postId);
+  const researchedIdentity = proposedLabel?.source==='web_research_verified_address';
   if (history.exhausted) return null;
   if (scored.reasons.includes('contextual_venue_area') && !areaLabel) return null;
-  if (areaLabel || history.places.some(place => readSourceAreaLabel(place.metadata))) {
+  if (areaLabel || researchedIdentity || history.places.some(place => readSourceAreaLabel(place.metadata))) {
     const sourceName = areaLabel?.candidateName ?? candidate.name;
     const identities = sourceName ? history.places.filter(place => {
       const label = readSourceAreaLabel(place.metadata), verified = readSourceBusinessLabel(place.metadata);
@@ -532,6 +549,12 @@ async function upsertCanonicalPlace(
     if (identities.some(place => place.reviewStatus === 'REJECTED' || !sameSourceBusiness(place.displayName, sourceName!))) return null;
     const precise = identities.filter(place => ['EXACT', 'PROBABLE'].includes(place.precision) && place.postLinks.length);
     if (areaLabel && precise.length) return precise.length === 1 ? precise[0] : null;
+    if (researchedIdentity && precise.length) {
+      const sameSite=precise.filter(place=>distanceMeters(place,resolved)<=100&&addressAgreement(place.address,resolved.address).match);
+      if (sameSite.length===1) return sameSite[0];
+      if (sameSite.length>1 || precise.some(place=>place.isUserConfirmed || place.reviewStatus==='CONFIRMED' ||
+        place.evidence.some(evidence=>evidence.evidenceType==='USER_CORRECTION'))) return null;
+    }
     if (!precise.length && identities.some(place => !place.postLinks.length && history.removedPlaceIds.has(place.id))) return null;
     if (!areaLabel && identities.some(place => readSourceAreaLabel(place.metadata) &&
       (place.isUserConfirmed || place.reviewStatus === 'CONFIRMED' || place.evidence.some(evidence => evidence.evidenceType === 'USER_CORRECTION')))) return null;
@@ -541,6 +564,9 @@ async function upsertCanonicalPlace(
   const providerPlaceId =
     areaLabel ? `contextual-venue:${postId}:${areaLabel.candidateKey}` : precision === "APPROXIMATE"
       ? `${resolved.providerPlaceId}:post:${postId}`
+      : researchedIdentity ? `web-venue:${createHash('sha256').update(JSON.stringify([
+        resolved.providerPlaceId,foldForSearch(proposedLabel.candidateName).replace(/[^\p{L}\p{N}]/gu,''),
+      ])).digest('hex')}`
       : resolved.providerPlaceId;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`place-identity:${ownerId}:${foldForSearch(resolved.city??'')}`},0))::text`;
   // Read the current certainty after any concurrent writer has committed.
@@ -572,7 +598,6 @@ async function upsertCanonicalPlace(
   }
 
   // scored.precision is never UNKNOWN here (UNKNOWN plans have best === null).
-  const proposedLabel = sourceBusinessLabel(candidate, resolved, scored, postId);
   const existingLabel = existing ? readSourceBusinessLabel(existing.metadata) : null;
   // A manual rename can leave older automatic provenance behind. Neither name
   // may authorize reuse until that identity conflict is explicitly reconciled.
@@ -622,7 +647,10 @@ async function upsertCanonicalPlace(
     // physical site; never merge nearby branches or a business with a city.
     if(precision!=='APPROXIMATE'&&resolved.address&&resolved.city&&resolved.countryCode){
       const alternatives=await tx.place.findMany({where:{ownerId,
-        city:{equals:resolved.city,mode:'insensitive'},countryCode:resolved.countryCode,provider:{not:resolved.provider},
+        city:{equals:resolved.city,mode:'insensitive'},countryCode:resolved.countryCode,
+        ...(sourceLabel ? {OR:[{provider:{not:resolved.provider}},
+          {provider:resolved.provider,OR:[{providerPlaceId:resolved.providerPlaceId},
+            {metadata:{path:['sourceProviderPlaceId'],equals:resolved.providerPlaceId}}]}]} : {provider:{not:resolved.provider}}),
         latitude:{gte:resolved.latitude-.002,lte:resolved.latitude+.002},
         precision:{in:['EXACT','PROBABLE']}},take:201});
       const nearby=alternatives.filter(place=>{
@@ -858,7 +886,9 @@ async function insertProviderEvidence(
         providerSource:resolved.providerSource??null,providerRank:resolved.providerRank,
         providerNameAliases:resolved.providerNameAliases??[],
         providerBounds:resolved.providerBounds??null,providerLocalityBoundary:resolved.providerLocalityBoundary??null,
-        street:resolved.street??null,houseNumber:resolved.houseNumber??null,localityNames:resolved.localityNames??[],
+        street:resolved.street??null,houseNumber:resolved.houseNumber??null,postalCode:resolved.postalCode??null,localityNames:resolved.localityNames??[],
+        ...(resolved.webResearch && scored.reasons.includes('verified_web_address') ? {webResearch:resolved.webResearch,
+          providerName:resolved.providerName??null,providerDisplayName:resolved.displayName} : {}),
         reasons: scored.reasons } satisfies Prisma.InputJsonValue,
     },
   });

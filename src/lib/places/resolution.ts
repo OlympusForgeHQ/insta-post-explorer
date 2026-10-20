@@ -1,8 +1,8 @@
-import { scoreResolvedCandidate, type ScoringInput, type ScoredResolution } from '@/lib/places/scoring';
+import { entityNamesAgree, scoreResolvedCandidate, type ScoringInput, type ScoredResolution } from '@/lib/places/scoring';
 import {foldForSearch} from '@/lib/import/normalize';
 import {addressComponents,administrativeRegionMatches,japaneseFloor} from '@/lib/places/administrative-context';
 
-export const RESOLUTION_POLICY_VERSION = 'provider-context-v7';
+export const RESOLUTION_POLICY_VERSION = 'provider-context-v8';
 export const PLACE_CONTEXT_RULES = `Infer missing country, city or region from the combined post context and geographic knowledge when the identity is coherent. These fields need not appear literally in the post. Mark deduced fields in inferredFields and retain the original source excerpts unchanged. Do not override explicit contradictory context or invent a branch address. Split distinct branch addresses into separate candidates. A chain account alone does not identify a branch. Never output coordinates or provider IDs. Before declaring a venue name unknown, review visible branding/signage and ordinary-sounding phrases in speech that could be a business name. Treat such a phrase only as a tentative identity when independent source context corroborates that role; generic praise alone never establishes branding. Keep verbatim evidence and let the geographic provider verify identity.
 For locationScope, inspect the FULL caption, all OCR, audio, Instagram location and other supplied context at fusion. CITY is only for a generic recommendation of a named business in an explicitly named city with no address, neighborhood, street, station, landmark, branch qualifier or other narrower discriminator anywhere in the recommendation. The owner wants every independently verified shop in that city for this generic case. A chain account alone, missing address or inferred city does not prove CITY. Record SPECIFIC if any narrower context exists, even when address is null; otherwise UNKNOWN. Bind evidenceIndex to existing literal evidence. Retain narrower context in evidence; never shorten it away to obtain CITY. The generic CITY path requires a CAPTION proof covering the complete literal caption, with the city mentioned separately from the business/account name. A city embedded only in an account or hashtag never proves city scope. Extra caption wording or narrower Instagram location remains conservative. Do not invent branches or enumerate addresses: the server verifies actual branches. Preserve existing explicit multiple-location recommendations.`;
 
@@ -32,6 +32,64 @@ function addressUnitsCorroborated(source:string|null,provider:string|null,countr
 // The legacy comparison layer provides normalized agreements and conflicts.
 // Its weighted confidence is diagnostic only: acceptance follows identity rules.
 export function decidePlaceResolution(input: ScoringInput): ScoredResolution {
+  if (input.resolved.webResearch) return decideResearchedAddress(input);
+  return decideSourceResolution(input);
+}
+
+function researchedStreetSpelling(value:string|null|undefined,countryCode:string|null):string|null|undefined {
+  if(!value||countryCode!=='US')return value;
+  const ordinals:Record<string,string>={first:'1st',second:'2nd',third:'3rd',fourth:'4th',fifth:'5th',
+    sixth:'6th',seventh:'7th',eighth:'8th',ninth:'9th',tenth:'10th'};
+  return value.replace(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)(?=\s+(?:avenue|ave|street|st|road|rd|boulevard|blvd)\b)/giu,
+    word=>ordinals[word.toLowerCase()]);
+}
+
+function decideResearchedAddress(input: ScoringInput): ScoredResolution {
+  // Compare equivalent street spellings only in a transient copy. Raw provider
+  // addresses, web excerpts and Instagram evidence remain unchanged.
+  const spell=(value:string|null|undefined)=>researchedStreetSpelling(value,input.resolved.countryCode);
+  const candidate={...input.candidate,address:spell(input.candidate.address)??null};
+  const resolved={...input.resolved,address:spell(input.resolved.address)??null,street:spell(input.resolved.street)};
+  const research=resolved.webResearch!;
+  const original=scoreResolvedCandidate({candidate,resolved});
+  const reject=(reason:string):ScoredResolution=>({precision:'UNKNOWN',confidence:0,approximationRadiusMeters:null,
+    reasons:[...original.reasons,reason,RESOLUTION_POLICY_VERSION]});
+  // Research is a separate server-validated source. It can supply a missing
+  // address, but cannot replace the post's identity or contradictory geography.
+  if (resolved.provider!=='geoapify' || !candidate.name ||
+    !(entityNamesAgree(candidate.name,research.name)||entityNamesAgree(research.name,candidate.name)) ||
+    !research.streetAddress.trim() || !research.city.trim() || !research.country.trim() || research.sources.length<2) {
+    return reject('web_identity_unverified');
+  }
+  if (original.reasons.some(reason=>reason.endsWith('_contradiction')) ||
+    (candidate.city&&!original.reasons.includes('city_match')) ||
+    (candidate.country&&!original.reasons.includes('country_match')) ||
+    (candidate.address&&!original.reasons.includes('address_match')) ||
+    (candidate.region&&!candidate.inferredFields?.includes('region')&&!administrativeRegionMatches(candidate.region,resolved)) ||
+    !addressUnitsCorroborated(candidate.address,resolved.address,resolved.countryCode)) return reject('web_source_context_conflict');
+  if (!['building','house','housenumber','amenity','poi','tourism','leisure'].includes(resolved.providerResultType??'')) {
+    return reject('web_address_building_unverified');
+  }
+  if (resolved.providerName===undefined || resolved.providerStreetConfidence===0 || resolved.providerBuildingConfidence===0 ||
+    (resolved.providerName!==null && ![resolved.providerName,...(resolved.providerNameAliases??[])].some(name=>
+      entityNamesAgree(research.name,name)||entityNamesAgree(name,research.name)))) return reject('web_provider_identity_unverified');
+  const postcode=(value:string)=>foldForSearch(value).replace(/[\s-]/gu,'');
+  if (research.postalCode && (!resolved.postalCode || postcode(research.postalCode)!==postcode(resolved.postalCode))) {
+    return reject('web_postcode_unverified');
+  }
+  // This internal comparison never changes candidate evidence or persists a
+  // researched address as though it were supplied by the original post.
+  const checked=decideSourceResolution({candidate:{...candidate,address:spell(research.streetAddress)!,
+    city:research.city,country:research.country},resolved});
+  if (checked.precision!=='EXACT' || !checked.reasons.includes('verified_street_address') ||
+    !checked.reasons.includes('city_match') || !checked.reasons.includes('country_match')) {
+    return {...checked,precision:'UNKNOWN',confidence:0,approximationRadiusMeters:null,
+      reasons:[...checked.reasons,'web_address_building_unverified']};
+  }
+  return {...checked,reasons:checked.reasons.map(reason=>reason==='verified_street_address'?'verified_web_address':reason)};
+}
+
+function decideSourceResolution(input: ScoringInput): ScoredResolution {
   const comparison = scoreResolvedCandidate(input);
   const reasons = comparison.reasons.filter(reason => ![
     'below_probable_threshold', 'below_approximate_threshold', 'exact_specific_match',

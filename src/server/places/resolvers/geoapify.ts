@@ -365,14 +365,47 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
 
   private async fetchOnce(url: string): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        void reader?.cancel().catch(() => {});
+        reject(new GeoapifyResolverError("GEOAPIFY_TIMEOUT"));
+      }, this.timeoutMs);
+    });
     try {
-      return await this.fetchImpl(url, { signal: controller.signal, headers: { accept: "application/json" } });
+      return await Promise.race([timeout, (async () => {
+        const response = await this.fetchImpl(url, { signal: controller.signal, headers: { accept: "application/json" } });
+        if (controller.signal.aborted || !response.ok) {
+          void response.body?.cancel().catch(() => {});
+          if (controller.signal.aborted) throw new GeoapifyResolverError("GEOAPIFY_TIMEOUT");
+          return response;
+        }
+        if (!response.body) return response;
+        reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+          const part = await reader.read();
+          if (controller.signal.aborted) throw new GeoapifyResolverError("GEOAPIFY_TIMEOUT");
+          if (part.done) break;
+          chunks.push(part.value);
+        }
+        // Callers parse an in-memory body only after the whole network response
+        // arrived within the attempt deadline, including all body chunks.
+        return new Response(Buffer.concat(chunks), {
+          status: response.status, statusText: response.statusText, headers: response.headers,
+        });
+      })()]);
     } catch (error) {
-      if (isAbortError(error)) throw new GeoapifyResolverError("GEOAPIFY_TIMEOUT");
+      if (controller.signal.aborted || isAbortError(error)) throw new GeoapifyResolverError("GEOAPIFY_TIMEOUT");
       throw new GeoapifyResolverError("GEOAPIFY_UNAVAILABLE");
     } finally {
       clearTimeout(timer);
+      if (reader) {
+        void reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
     }
   }
 
@@ -431,6 +464,7 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'ge
       .slice(0,128).flatMap(([,value])=>(value as string).split(';').map(name=>name.trim()).filter(Boolean)),
     street: result.street ?? null,
     houseNumber: result.housenumber ?? null,
+    ...(result.postcode ? {postalCode: result.postcode} : {}),
     localityNames: [...new Set([result.city,...postalLocalities,...municipalityCityLabels(result.country_code??null,result.state??null)].filter((value):value is string=>Boolean(value)))],
     administrativeLabels: Object.fromEntries((['city','state','county','district','suburb','municipality'] as const)
       .flatMap(key=>result[key]?[ [key,result[key]] ]:[])),
