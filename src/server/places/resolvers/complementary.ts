@@ -1,6 +1,7 @@
 import 'server-only';
 import {decidePlaceResolution} from '@/lib/places/resolution';
 import {distanceMeters} from '@/lib/places/distance';
+import {foldForSearch} from '@/lib/import/normalize';
 import type {PlaceAddressResearch, PlaceResolutionInput, PlaceResolver} from './types';
 
 export class ComplementaryPlaceResolver implements PlaceResolver {
@@ -26,11 +27,36 @@ export class ComplementaryPlaceResolver implements PlaceResolver {
       for (const webResearch of addresses) {
         // Address lookup is independent from the original source and from any
         // Google response. The original candidate remains immutable.
-        const matches = await this.geocoder.resolve({...input, candidate: {...candidate, name: null,
+        const query = {...input, proximity: undefined, candidate: {...candidate, name: null,
           address: [webResearch.streetAddress, webResearch.postalCode].filter(Boolean).join(', '),
-          city: webResearch.city, country: webResearch.country}});
-        const accepted = matches.map(match => ({...match, webResearch})).filter(specific)
-          .filter(match=>!sites.length||sites.some(site=>distanceMeters(site,match)<=500));
+          region: candidate.inferredFields?.includes('region') && candidate.region &&
+            foldForSearch(candidate.region)===foldForSearch(webResearch.city) ? null : candidate.region,
+          city: webResearch.city, country: webResearch.country}};
+        const matches = await this.geocoder.resolve(query);
+        const qualified = matches.map(match => ({...match, webResearch})).filter(specific);
+        const nearHint = (match: (typeof qualified)[number]) =>
+          !sites.length || sites.some(site => distanceMeters(site, match) <= 100);
+        let accepted = qualified.filter(nearHint);
+        if (sites.length && !accepted.length) {
+          // One neutral refinement may use only a structured district returned
+          // for an independently verified building, never Google text/points or
+          // a label guessed from the source, provider name or formatted address.
+          // The broader retrieval fence selects context only; accepting the
+          // independently geocoded result still requires the 100 m bound above.
+          const anchor = qualified
+            .filter(match => ['building','house','housenumber'].includes(match.providerResultType ?? ''))
+            .map(match => ({match, distance: Math.min(...sites.map(site => distanceMeters(site, match)))}))
+            .filter(item => item.distance <= 500)
+            .sort((a, b) => a.distance - b.distance ||
+              a.match.providerPlaceId.localeCompare(b.match.providerPlaceId))[0]?.match;
+          const district = (anchor?.administrativeLabels?.suburb || anchor?.administrativeLabels?.district)?.trim();
+          if (district && district.length <= 200 && ![webResearch.city, webResearch.country,
+            ...query.candidate.address.split(',')].some(value => foldForSearch(value.trim()) === foldForSearch(district))) {
+            const refined = await this.geocoder.resolve({...query, candidate: {...query.candidate,
+              address: [webResearch.streetAddress, district, webResearch.postalCode].filter(Boolean).join(', ')}});
+            accepted = refined.map(match => ({...match, webResearch})).filter(specific).filter(nearHint);
+          }
+        }
         // A postal homonym or provider ambiguity must not pick a random site.
         if (!accepted.length || accepted.some((a, index) =>
           accepted.slice(index + 1).some(b => distanceMeters(a, b) > 100))) return initial;
@@ -39,9 +65,9 @@ export class ComplementaryPlaceResolver implements PlaceResolver {
             item.webResearch?.name === match.webResearch.name)) verified.push(match);
         }
       }
-      // Independent geocoding can differ by a building/entrance offset, but
-      // cannot silently resolve another borough or omit a known distinct site.
-      if (sites.some(site => !verified.some(match => match.webResearch && distanceMeters(site, match) <= 500))) return initial;
+      // Every known site still requires independent corroboration within the
+      // existing 100 m bound, including after a neutral district refinement.
+      if (sites.some(site => !verified.some(match => match.webResearch && distanceMeters(site, match) <= 100))) return initial;
       return verified;
     } catch (error) {
       const message = error instanceof Error ? error.message : '';

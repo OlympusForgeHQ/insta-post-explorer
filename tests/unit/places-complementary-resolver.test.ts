@@ -21,14 +21,15 @@ const building: ResolvedPlaceCandidate = {provider: 'geoapify', providerPlaceId:
   providerStreetConfidence: 1, providerBuildingConfidence: 1, category: null, attribution: 'Powered by Geoapify'};
 
 it('retrieves a supported address independently without rewriting the source or inventing a provider business', async () => {
-  const original = structuredClone(input);
+  const source={...input,candidate:{...input.candidate,region:'New York',inferredFields:['region' as const]}};
+  const original = structuredClone(source);
   const geocoded: PlaceResolutionInput[] = [];
   const resolver = new ComplementaryPlaceResolver({resolve: async () => []},
     {resolve: async query => {geocoded.push(query); return [building];}}, {search: async () => [research]});
-  expect(await resolver.resolve(input)).toEqual([{...building, webResearch: research}]);
+  expect(await resolver.resolve(source)).toEqual([{...building, webResearch: research}]);
   expect(geocoded).toHaveLength(1);
-  expect(geocoded[0].candidate).toMatchObject({name: null, address: '12 Example Street, 10005'});
-  expect(input).toEqual(original);
+  expect(geocoded[0].candidate).toMatchObject({name: null, address: '12 Example Street, 10005',region:null});
+  expect(source).toEqual(original);
 });
 
 it('does not research an already verified venue or an unnamed destination', async () => {
@@ -78,7 +79,58 @@ it('uses location-only hints to disambiguate geocoded street homonyms without bo
   const other={...building,providerPlaceId:'different-borough',latitude:40.78,postalCode:'11221'};
   const resolver=new ComplementaryPlaceResolver({
     resolve:async()=>[],
-    resolveWithHints:async()=>({results:[],hints:[{latitude:building.latitude+.001,longitude:building.longitude}]}),
+    resolveWithHints:async()=>({results:[],hints:[{latitude:building.latitude+.0005,longitude:building.longitude}]}),
   },{resolve:async()=>[other,building]},{search:async()=>[withoutPostcode]});
   expect(await resolver.resolve(input)).toEqual([{...building,webResearch:withoutPostcode}]);
+});
+
+it('refines the nearest verified building within 500 m instead of an earlier distant borough result',async()=>{
+  const hint={latitude:building.latitude+.00175,longitude:building.longitude};
+  const withoutPostcode={...research,postalCode:null};
+  const distant={...building,providerPlaceId:'distant-building',latitude:building.latitude+.065,
+    postalCode:'11221',administrativeLabels:{suburb:'Brooklyn'}};
+  const first={...building,postalCode:'10006',address:'12 Example Street, New York, NY 10006, United States',
+    administrativeLabels:{suburb:'Manhattan'}};
+  const refined={...building,providerPlaceId:'refined-building',latitude:building.latitude+.0013};
+  const before=structuredClone({input,research:withoutPostcode,distant,first,refined});
+  const queries:PlaceResolutionInput[]=[];
+  const resolver=new ComplementaryPlaceResolver({
+    resolve:async()=>[],resolveWithHints:async()=>({results:[],hints:[hint]}),
+  },{resolve:async query=>{
+    queries.push(query);
+    return queries.length===1?[distant,first]:
+      query.candidate.address?.includes('Manhattan')?[first,refined]:[distant];
+  }},{search:async()=>[withoutPostcode]});
+  expect(await resolver.resolve(input)).toEqual([{...refined,webResearch:withoutPostcode}]);
+  expect(queries.map(query=>query.candidate.address)).toEqual(['12 Example Street','12 Example Street, Manhattan']);
+  expect(queries.every(query=>query.candidate.name===null&&!query.proximity)).toBe(true);
+  expect({input,research:withoutPostcode,distant,first,refined}).toEqual(before);
+});
+
+it.each(['still_distant','unverified_context','no_structured_district','outside_refinement_fence'] as const)(
+  'keeps fallback instead of relaxing 100 m corroboration when refinement cannot establish a site: %s',async scenario=>{
+    const hint={latitude:building.latitude+.00175,longitude:building.longitude};
+    const first={...building,administrativeLabels:scenario==='no_structured_district'?{}:{district:'Manhattan'},
+      ...(scenario==='unverified_context'?{city:'Newark'}:{}),
+      ...(scenario==='outside_refinement_fence'?{latitude:building.latitude+.065}:{})};
+    const queries:PlaceResolutionInput[]=[];
+    const resolver=new ComplementaryPlaceResolver({
+      resolve:async()=>[],resolveWithHints:async()=>({results:[],hints:[hint]}),
+    },{resolve:async query=>{queries.push(query);return [first];}},{search:async()=>[research]});
+    expect(await resolver.resolve(input)).toEqual([]);
+    expect(queries).toHaveLength(scenario==='still_distant'?2:1);
+  });
+
+it('requires each known site to have an independently verified address within 100 m',async()=>{
+  const secondResearch={...research,streetAddress:'14 Example Street'};
+  const nearbySecond={...building,providerPlaceId:'nearby-second',street:'Example Street',houseNumber:'14',
+    address:'14 Example Street, New York, NY 10005, United States',latitude:building.latitude+.0001};
+  const resolver=new ComplementaryPlaceResolver({
+    resolve:async()=>[],resolveWithHints:async()=>({results:[],hints:[
+      {latitude:building.latitude,longitude:building.longitude},
+      {latitude:building.latitude+.0025,longitude:building.longitude},
+    ]}),
+  },{resolve:async query=>[query.candidate.address?.startsWith('14 ')?nearbySecond:building]},
+  {search:async()=>[research,secondResearch]});
+  expect(await resolver.resolve(input)).toEqual([]);
 });

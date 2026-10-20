@@ -73,12 +73,19 @@ Each address needs two independent domains and at least one literal city/postcod
 anchor across their evidence. Explicit conflicting geography cannot be erased by
 an omitted model field. Supported snippets retain their original wording.
 
-The existing Google-to-POI corroboration remains 100 m. Independent postal
-geocoding after web verification uses Google location hints only as a 500 m
-retrieval fence, allowing an entrance/building offset and rejecting distant street
-homonyms. It never copies Google's coordinates into a Geoapify result. Multiple
-remaining sites still require the established city-branch rule or an explicit
-owner-authorized operator decision; no generic CITY scope is invented.
+The existing 100 m location corroboration remains mandatory when Google hints
+are available. An independently geocoded address outside that distance can trigger
+one neutral refinement using its provider-returned suburb/district, bounded to
+8 seconds with no retry. The refinement anchor must lie within a 500 m retrieval
+fence of a known hint; distant borough homonyms cannot supply its district.
+A nearby but uncorroborated building is never promoted
+by increasing the acceptance distance. No Google coordinate is copied into a
+Geoapify result. Multiple remaining sites still require the established city-branch
+rule or an explicit owner-authorized operator decision; no generic CITY scope is
+invented.
+The neutral query omits an inferred region identical to its city, avoiding an
+ambiguous duplicate locality. Explicit regions and original source fields remain
+unchanged.
 
 Rollback disables complementary research and restores the previous web release.
 Existing worker services and daily synchronization need no restart or schedule
@@ -96,14 +103,15 @@ change. Scoped data changes require an audited receipt and protected snapshot.
 | R6 | `geoapify-resolver.test.ts`: stalled body cancellation and bounded retries |
 
 Fresh verification on 20 October: lint, TypeScript and production build passed.
-All 957 application tests in 105 files passed with the migrated disposable
-PostgreSQL database and two test processes. An initial unrestricted parallel run
-hit three existing database-test deadlines; no test or deadline was changed.
+All 963 application tests in 105 files passed with the migrated disposable
+PostgreSQL database and two test processes. Test deadlines were not increased.
 The 39 focused web-client tests passed, as did independent replay of seven
 geographic contradiction cases. Independent review accepted the final diff.
 
 Two real research responses were replayed through the final validator without
-additional API requests and corroborated both documented locations. Source
+additional research requests and corroborated both documented locations. A live
+check through the final resolver independently geocoded both sites and satisfied
+the 100 m corroboration requirement. Source
 content and venue-specific data remain private. Publication, runtime activation
 and the scoped data recovery are separate steps; receipts under
 `.tmp/places-complementary-20261020/` determine their actual state.

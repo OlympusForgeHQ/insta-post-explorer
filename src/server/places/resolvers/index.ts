@@ -67,7 +67,7 @@ export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:strin
   if(process.env.PLACES_WEB_SEARCH_ENABLED!=='1'||!context||!researchKey)return primary;
   // A failed optional research path must stay bounded and leave the existing
   // approximate fallback available. Only neutral postal geocoding is used here.
-  const addressGeocoder=new GeoapifyPlaceResolver({apiKey,baseUrl,timeoutMs:4000,maxAttempts:1,maxResults:5});
+  const addressGeocoder=new GeoapifyPlaceResolver({apiKey,baseUrl,timeoutMs:8000,maxAttempts:1,maxResults:5});
   return new ComplementaryPlaceResolver(primary,addressGeocoder,new OpenRouterPlaceAddressResearch({
     apiKey:researchKey,model:process.env.PLACES_WEB_SEARCH_MODEL?.trim()||'deepseek/deepseek-v4.1-flash',
     reserveRequest:()=>reserveWebSearchRequest(context.ownerId,context.postId),

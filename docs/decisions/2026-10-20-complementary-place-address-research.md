@@ -19,6 +19,9 @@ Send only public business and geographic fields. Require literal address evidenc
 from two distinct source domains, retain the evidence, and independently geocode
 the supported address with Geoapify. Google continues supplying only transient
 ID/location hints; its business text does not become map data.
+Known hints must corroborate independently retrieved coordinates within 100 m.
+One bounded address refinement may add a suburb/district returned by Geoapify;
+it cannot relax the distance requirement or rewrite source evidence.
 
 Limit research to two requests per analysis job, five search results per request,
 a bounded response and deadline, and a durable owner/month request cap (100 by
