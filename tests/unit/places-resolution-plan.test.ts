@@ -2,8 +2,77 @@
 import {describe,expect,it,vi} from 'vitest';
 vi.mock('server-only',()=>({}));
 import {planAll} from '@/server/places/analysis';
+import {decidePlaceResolution} from '@/lib/places/resolution';
 import type {PlaceCandidate} from '@/lib/places/candidates';
 import type {ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
+
+describe('independently researched business addresses',()=>{
+  const candidate:PlaceCandidate={name:'Example Bakery',address:null,city:'Paris',region:null,country:'France',
+    category:'patisserie',confidence:.6,evidence:[{type:'CAPTION',excerpt:'Example Bakery in Paris'}]};
+  const building:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'geo-building',displayName:'12 Example Road, Paris, France',providerName:null,
+    address:'12 Example Road, Paris, France',street:'Example Road',houseNumber:'12',postalCode:'75001',city:'Paris',region:null,country:'France',countryCode:'FR',
+    latitude:48.85,longitude:2.35,providerResultType:'building',providerRank:1,providerMatchType:'full_match',category:'building',attribution:null,
+    webResearch:{name:'Example Bakery',streetAddress:'12 Example Road',city:'Paris',country:'France',postalCode:'75001',
+      sources:[{url:'https://bakery.example/locations',excerpt:'Example Bakery, 12 Example Road, Paris 75001, France'},
+        {url:'https://city.example/bakeries',excerpt:'Example Bakery, 12 Example Road, Paris 75001, France'}],researchedAt:'2026-10-20T12:00:00.000Z'}};
+
+  it('verifies the independently supported building without rewriting Instagram evidence or provider identity',async()=>{
+    const original=structuredClone(candidate),provider=structuredClone(building);
+    const [plan]=await planAll([candidate],'Restaurant',{resolve:async()=>[building]});
+    expect(plan.best?.scored).toMatchObject({precision:'EXACT',reasons:expect.arrayContaining(['verified_web_address'])});
+    expect(plan.best?.scored.reasons).not.toContain('verified_street_address');
+    expect(plan.candidate).toEqual(original);
+    expect(candidate).toEqual(original);expect(plan.best?.resolved).toEqual(provider);expect(building).toEqual(provider);
+  });
+
+  it.each(['research_name','research_city','research_country','postcode','missing_postcode','provider_city','provider_country',
+    'street','number','occupant','source_address','source_region','unsupported_type','zero_confidence','unverified_unit'] as const)(
+    'rejects contradictory or unsupported researched addresses: %s',scenario=>{
+      const source={...candidate,...(scenario==='source_address'?{address:'14 Other Road'}:{}),
+        ...(scenario==='source_region'?{region:'Bretagne'}:{})};
+      const researched={...building,webResearch:{...building.webResearch!,
+        ...(scenario==='research_name'?{name:'Different Bakery'}:{}),...(scenario==='research_city'?{city:'Lyon'}:{}),
+        ...(scenario==='research_country'?{country:'Germany'}:{}),...(scenario==='unverified_unit'?{streetAddress:'12 Example Road, Unit C'}:{})},
+        ...(scenario==='postcode'?{postalCode:'69001'}:{}),...(scenario==='missing_postcode'?{postalCode:null}:{}),
+        ...(scenario==='provider_city'?{city:'Lyon'}:{}),...(scenario==='provider_country'?{country:'Germany',countryCode:'DE'}:{}),
+        ...(scenario==='street'?{street:'Other Road',address:'12 Other Road, Paris, France'}:{}),
+        ...(scenario==='number'?{houseNumber:'14',address:'14 Example Road, Paris, France'}:{}),
+        ...(scenario==='occupant'?{providerName:'Other Tenant'}:{}),...(scenario==='unsupported_type'?{providerResultType:'street'}:{}),
+        ...(scenario==='zero_confidence'?{providerRank:0}:{})};
+      expect(decidePlaceResolution({candidate:source,resolved:researched}).precision).toBe('UNKNOWN');
+    });
+
+  it('keeps researched branches ambiguous when the original source cannot choose a site',async()=>{
+    const other={...building,providerPlaceId:'geo-other-building',houseNumber:'14',address:'14 Example Road, Paris, France',
+      latitude:48.88,webResearch:{...building.webResearch!,streetAddress:'14 Example Road'}};
+    const [plan]=await planAll([candidate],'Restaurant',{resolve:async()=>[building,other]});
+    expect(plan.best).toBeNull();expect(plan.reasons).toContain('ambiguous_branches');expect(plan.branches).toBeUndefined();
+  });
+
+  it('compares written and numeric US street ordinals without changing the researched address',()=>{
+    const source={...candidate,city:'New York',country:'United States'};
+    for(const [web,geo] of [['Second Avenue','2nd Avenue'],['2nd Avenue','Second Avenue']]){
+      const resolved={...building,country:'United States',countryCode:'US',city:'New York',street:geo,houseNumber:'1414',
+        address:`1414 ${geo}, New York, NY 10021`,postalCode:'10021',webResearch:{...building.webResearch!,
+          streetAddress:`1414 ${web}`,city:'New York',country:'United States',postalCode:'10021'}};
+      const original=structuredClone(resolved);
+      expect(decidePlaceResolution({candidate:source,resolved}).precision).toBe('EXACT');
+      expect(decidePlaceResolution({candidate:source,resolved:{...resolved,street:'Third Avenue',
+        address:'1414 Third Avenue, New York, NY 10021'}}).precision).toBe('UNKNOWN');
+      expect(resolved).toEqual(original);
+    }
+  });
+
+  it.each(['handle_occupant','unverified_provider_name','zero_building_confidence','zero_street_confidence'] as const)(
+    'does not let an address mask missing provider verification: %s',scenario=>{
+      const source={...candidate,...(scenario==='handle_occupant'?{name:'@examplebakery'}:{})};
+      const result={...building,...(scenario==='handle_occupant'?{providerName:'Different Tenant'}:{}),
+        ...(scenario==='unverified_provider_name'?{providerName:undefined,displayName:'Different Tenant, 12 Example Road, Paris'}:{}),
+        ...(scenario==='zero_building_confidence'?{providerBuildingConfidence:0}:{}),
+        ...(scenario==='zero_street_confidence'?{providerStreetConfidence:0}:{})};
+      expect(decidePlaceResolution({candidate:source,resolved:result}).precision).toBe('UNKNOWN');
+    });
+});
 
 describe('geographic identity selection',()=>{
   const municipalCandidate:PlaceCandidate={name:'Example Bakery',city:'Shanghai',region:'Jing’An',country:'China',address:'12 Example Road',
@@ -151,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v7'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v8'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};

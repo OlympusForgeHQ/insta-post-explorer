@@ -284,6 +284,27 @@ describe("GeoapifyPlaceResolver", () => {
     });
   });
 
+  it('keeps the request deadline active through a stalled body, cancels it and bounds retries',async()=>{
+    vi.useFakeTimers();
+    try{
+      for(const recover of [true,false]){
+        const cancel=vi.fn();
+        const fetchMock=vi.fn<typeof fetch>(async()=>{
+          if(recover&&fetchMock.mock.calls.length===2)return jsonResponse(validGeoapifyBody());
+          return new Response(new ReadableStream({cancel}));
+        });
+        let outcome='pending';
+        const result=resolver(fetchMock).resolve(resolutionInput())
+          .then(()=>{outcome='resolved';},error=>{outcome=error.code;});
+        await vi.advanceTimersByTimeAsync(100);
+        expect(outcome).toBe(recover?'resolved':'GEOAPIFY_TIMEOUT');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(cancel).toHaveBeenCalledTimes(recover?1:2);
+        await result;
+      }
+    }finally{vi.useRealTimers();}
+  });
+
   it("never includes the API key or caption in thrown errors", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: "forbidden" }, 403));
     try {

@@ -12,7 +12,24 @@ export type PlaceResolutionInput = {
   sourceContext?:CityBranchSourceContext;
   // Transient retrieval bias; never persisted or substituted as result coordinates.
   proximity?: {latitude:number;longitude:number};
+  // Distinct retrieval hints require corroboration of all sites before a
+  // complementary search can imply that only one branch exists.
+  minimumSites?: number;
 };
+
+export type ResearchedPlaceAddress = {
+  name: string;
+  streetAddress: string;
+  city: string;
+  country: string;
+  postalCode: string | null;
+  sources: {url: string; excerpt: string; title?: string}[];
+  researchedAt: string;
+};
+
+export interface PlaceAddressResearch {
+  search(input: PlaceResolutionInput): Promise<ResearchedPlaceAddress[]>;
+}
 
 export type ResolvedPlaceCandidate = {
   provider: "geoapify" | "google";
@@ -24,6 +41,10 @@ export type ResolvedPlaceCandidate = {
   providerNameAliases?: string[];
   street?: string | null;
   houseNumber?: string | null;
+  postalCode?: string | null;
+  // Public-web address evidence is separate from the original post and from
+  // the geographic provider's building identity. Never populated from Google.
+  webResearch?: ResearchedPlaceAddress;
   // Locality labels explicitly present in the provider address, not nearby areas.
   localityNames?: string[];
   // Preserve structured hierarchy without replacing canonical city/region or
@@ -50,6 +71,11 @@ export type ResolvedPlaceCandidate = {
 
 export interface PlaceResolver {
   resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]>;
+  // Request-local hints are never canonical coordinates or stored evidence.
+  resolveWithHints?(input: PlaceResolutionInput): Promise<{
+    results: ResolvedPlaceCandidate[];
+    hints: {latitude: number; longitude: number}[];
+  }>;
   // Used only after precise retrieval fails. Returns raw geographic anchors,
   // never renamed businesses or coordinates inferred by the model.
   resolveApproximate?(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]>;

@@ -9,12 +9,22 @@ export class FallbackPlaceResolver implements PlaceResolver {
     return this.primary.resolveApproximate?.(input)??[];
   }
   async resolve(input:PlaceResolutionInput){
+    return (await this.resolveWithHints(input)).results;
+  }
+  async resolveWithHints(input:PlaceResolutionInput){
     const results=await this.primary.resolve(input);
-    if(results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))return results;
+    if(results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))return {results,hints:[]};
     // Google only narrows retrieval geographically. Every returned field and
     // coordinate must be independently retrieved from the primary provider and
     // corroborated against the unchanged source candidate, never Google text.
-    const hints=await this.secondary.searchHints(input);
+    let hints:Awaited<ReturnType<GoogleHintSource['searchHints']>>;
+    try {hints=await this.secondary.searchHints(input);}
+    catch(error) {
+      const message=error instanceof Error?error.message:'';
+      const code=/^GOOGLE_[A-Z0-9_]{1,64}$/u.test(message)?message:'GOOGLE_HINTS_UNAVAILABLE';
+      console.warn(JSON.stringify({stage:'places_google_hints',code}));
+      return {results,hints:[]};
+    }
     const verified=[...results];
     for(const hint of hints){
       const nearby=await this.primary.resolve({...input,proximity:{latitude:hint.latitude,longitude:hint.longitude}});
@@ -27,6 +37,6 @@ export class FallbackPlaceResolver implements PlaceResolver {
         }
       }
     }
-    return verified;
+    return {results:verified,hints:hints.map(({latitude,longitude})=>({latitude,longitude}))};
   }
 }

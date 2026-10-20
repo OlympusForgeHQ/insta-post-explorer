@@ -1,5 +1,20 @@
 # Operational Handoff
 
+## Complementary place address research — 20 October 2026
+
+Policy `provider-context-v8` adds bounded OpenRouter/Exa research when precise
+retrieval cannot verify a named business. Two independent web sources establish
+the address; Geoapify independently verifies the building, postal code and
+geographic context. Sources and automatic labels retain distinct provenance.
+Manual decisions and original Instagram evidence remain authoritative.
+
+Enable with `PLACES_WEB_SEARCH_ENABLED=1` and server-only `OPENROUTER_API_KEY`.
+The default model is `deepseek/deepseek-v4.1-flash`; the monthly request cap is
+100 and each job can reserve at most two requests. Existing sync/consumer services
+need no restart. See [scope and verification](changes/2026-10-20-places-complementary-retrieval.md);
+private release/recovery receipts under `.tmp/places-complementary-20261020/`
+determine the actual rollout state.
+
 ## Transcription tails and empty Places fusion — 20 October 2026
 
 The shared transcriber discards only a terminal sequence wholly beyond decoded
