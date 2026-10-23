@@ -6,7 +6,7 @@ import { foldForSearch } from "@/lib/import/normalize";
 import { distanceMeters } from "@/lib/places/distance";
 import {decidePlaceResolution} from '@/lib/places/resolution';
 import {entityNamesAgree} from '@/lib/places/scoring';
-import {isJapaneseCountry,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
+import {administrativeRegionMatches,isJapaneseCountry,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels,tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
@@ -85,6 +85,7 @@ const geoapifyResultSchema = z
     municipality: z.string().nullish(),
     country: z.string().nullish(),
     country_code: z.string().nullish(),
+    iso3166_2: z.string().max(32).nullish(),
     lat: z.number(),
     lon: z.number(),
     result_type: z.string().nullish(),
@@ -173,19 +174,13 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
 
   async resolve(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]> {
     const results=await this.resolveGeocoding(input);
+    await this.refineJapaneseWard(input,results);
     if(input.candidate.name&&!input.candidate.name.startsWith('@')&&!results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN')){
       // Structured name fields can resolve only the city or reject a translated
       // name. Bounded free-form retrieval preserves the full source context.
       for(const language of ['en','fr']){
         const text=[...new Set([input.candidate.name,input.candidate.address,input.candidate.city,input.candidate.region,input.candidate.country].filter(Boolean))].join(', ');
-        const params=new URLSearchParams({text,lang:language,format:'json',limit:String(this.maxResults),apiKey:this.apiKey});
-        if(input.proximity)params.set('bias',`proximity:${input.proximity.longitude},${input.proximity.latitude}`);
-        const response=await this.fetchWithRetry(`${this.baseUrl}/v1/geocode/search?${params}`);
-        let payload:unknown;
-        try{payload=await response.json();}catch{throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');}
-        const parsed=geoapifyResponseSchema.safeParse(payload);
-        if(!parsed.success)throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');
-        for(const row of parsed.data.results.slice(0,this.maxResults))this.mergePoi(results,normalizeResult(row),input);
+        for(const match of await this.searchText(text,language,input.proximity))this.mergePoi(results,match,input);
         if(results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))break;
       }
     }
@@ -203,8 +198,14 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
         for(const branch of branches){
           // Membership comes from the provider's verified city boundary filter,
           // not from the query text or a global borough/city alias.
-          branch.providerLocalityBoundary={placeId:cities[0].providerPlaceId,name:input.candidate.city};
-          branch.localityNames=[...new Set([...(branch.localityNames??[]),input.candidate.city])];
+          // Geoapify's Tokyo boundary spans the whole prefecture, including Tama
+          // and the islands. Its membership alone does not prove the urban city.
+          const tokyo=isJapaneseCountry(input.candidate.country)&&japanesePrefectureName(input.candidate.city)==='tokyo';
+          if(!tokyo||(branch.countryCode==='JP'&&(foldForSearch(branch.city??'')==='tokyo'||
+            tokyoSpecialWardParentLabels(branch.countryCode,branch.region,branch.city,branch.subdivisionCode).length>0))){
+            branch.providerLocalityBoundary={placeId:cities[0].providerPlaceId,name:input.candidate.city};
+            branch.localityNames=[...new Set([...(branch.localityNames??[]),input.candidate.city])];
+          }
           this.mergePoi(results,branch,input);
         }
       }
@@ -231,6 +232,44 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     }
     }
     return results;
+  }
+
+  private async refineJapaneseWard(input:PlaceResolutionInput,results:ResolvedPlaceCandidate[]):Promise<void> {
+    const {candidate}=input;
+    if(candidate.category!=='voyage'||candidate.address||!candidate.name||!candidate.city||
+      !isJapaneseCountry(candidate.country)||japanesePrefectureName(candidate.city)!=='tokyo'||
+      results.some(resolved=>decidePlaceResolution({candidate,resolved}).precision!=='UNKNOWN'))return;
+    const hints=results.filter(result=>{
+      if(!result.providerName||!entityNamesAgree(candidate.name!,result.providerName)||result.providerRank!==0||
+        result.providerMatchType!=='full_match'||!['amenity','poi','tourism','leisure'].includes(result.providerResultType??'')||
+        !tokyoSpecialWardParentLabels(result.countryCode,result.region,result.city,result.subdivisionCode).length)return false;
+      const {reasons}=decidePlaceResolution({candidate,resolved:result});
+      return ['name_match','city_match','country_match'].every(reason=>reasons.includes(reason))&&
+        !reasons.some(reason=>reason.endsWith('_contradiction'))&&
+        (!candidate.region||candidate.inferredFields?.includes('region')||administrativeRegionMatches(candidate.region,result));
+    });
+    const wardKey=(name:string)=>foldForSearch(japaneseMunicipalityName(name));
+    if(!hints.length||new Set(hints.map(hint=>wardKey(hint.city!))).size!==1)return;
+    const ward=hints[0].city!;
+    const accept=(fresh:ResolvedPlaceCandidate[])=>{
+      for(const match of fresh){
+        if((match.providerRank??0)<=0||!match.city||wardKey(match.city)!==wardKey(ward)||
+          !tokyoSpecialWardParentLabels(match.countryCode,match.region,match.city,match.subdivisionCode).length||
+          !hints.some(hint=>hint.providerPlaceId===match.providerPlaceId&&distanceMeters(hint,match)<=200)||
+          decidePlaceResolution({candidate,resolved:match}).precision==='UNKNOWN')continue;
+        // Retain the original zero-confidence observation alongside the fresh
+        // provider result. Source evidence and provider coordinates are untouched.
+        results.push(match);
+      }
+      return results.some(resolved=>decidePlaceResolution({candidate,resolved}).precision!=='UNKNOWN');
+    };
+    // The ward is a provider-verified retrieval hint, not new source evidence.
+    // Two lookups at most, with the existing bounded transport retries: original
+    // name, then one existing native-name alias.
+    if(accept(await this.search({...candidate,city:ward,region:null},input.proximity)))return;
+    const alias=hints.flatMap(hint=>hint.providerNameAliases??[]).find(name=>
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(name)&&foldForSearch(name)!==foldForSearch(candidate.name!));
+    if(alias)accept(await this.searchText([alias,ward,candidate.country].join(', '),'en',input.proximity));
   }
 
   async resolveApproximate(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {
@@ -317,6 +356,17 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     }
 
     return parsed.data.results.slice(0, this.maxResults).map((result) => normalizeResult(result));
+  }
+
+  private async searchText(text:string,language:string,proximity?:PlaceResolutionInput['proximity']):Promise<ResolvedPlaceCandidate[]> {
+    const params=new URLSearchParams({text,lang:language,format:'json',limit:String(this.maxResults),apiKey:this.apiKey});
+    if(proximity)params.set('bias',`proximity:${proximity.longitude},${proximity.latitude}`);
+    const response=await this.fetchWithRetry(`${this.baseUrl}/v1/geocode/search?${params}`);
+    let payload:unknown;
+    try{payload=await response.json();}catch{throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');}
+    const parsed=geoapifyResponseSchema.safeParse(payload);
+    if(!parsed.success)throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');
+    return parsed.data.results.slice(0,this.maxResults).map(row=>normalizeResult(row));
   }
 
   // Retry transient failures — request timeouts, network errors, and the
@@ -447,12 +497,16 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
 }
 
 function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'geocoding'|'places'='geocoding'): ResolvedPlaceCandidate {
+  const tokyoParentLabels=tokyoSpecialWardParentLabels(result.country_code??null,result.state??null,result.city??null,result.iso3166_2??null);
+  const structuredTokyo=foldForSearch(result.city??'')==='tokyo'||tokyoParentLabels.length>0;
   // The formatted postal locality may differ from the administrative city.
   // Keep only separate address components after the street; never turn a street
   // called Hackney Road or an unrelated district into a city alias.
   const postalLocalities=result.street&&result.address_line2
     ?result.address_line2.split(',').slice(1).map(value=>result.postcode?value.replace(result.postcode,'').trim():value.trim())
       .filter(value=>value&& !/\d/u.test(value)&&![result.country,result.state].some(other=>other&&foldForSearch(other)===foldForSearch(value)))
+      .filter(value=>!(result.country_code?.trim().toUpperCase()==='JP'||isJapaneseCountry(result.country??null))||
+        japanesePrefectureName(value)!=='tokyo'||structuredTokyo)
     :[];
   return {
     provider: "geoapify",
@@ -465,13 +519,15 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'ge
     street: result.street ?? null,
     houseNumber: result.housenumber ?? null,
     ...(result.postcode ? {postalCode: result.postcode} : {}),
-    localityNames: [...new Set([result.city,...postalLocalities,...municipalityCityLabels(result.country_code??null,result.state??null)].filter((value):value is string=>Boolean(value)))],
+    localityNames: [...new Set([result.city,...postalLocalities,...municipalityCityLabels(result.country_code??null,result.state??null),
+      ...tokyoParentLabels].filter((value):value is string=>Boolean(value)))],
     administrativeLabels: Object.fromEntries((['city','state','county','district','suburb','municipality'] as const)
       .flatMap(key=>result[key]?[ [key,result[key]] ]:[])),
     category: result.category ?? result.categories?.slice().sort((a,b)=>b.length-a.length)[0] ?? null,
     address: result.formatted ?? null,
     city: result.city ?? null,
     region: result.state ?? null,
+    ...(result.iso3166_2 ? {subdivisionCode: result.iso3166_2} : {}),
     country: result.country ?? null,
     countryCode: result.country_code ? result.country_code.trim().toUpperCase() : null,
     latitude: result.lat,

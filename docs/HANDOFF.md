@@ -1,5 +1,22 @@
 # Operational Handoff
 
+## Legacy identities and Japanese destinations — 23 October 2026
+
+Policy `provider-context-v9` reconciles automatic address-only records only when
+every surviving linked job proves the same business and no protected manual
+history conflicts. Existing links, evidence and provider geometry stay intact.
+An already saved precise landmark can be reused through a unique nearby literal
+provider alias, without rewriting its canonical record.
+Structured Tokyo special-ward containment supports Japanese destinations without
+treating every municipality in Tokyo prefecture as the same city. Complementary
+address research now includes named travel venues with the same evidence and
+request limits as businesses; country/city-only destinations retain area handling.
+
+See [requirements and verification](changes/2026-10-23-places-identity-and-japan.md).
+Only the web/API needs deployment. Private receipts under
+`.tmp/places-fix-20261023/` determine release and scoped recovery status; this entry
+does not imply deployment or data recovery has completed.
+
 ## Complementary place address research — 20 October 2026
 
 Policy `provider-context-v8` adds bounded OpenRouter/Exa research when precise

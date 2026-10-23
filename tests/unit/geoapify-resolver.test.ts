@@ -77,6 +77,176 @@ function resolver(fetchImpl: typeof fetch) {
 }
 
 describe("GeoapifyPlaceResolver", () => {
+  it.each(['structured','native'] as const)('rechecks the same Japanese destination using a verified ward: %s',async(mode)=>{
+    const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+    const original=structuredClone(candidate);
+    const hint={place_id:'same-garden',name:'Example Garden',other_names:{'name:ja':'見本庭園',alt_name:'見本の庭園'},
+      city:'Chiyoda',country:'Japan',country_code:'jp',iso3166_2:'JP-13',lat:35.68,lon:139.75,
+      result_type:'amenity',category:'leisure.park',rank:{confidence:0,match_type:'full_match'}};
+    const urls:URL[]=[];
+    const fetchMock=vi.fn<typeof fetch>(async input=>{
+      const url=new URL(String(input));urls.push(url);
+      if(url.pathname==='/v2/places')return jsonResponse({features:[]});
+      const structured=url.searchParams.get('name')==='Example Garden'&&url.searchParams.get('city')==='Chiyoda';
+      const native=url.searchParams.get('text')==='見本庭園, Chiyoda, Japan';
+      if(structured&&mode==='structured'||native&&mode==='native')return jsonResponse({results:[{...hint,lat:35.6801,rank:{confidence:1,match_type:'full_match'}}]});
+      return jsonResponse({results:url.searchParams.get('name')==='Example Garden'?[hint]:[]});
+    });
+    const results=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+    const verified=results.find(resolved=>decidePlaceResolution({candidate,resolved}).precision==='EXACT');
+    expect(verified).toMatchObject({providerPlaceId:'same-garden',providerRank:1,latitude:35.6801,city:'Chiyoda',region:null});
+    expect(results.find(result=>result.providerRank===0)).toMatchObject({providerPlaceId:'same-garden',latitude:35.68});
+    expect(candidate).toEqual(original);
+    expect(urls).toHaveLength(mode==='structured'?2:3);
+    if(mode==='native')expect(urls[2].searchParams.get('lang')).toBe('en');
+  });
+
+  it.each(['different_id','different_ward','different_country','different_name','distant_coordinates','zero_confidence'] as const)(
+    'keeps Japanese ward refinement bounded and rejects %s',async(scenario)=>{
+      const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+      const hint={place_id:'same-garden',name:'Example Garden',other_names:{'name:ja':'見本庭園',alt_name:'見本の庭園'},
+        city:'Chiyoda',country:'Japan',country_code:'jp',iso3166_2:'JP-13',lat:35.68,lon:139.75,
+        result_type:'amenity',category:'leisure.park',rank:{confidence:0,match_type:'full_match'}};
+      const fresh={...hint,rank:{confidence:scenario==='zero_confidence'?0:1,match_type:'full_match'},
+        ...(scenario==='different_id'?{place_id:'other-garden'}:{}),...(scenario==='different_ward'?{city:'Shinjuku'}:{}),
+        ...(scenario==='different_country'?{country:'China',country_code:'cn'}:{}),
+        ...(scenario==='different_name'?{name:'Different Garden',other_names:{}}:{}),
+        ...(scenario==='distant_coordinates'?{lat:36.68}:{})};
+      const refinements:URL[]=[];
+      const fetchMock=vi.fn<typeof fetch>(async input=>{
+        const url=new URL(String(input));
+        if(url.pathname==='/v2/places')return jsonResponse({features:[]});
+        if(url.searchParams.get('city')==='Chiyoda'||url.searchParams.get('text')?.includes('見本')){
+          refinements.push(url);return jsonResponse({results:[fresh]});
+        }
+        return jsonResponse({results:url.searchParams.get('name')==='Example Garden'?[hint]:[]});
+      });
+      const results=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+      expect(results.every(resolved=>decidePlaceResolution({candidate,resolved}).precision==='UNKNOWN')).toBe(true);
+      expect(refinements).toHaveLength(2);
+      expect(refinements[1].searchParams.get('text')).toBe('見本庭園, Chiyoda, Japan');
+      expect(results[0]).toMatchObject({providerPlaceId:'same-garden',providerRank:0,latitude:35.68});
+    });
+
+  it.each(['already_verified','conflicting_state','ambiguous_ward'] as const)('does not refine an unnecessary or unsupported Japanese ward: %s',async(scenario)=>{
+    const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+    const hint={place_id:'same-garden',name:'Example Garden',other_names:{'name:ja':'見本庭園'},
+      city:'Chiyoda',state:scenario==='conflicting_state'?'Osaka':null,country:'Japan',country_code:'jp',iso3166_2:'JP-13',
+      lat:35.68,lon:139.75,result_type:'amenity',category:'leisure.park',rank:{confidence:scenario==='already_verified'?1:0,match_type:'full_match'}};
+    const urls:URL[]=[];
+    const fetchMock=vi.fn<typeof fetch>(async input=>{
+      const url=new URL(String(input));urls.push(url);
+      return jsonResponse(url.pathname==='/v2/places'?{features:[]}:{results:[hint,
+        ...(scenario==='ambiguous_ward'?[{...hint,place_id:'other-garden',city:'Shinjuku'}]:[])]});
+    });
+    await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+    expect(urls.some(url=>['Chiyoda','Shinjuku'].includes(url.searchParams.get('city')??'')||url.searchParams.get('text')?.includes('見本'))).toBe(false);
+    if(scenario==='already_verified')expect(urls).toHaveLength(1);
+  });
+
+  it.each([
+    {city:'Shibuya',state:'Tokyo',countryCode:'jp',accepted:true},
+    {city:'Chiyoda-ku',state:'Tokyo Metropolis',countryCode:'jp',accepted:true},
+    {city:'Shibuya City',state:'Tokyo',countryCode:'jp',accepted:true},
+    {city:'Shibuya',state:null,countryCode:'jp',accepted:false},
+    {city:'Shibuya',state:'Osaka',countryCode:'jp',accepted:false},
+    {city:'Shibuya',state:'Tokyo',countryCode:null,accepted:false},
+    {city:'Shibuya',state:'Tokyo',countryCode:'us',accepted:false},
+    {city:'Hachioji',state:'Tokyo',countryCode:'jp',accepted:false},
+    {city:'Example Ward',state:'Tokyo',countryCode:'jp',accepted:false},
+    {city:'Shibuya-shi',state:'Tokyo',countryCode:'jp',accepted:false},
+  ])('uses verified Tokyo special-ward containment for $city / $state / $countryCode',async({city,state,countryCode,accepted})=>{
+    const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+    const original=structuredClone(candidate);
+    const row={place_id:'ward-garden',name:'Example Garden',city,state,country:'Japan',country_code:countryCode,
+      formatted:'Example Garden, Shibuya, Tokyo, Japan',lat:35.66,lon:139.70,result_type:'amenity',
+      category:'leisure.park',rank:{confidence:1,match_type:'full_match'}};
+    const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[row]}));
+    const [match]=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+    const decision=decidePlaceResolution({candidate,resolved:match});
+    expect(decision.precision).toBe(accepted?'EXACT':'UNKNOWN');
+    expect(decision.reasons).toContain(accepted?'city_match':'city_contradiction');
+    expect(match).toMatchObject({city,region:state,providerName:'Example Garden',address:row.formatted,latitude:35.66,longitude:139.70});
+    expect(candidate).toEqual(original);
+    expect(match.localityNames?.includes('Tokyo')).toBe(accepted);
+    if(accepted){
+      for(const source of [{...candidate,city:'Shinjuku'},{...candidate,name:'Different Garden'}]){
+        expect(decidePlaceResolution({candidate:source,resolved:match}).precision).toBe('UNKNOWN');
+      }
+    }
+  });
+
+  it('keeps zero-confidence Tokyo ward hints unresolved until independent POI retrieval verifies their identity',async()=>{
+    const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+    const row={place_id:'ward-garden',name:'Example Garden',city:'Chiyoda',country:'Japan',country_code:'jp',iso3166_2:'JP-13',
+      formatted:'Example Garden, Chiyoda, Japan',lat:35.68,lon:139.75,result_type:'amenity',
+      category:'leisure.park',rank:{confidence:0,match_type:'full_match'}};
+    for(const independent of [true,false]){
+      const fetchMock=vi.fn<typeof fetch>(async input=>{
+        const url=new URL(String(input));
+        return url.pathname==='/v2/places'
+          ?jsonResponse({features:independent?[{properties:{...row,rank:undefined,lat:35.6801}}]:[]})
+          :jsonResponse({results:[row]});
+      });
+      const [match]=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+      expect(decidePlaceResolution({candidate,resolved:match}).precision).toBe(independent?'EXACT':'UNKNOWN');
+      expect(match).toMatchObject({city:'Chiyoda',region:null,subdivisionCode:'JP-13',
+        providerRank:independent?null:0,latitude:independent?35.6801:35.68});
+      expect(match.administrativeLabels).toEqual({city:'Chiyoda'});
+      expect(match.localityNames).toEqual(['Chiyoda','Tokyo']);
+      expect(decidePlaceResolution({candidate:{...candidate,region:'Tokyo'},resolved:match}).precision).toBe(independent?'EXACT':'UNKNOWN');
+      expect(decidePlaceResolution({candidate:{...candidate,region:'Osaka'},resolved:match}).precision).toBe('UNKNOWN');
+      const poiUrl=new URL(String(fetchMock.mock.calls.find(([url])=>new URL(String(url)).pathname==='/v2/places')![0]));
+      expect(poiUrl.searchParams.get('filter')).toBe('circle:139.75,35.68,200');
+    }
+  });
+
+  it.each([
+    {state:'Osaka',code:'JP-13',city:'Chiyoda',countryCode:'jp'},
+    {state:'Tokyo',code:'JP-14',city:'Chiyoda',countryCode:'jp'},
+    {state:null,code:'JP-13',city:'Chiyoda',countryCode:'cn'},
+    {state:null,code:'JP-13',city:'Hachioji',countryCode:'jp'},
+    {state:null,code:'JP-TK',city:'Chiyoda',countryCode:'jp'},
+  ])('rejects unsupported or conflicting subdivision containment: $state / $code / $city / $countryCode',async({state,code,city,countryCode})=>{
+    const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+    const row={place_id:'ward-garden',name:'Example Garden',city,state,country:'Japan',country_code:countryCode,iso3166_2:code,
+      lat:35.68,lon:139.75,result_type:'amenity',category:'leisure.park',rank:{confidence:1,match_type:'full_match'}};
+    const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[row]}));
+    const [match]=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+    expect(decidePlaceResolution({candidate,resolved:match}).precision).toBe('UNKNOWN');
+    expect(match.localityNames).not.toContain('Tokyo');
+  });
+
+  it.each([['Chiyoda',true],['Hachioji',false]] as const)('does not treat the prefecture-wide Tokyo boundary as special-ward proof: %s',async(city,accepted)=>{
+    const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+    const area={place_id:'tokyo-prefecture-boundary',name:'Tokyo',city:'Tokyo',country:'Japan',country_code:'jp',iso3166_2:'JP-13',
+      lat:35.67,lon:139.76,result_type:'city',category:'administrative',rank:{confidence:1,match_type:'full_match'},
+      bbox:{lon1:135.85,lat1:20.21,lon2:154.20,lat2:35.89}};
+    const poi={place_id:'example-garden',name:'Example Garden',city,country:'Japan',country_code:'jp',iso3166_2:'JP-13',
+      lat:35.68,lon:139.75,categories:['leisure.park']};
+    const fetchMock=vi.fn<typeof fetch>(async input=>{
+      const url=new URL(String(input));
+      return jsonResponse(url.pathname==='/v2/places'?{features:[{properties:poi}]}:
+        {results:!url.searchParams.has('name')&&!url.searchParams.has('text')?[area]:[]});
+    });
+    const matches=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+    expect(matches.some(resolved=>decidePlaceResolution({candidate,resolved}).precision==='EXACT')).toBe(accepted);
+    if(!accepted)expect(matches.some(match=>match.providerLocalityBoundary?.name==='Tokyo')).toBe(false);
+  });
+
+  it.each([['Chiyoda','jp',true],['Hachioji','jp',false],['Hachioji',null,false],['Chiyoda',null,false]] as const)(
+    'requires structured containment for a Tokyo postal fragment: %s / %s',async(city,countryCode,accepted)=>{
+    const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
+    const row={place_id:'postal-garden',name:'Example Garden',city,country:'Japan',country_code:countryCode,iso3166_2:'JP-13',
+      street:'Example Street',address_line2:`1 Example Street, ${city}, Tokyo, Japan`,formatted:`Example Garden, 1 Example Street, ${city}, Tokyo, Japan`,
+      lat:35.68,lon:139.75,result_type:'amenity',rank:{confidence:1,match_type:'full_match'}};
+    const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[row]}));
+    const [match]=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+    expect(decidePlaceResolution({candidate,resolved:match}).precision).toBe(accepted?'EXACT':'UNKNOWN');
+    expect(match.localityNames?.includes('Tokyo')).toBe(accepted);
+    expect(match.address).toBe(row.formatted);
+  });
+
   it.each([
     ['Shanghai','Shanghai','CN',true],
     ['Beijing','北京市','CN',true],

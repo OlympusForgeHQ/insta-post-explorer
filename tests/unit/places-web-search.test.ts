@@ -97,6 +97,36 @@ it('keeps an earlier narrative year separate from the literal street number', as
   expect(await client(payload(rows)).search(input)).toHaveLength(1);
 });
 
+it('accepts a cited Tokyo special ward between a travel venue street and its explicit parent city', async () => {
+  const travelInput = {...input, sourceTheme: 'Voyages' as const, candidate: {...input.candidate,
+    name: 'Example Gallery', city: 'Tokyo', country: 'Japan', category: 'voyage' as const}};
+  const rows = fixture().map(row => {
+    const quote = 'Example Gallery is at 12-3 Example Road, Shibuya-ku, Tokyo, Japan.';
+    return {claim: {...row.claim, name: 'Example Gallery', address: '12-3 Example Road', city: 'Tokyo',
+      country: 'Japan', postalCode: null, quote}, citation: {...row.citation,
+      url_citation: {...row.citation.url_citation, title: 'Example Gallery', content: quote}}};
+  });
+  expect(await client(payload(rows)).search(travelInput)).toHaveLength(1);
+  for (const suffix of ['Hachioji, Tokyo, Japan', 'Shibuya-ku, Osaka, Japan', 'Shibuya-ku, Tokyo, Canada', 'Shibuya-ku, Japan']) {
+    const contradictory = rows.map(row => {
+      const quote = row.claim.quote.replace('Shibuya-ku, Tokyo, Japan', suffix);
+      return {claim: {...row.claim, quote}, citation: {...row.citation,
+        url_citation: {...row.citation.url_citation, content: quote}}};
+    });
+    await expect(client(payload(contradictory)).search(travelInput)).rejects.toThrow('WEB_SEARCH_INCOMPLETE_EVIDENCE');
+  }
+  const withPostcode = (country: string) => rows.map(row => {
+    const quote = row.claim.quote.replace('Tokyo, Japan', `Tokyo, 150-0001, ${country}`);
+    return {claim: {...row.claim, postalCode: '150-0001', quote}, citation: {...row.citation,
+      url_citation: {...row.citation.url_citation, content: quote}}};
+  });
+  expect(await client(payload(withPostcode('Japan'))).search(travelInput)).toHaveLength(1);
+  await expect(client(payload(withPostcode('Canada'))).search(travelInput)).rejects.toThrow('WEB_SEARCH_INCOMPLETE_EVIDENCE');
+  const missingClaimPostcode = (country: string) => withPostcode(country).map(row => ({...row, claim: {...row.claim, postalCode: null}}));
+  expect(await client(payload(missingClaimPostcode('Japan'))).search(travelInput)).toHaveLength(1);
+  await expect(client(payload(missingClaimPostcode('Canada'))).search(travelInput)).rejects.toThrow('WEB_SEARCH_INCOMPLETE_EVIDENCE');
+});
+
 it('allows the closed New York alias NYC in a citation title while keeping the full street in one fragment', async () => {
   const rows = fixture();
   rows[1].claim.quote = 'Example Bakery is at 1414 Second Avenue.';

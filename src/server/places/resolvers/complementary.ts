@@ -16,7 +16,11 @@ export class ComplementaryPlaceResolver implements PlaceResolver {
       ['EXACT', 'PROBABLE'].includes(decidePlaceResolution({candidate: input.candidate, resolved}).precision);
     const candidate = input.candidate;
     if (initial.some(specific) || !candidate.name || !candidate.city || !candidate.country ||
-      !['restaurant', 'cafe', 'patisserie', 'lodging', 'divers'].includes(candidate.category)) return initial;
+      !['restaurant', 'cafe', 'patisserie', 'lodging', 'divers', 'voyage'].includes(candidate.category)) return initial;
+    // Named travel venues may need address research; a city/country destination
+    // itself belongs to the geographic-area path, never to a business lookup.
+    if (candidate.category==='voyage' && !candidate.address &&
+      [candidate.city,candidate.region,candidate.country].some(value=>value&&foldForSearch(value)===foldForSearch(candidate.name!))) return initial;
     try {
       const sites: typeof hints = [];
       for (const hint of hints) if (!sites.some(site => distanceMeters(site, hint) <= 100)) sites.push(hint);

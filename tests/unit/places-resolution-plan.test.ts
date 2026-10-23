@@ -220,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v8'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v9'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
