@@ -43,6 +43,18 @@ it('does not research an already verified venue or an unnamed destination', asyn
   expect(search).not.toHaveBeenCalled();
 });
 
+it('researches a named travel destination while keeping geographic-only destinations on the area path', async () => {
+  const destination = {...input, sourceTheme:'Voyages' as const,
+    candidate:{...input.candidate,category:'voyage' as const}};
+  const search=vi.fn(async()=>[research]);
+  const resolver=new ComplementaryPlaceResolver({resolve:async()=>[]},
+    {resolve:async()=>[building]},{search});
+  expect(await resolver.resolve(destination)).toEqual([{...building,webResearch:research}]);
+  const calls=search.mock.calls.length;
+  expect(await resolver.resolve({...destination,candidate:{...destination.candidate,name:'New York'}})).toEqual([]);
+  expect(search).toHaveBeenCalledTimes(calls);
+});
+
 it('rejects postal homonyms and keeps fallback available after a failed research request', async () => {
   const other = {...building, providerPlaceId: 'other-borough', postalCode: '11221',
     address: '12 Example Street, New York, NY 11221, United States'};

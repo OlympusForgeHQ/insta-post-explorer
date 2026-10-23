@@ -2,6 +2,7 @@ import 'server-only';
 import {isIP} from 'node:net';
 import {z} from 'zod';
 import {foldForSearch} from '@/lib/import/normalize';
+import {isJapaneseCountry, tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
 import type {PlaceAddressResearch, PlaceResolutionInput, ResearchedPlaceAddress} from './types';
 
 const EXCLUDED_DOMAINS = ['google.com', 'maps.apple.com', 'yelp.com', 'restaurantguru.com',
@@ -30,7 +31,7 @@ type AddressGroup = {address: string; postalCodes: Set<string>; verifiedPostalCo
   observedPostalCodes: Set<string>; sources: Map<string, ResearchedPlaceAddress['sources'][number]>; cityAnchorDomains: Set<string>};
 const US_STATES = new Set('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.toLowerCase().split(' '));
 
-const INSTRUCTIONS = `Search public web sources for ALL current street addresses of the requested business in the requested city and country, including secondary kiosks and branches.
+const INSTRUCTIONS = `Search public web sources for ALL current street addresses of the requested business or named travel venue in the requested city and country, including secondary kiosks and branches.
 Return only JSON {"businesses":[{"name":string,"address":string,"city":string,"country":string,"postalCode":string|null,"sourceUrl":string,"quote":string}]}.
 Use the requested name, city and country unchanged. Return one record per source per address, including addresses with only one source. Never hide a less documented branch.
 Prefer the official business website, independent local editorial reporting and local tourism sources. Seek two independently authored domains for every address. Do not use maps, recycled directories or social networks.
@@ -84,11 +85,23 @@ function contradictsAddressLocality(claim: Claim, fragment: string, context: Pub
   const parts = fragment.split(/[,;\n]/u);
   for (let index = 0; index < parts.length - 1; index++) {
     if (!addressInFragment(claim.address, parts[index]) || !streetKey(parts[index]).endsWith(streetKey(claim.address))) continue;
-    for (const next of parts.slice(index + 1, index + 4)) {
+    // A Japanese address can contain ward, city, postcode and country after
+    // the street. Check the final country even when those earlier parts match.
+    const suffix = parts.slice(index + 1, index + (isJapaneseCountry(context.country) ? 5 : 4));
+    for (const next of suffix) {
       const component = next.trim().replace(/[.!?]$/u, '');
       let label = normalized(component);
       if (knownPostalCode) label = ` ${label} `.replace(` ${normalized(knownPostalCode)} `, ' ').trim();
       if (!label || sameCity(label, context.city, context.country) || label === normalized(context.country)) continue;
+      // A literal Tokyo parent in this same address fragment can contain a
+      // known special ward. The generated claim city is not containment proof.
+      if (isJapaneseCountry(context.country) && normalized(context.city) === 'tokyo' &&
+        suffix.some(part => normalized(part) === 'tokyo') &&
+        tokyoSpecialWardParentLabels('JP', 'Tokyo', component).length) continue;
+      if (isJapaneseCountry(context.country) && /^\d{3} \d{4}$/u.test(label)) {
+        if (knownPostalCode && label !== normalized(knownPostalCode)) return true;
+        continue;
+      }
       const usState = label.match(/^([a-z]{2})(?: (\d{5}(?: \d{4})?))?$/u);
       if (sameCity('NYC', 'New York', context.country) && usState && US_STATES.has(usState[1])) {
         if (usState[2] && knownPostalCode && normalized(usState[2]) !== normalized(knownPostalCode)) return true;

@@ -1,5 +1,16 @@
 # Implementation Status
 
+## Legacy identities and Japanese destinations — 23 October 2026
+
+Policy v9 adds narrowly proved legacy address labeling, duplicate landmark reuse,
+verified Tokyo ward containment and complementary research for named travel venues. Manual
+decisions, conflicting occupants and unresolved provider identities remain
+protected. There is no new dependency, schema or consumer process.
+
+See [acceptance criteria and validation](changes/2026-10-23-places-identity-and-japan.md).
+Private release and four-mention recovery receipts live in
+`.tmp/places-fix-20261023/`; actual deployment is not asserted by this entry.
+
 ## Complementary place address research — 20 October 2026
 
 The optional server resolver now verifies independently researched addresses

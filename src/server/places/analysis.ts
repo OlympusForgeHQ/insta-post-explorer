@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma, type Place, type PrismaClient } from "@prisma/client";
 
 import { foldForSearch } from "@/lib/import/normalize";
 import type { PlaceCandidate, PlaceCandidateRecord } from "@/lib/places/candidates";
@@ -11,8 +11,8 @@ import { continentCodeForCountry } from "@/lib/places/continents";
 import { distanceMeters } from "@/lib/places/distance";
 import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
-import {administrativeRegionMatches, municipalityCityLabels} from '@/lib/places/administrative-context';
-import {approximateAddress, approximateDistrict, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {administrativeRegionMatches, municipalityCityLabels, tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
+import {approximateAddress, approximateDistrict, canApproximateVenue, groundedVenueName, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 import { prisma } from "@/server/db";
 import { assertPostAllowsPlaceAnalysis } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
@@ -436,6 +436,64 @@ function sameSourceBusiness(left: string, right: string): boolean {
   return entityNamesAgree(left, right) || entityNamesAgree(right, left);
 }
 
+async function canLabelLegacyAddress(tx: TxClient, existing: Place, candidate: PlaceCandidate,
+  resolved: ResolvedPlaceCandidate): Promise<boolean> {
+  const {ownerId, id: placeId} = existing;
+  const metadata = existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+    ? existing.metadata : null;
+  if (!candidate.name || existing.isUserConfirmed || existing.reviewStatus !== 'UNREVIEWED' ||
+    !metadata || metadata.label || !['building', 'house', 'housenumber'].includes(String(metadata.providerResultType)) ||
+    !existing.address || foldForSearch(existing.displayName) !== foldForSearch(existing.address) ||
+    existing.normalizedName !== foldForSearch(existing.displayName) ||
+    !addressAgreement(existing.address, resolved.address).match || distanceMeters(existing, resolved) > 100 ||
+    existing.countryCode !== resolved.countryCode) return false;
+
+  // Lock the associations before reading their current proof sets. A legacy
+  // address can serve several posts, so every surviving association must agree.
+  await tx.$queryRaw`SELECT id FROM post_places WHERE owner_id=${ownerId} AND place_id=${placeId} ORDER BY id LIMIT 201 FOR UPDATE`;
+  const links = await tx.postPlace.findMany({where: {ownerId, placeId}, orderBy: {id: 'asc'}, take: 201,
+    select: {postId: true, analysisJobId: true, isUserConfirmed: true}});
+  if (!links.length || links.length > 200 || links.some(link => link.isUserConfirmed || !link.analysisJobId)) return false;
+  if (await tx.placeEvidence.findFirst({where: {ownerId, placeId, evidenceType: 'USER_CORRECTION'}, select: {id: true}})) return false;
+
+  // Old confirmation flags and names may have been reset. Their audit history,
+  // including removed associations or correction evidence, remains authoritative.
+  const audit = await tx.auditEvent.findMany({where: {ownerId, OR: [
+    {tableName: 'places', recordKey: {path: ['id'], equals: placeId}},
+    {tableName: 'post_places', OR: [{beforeData: {path: ['place_id'], equals: placeId}},
+      {afterData: {path: ['place_id'], equals: placeId}}]},
+    {tableName: 'place_evidence', OR: [
+      {AND: [{beforeData: {path: ['place_id'], equals: placeId}}, {beforeData: {path: ['evidence_type'], equals: 'USER_CORRECTION'}}]},
+      {AND: [{afterData: {path: ['place_id'], equals: placeId}}, {afterData: {path: ['evidence_type'], equals: 'USER_CORRECTION'}}]},
+    ]},
+  ]}, take: 201, select: {tableName: true, operation: true, action: true, beforeData: true, afterData: true}});
+  if (audit.length > 200 || audit.some(event => {
+    const before = event.beforeData && typeof event.beforeData === 'object' && !Array.isArray(event.beforeData) ? event.beforeData : null;
+    const after = event.afterData && typeof event.afterData === 'object' && !Array.isArray(event.afterData) ? event.afterData : null;
+    return event.operation === 'DELETE' || event.action?.startsWith('places.review.') ||
+      [before, after].some(row => row && (row.is_user_confirmed === true ||
+        row.review_status === 'CONFIRMED' || row.review_status === 'REJECTED' || row.evidence_type === 'USER_CORRECTION')) ||
+      (event.tableName === 'places' && before && after &&
+        (before.display_name !== after.display_name || before.normalized_name !== after.normalized_name));
+  })) return false;
+
+  // Only current linked analysis jobs assert the surviving source identities.
+  // Earlier extraction attempts can contain obsolete city/price candidates; keep
+  // their proof intact without treating those values as a current occupant.
+  const evidence = await tx.placeEvidence.findMany({where: {ownerId, placeId,
+    analysisJobId: {in: links.map(link => link.analysisJobId!)}}, take: 201,
+    select: {postId: true, analysisJobId: true, evidenceType: true, normalizedValue: true, excerpt: true}});
+  if (evidence.length > 200) return false;
+  return links.every(link => {
+    const proof = evidence.filter(item => item.postId === link.postId && item.analysisJobId === link.analysisJobId);
+    const source = proof.filter(item => item.evidenceType in EVIDENCE_TYPE_MAP);
+    return source.length > 0 && source.every(item => item.normalizedValue && sameSourceBusiness(item.normalizedValue, candidate.name!)) &&
+      proof.some(item => item.evidenceType === 'PROVIDER_MATCH' && item.normalizedValue === `${existing.provider}:${existing.providerPlaceId}`) &&
+      source.some(item => groundedVenueName({...candidate, name: item.normalizedValue,
+        evidence: [{type: item.evidenceType as keyof typeof EVIDENCE_TYPE_MAP, excerpt: item.excerpt ?? ''}]}));
+  });
+}
+
 function readSourceBusinessLabel(metadata: Prisma.JsonValue): SourceBusinessLabel | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
   const label = metadata.label;
@@ -526,6 +584,93 @@ function sameSourceAreaBusiness(label: SourceAreaLabel, candidate: PlaceCandidat
     sameSourceContext(label.sourceContext, candidate, previous, resolved, true));
 }
 
+async function findExistingNamedProviderPoi(tx: TxClient, ownerId: string,
+  resolved: ResolvedPlaceCandidate): Promise<Place | null | undefined> {
+  const namedTypes = ['amenity', 'poi', 'tourism', 'leisure'];
+  if (!resolved.providerName?.trim() || !namedTypes.includes(resolved.providerResultType ?? '') ||
+    !resolved.countryCode || !resolved.city) return undefined;
+  // These names come from the verified provider entity, never a generated alias
+  // or an address shared by several occupants.
+  const names = [...new Set([resolved.providerName, ...(resolved.providerNameAliases ?? [])].map(foldForSearch))].filter(Boolean);
+  const record = (value: Prisma.JsonValue | null): Prisma.JsonObject | null =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  const nameMatches = (value: unknown) => typeof value === 'string' && names.includes(foldForSearch(value));
+  const query = {where: {ownerId, provider: resolved.provider, countryCode: resolved.countryCode,
+    precision: {in: ['EXACT', 'PROBABLE']}, latitude: {gte: resolved.latitude - .0003, lte: resolved.latitude + .0003},
+    OR: namedTypes.map(type => ({metadata: {path: ['providerResultType'], equals: type}}))},
+    take: 201, include: {postLinks: {where: {ownerId}, take: 201, select: {isUserConfirmed: true}},
+      evidence: {where: {ownerId, evidenceType: 'USER_CORRECTION'}, take: 1, select: {id: true}}}} satisfies Prisma.PlaceFindManyArgs;
+  const alternatives = await tx.place.findMany(query);
+  if (alternatives.length > 200) return null;
+  // Read tombstones after candidates. A deletion committed during discovery is
+  // then visible here; a later deletion is caught by the locked re-read below.
+  const priorNames = await tx.auditEvent.findMany({where: {ownerId, tableName: 'places', operation: 'UPDATE', AND: [
+    {beforeData: {path: ['provider'], equals: resolved.provider}},
+    {beforeData: {path: ['country_code'], equals: resolved.countryCode}},
+    {OR: names.map(name => ({beforeData: {path: ['normalized_name'], equals: name}}))},
+  ]}, take: 201, select: {recordKey: true}});
+  if (priorNames.length > 200) return null;
+  const previousIds = [...new Set(priorNames.flatMap(event => {
+    const id = record(event.recordKey)?.id;
+    return typeof id === 'string' ? [id] : [];
+  }))];
+  const deleted = await tx.auditEvent.findMany({where: {ownerId, tableName: 'places', operation: 'DELETE', AND: [
+    {beforeData: {path: ['provider'], equals: resolved.provider}},
+    {beforeData: {path: ['country_code'], equals: resolved.countryCode}},
+    {OR: [...names.map(name => ({beforeData: {path: ['normalized_name'], equals: name}})),
+      ...previousIds.map(id => ({recordKey: {path: ['id'], equals: id}}))]},
+  ]}, take: 201, select: {beforeData: true}});
+  if (deleted.length > 200 || deleted.some(event => {
+    const before = record(event.beforeData);
+    return before && namedTypes.includes(String(record(before.metadata ?? null)?.providerResultType)) &&
+      typeof before.latitude === 'number' && typeof before.longitude === 'number' &&
+      distanceMeters({latitude: before.latitude, longitude: before.longitude}, resolved) <= 25;
+  })) return null;
+
+  let nearby = alternatives.filter(place => distanceMeters(place, resolved) <= 25);
+  if (!nearby.length) return undefined;
+  const ids = nearby.map(place => place.id);
+  await tx.$queryRaw`SELECT id FROM places WHERE owner_id=${ownerId} AND id IN (${Prisma.join(ids)}) ORDER BY id FOR UPDATE`;
+  nearby = (await tx.place.findMany({...query, where: {...query.where, id: {in: ids}}}))
+    .filter(place => distanceMeters(place, resolved) <= 25);
+  if (nearby.length !== ids.length) return null;
+  const related = {OR: ids.flatMap(placeId => [{beforeData: {path: ['place_id'], equals: placeId}},
+    {afterData: {path: ['place_id'], equals: placeId}}])};
+  const audit = await tx.auditEvent.findMany({where: {ownerId, OR: [
+    {tableName: 'places', OR: ids.map(id => ({recordKey: {path: ['id'], equals: id}}))},
+    {tableName: 'post_places', ...related},
+    {tableName: 'place_evidence', AND: [related, {OR: [
+      {beforeData: {path: ['evidence_type'], equals: 'USER_CORRECTION'}},
+      {afterData: {path: ['evidence_type'], equals: 'USER_CORRECTION'}},
+    ]}]},
+  ]}, take: 201, select: {tableName: true, operation: true, action: true, beforeData: true, afterData: true}});
+  if (audit.length > 200) return null;
+  const history = (placeId: string) => audit.filter(event => [record(event.beforeData), record(event.afterData)]
+    .some(row => row && (event.tableName === 'places' ? row.id === placeId : row.place_id === placeId)));
+  const matches = nearby.filter(place => nameMatches(place.displayName) || nameMatches(place.normalizedName) ||
+    history(place.id).some(event => event.tableName === 'places' && nameMatches(record(event.beforeData)?.display_name)));
+  if (!matches.length) return undefined;
+  if (matches.length !== 1) return null;
+  const place = matches[0];
+  const parentLabels = tokyoSpecialWardParentLabels(resolved.countryCode, resolved.region, resolved.city, resolved.subdivisionCode);
+  const compatibleCity = place.city && (foldForSearch(place.city) === foldForSearch(resolved.city) ||
+    parentLabels.some(label => foldForSearch(label) === foldForSearch(place.city!)));
+  if (place.category !== 'voyage' || !nameMatches(place.displayName) || place.normalizedName !== foldForSearch(place.displayName) ||
+    addressAgreement(place.address, resolved.address).contradiction ||
+    !compatibleCity || (place.region && (resolved.region || resolved.subdivisionCode) && !administrativeRegionMatches(place.region, resolved)) ||
+    record(place.metadata)?.label || place.isUserConfirmed || place.reviewStatus !== 'UNREVIEWED' ||
+    !place.postLinks.length || place.postLinks.length > 200 || place.postLinks.some(link => link.isUserConfirmed) || place.evidence.length ||
+    history(place.id).some(event => {
+      const before = record(event.beforeData), after = record(event.afterData);
+      return event.operation === 'DELETE' || event.action?.startsWith('places.review.') ||
+        [before, after].some(row => row && (row.is_user_confirmed === true || row.review_status === 'CONFIRMED' ||
+          row.review_status === 'REJECTED' || row.evidence_type === 'USER_CORRECTION')) ||
+        (event.tableName === 'places' && before && after &&
+          (before.display_name !== after.display_name || before.normalized_name !== after.normalized_name));
+    })) return null;
+  return place;
+}
+
 async function upsertCanonicalPlace(
   tx: TxClient,
   { ownerId, postId, resolved, scored, candidate, preserveExisting, history }: { ownerId: string; postId: string; resolved: ResolvedPlaceCandidate; scored: ScoredResolution; candidate: PlaceCandidate; preserveExisting:boolean; history: PostPlaceHistory },
@@ -604,10 +749,17 @@ async function upsertCanonicalPlace(
   if (existing && existingLabel && !sameSourceBusiness(existing.displayName, existingLabel.candidateName)) return null;
   // A provider address ID identifies a building, not all of its occupants. Check
   // identity before every early return, including manual/preserveExisting paths.
-  // An old address-only label cannot establish an occupant for a new source.
+  // An old address-only label needs its own surviving business proof before it
+  // can acquire a source label. Preserve the original provider data and proofs.
   if (existing && (proposedLabel || existingLabel)) {
     const incomingName = proposedLabel?.candidateName ?? resolved.providerName ?? candidate.name;
-    if (!incomingName || !sameSourceBusiness(existingLabel?.candidateName ?? existing.displayName, incomingName)) return null;
+    if (!incomingName || !sameSourceBusiness(existingLabel?.candidateName ?? existing.displayName, incomingName)) {
+      if (!proposedLabel || existingLabel || !await canLabelLegacyAddress(tx, existing, candidate, resolved)) return null;
+      return tx.place.update({where: {id: existing.id, ownerId}, data: {
+        displayName: proposedLabel.candidateName, normalizedName: foldForSearch(proposedLabel.candidateName),
+        metadata: {...existing.metadata as Prisma.JsonObject, label: proposedLabel},
+      }});
+    }
   }
   // Repeated aliases or a later unspecified category must not replace the first
   // source label with an address, change its spelling, or rewrite its provenance.
@@ -643,6 +795,10 @@ async function upsertCanonicalPlace(
   };
 
   if (!existing) {
+    if (precision !== 'APPROXIMATE' && !sourceLabel && candidate.category === 'voyage' && !candidate.address) {
+      const sameProviderPoi = await findExistingNamedProviderPoi(tx, ownerId, resolved);
+      if (sameProviderPoi !== undefined) return sameProviderPoi;
+    }
     // Provider IDs differ across catalogs. Reuse only the same named, addressed
     // physical site; never merge nearby branches or a business with a city.
     if(precision!=='APPROXIMATE'&&resolved.address&&resolved.city&&resolved.countryCode){
