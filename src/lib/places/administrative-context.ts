@@ -67,9 +67,30 @@ export function municipalityCityLabels(countryCode:string|null,state:string|null
   return municipalityNames.find(names=>names.some(name=>administrativeName(name).name===parsed.name))??[];
 }
 
+// Closed special-ward list from the Tokyo Metropolitan Government:
+// https://www.english.metro.tokyo.lg.jp/municipalities-within-tokyo
+// Tokyo's other cities, towns and villages are not interchangeable with its
+// urban special-ward locality. A state or an address fragment alone is no proof.
+const tokyoSpecialWards=new Set(('Adachi Arakawa Bunkyo Chiyoda Chuo Edogawa Itabashi Katsushika Kita Koto Meguro Minato Nakano Nerima Ota Setagaya Shibuya Shinagawa Shinjuku Suginami Sumida Taito Toshima').toLowerCase().split(' '));
+export function tokyoSpecialWardParentLabels(countryCode:string|null,state:string|null,city:string|null,subdivisionCode:string|null=null):readonly string[] {
+  if(countryCode?.trim().toUpperCase()!=='JP'||!city)return [];
+  const code=subdivisionCode?.trim().toUpperCase();
+  // ISO 3166-2 JP-13 identifies Tokyo even when the provider omits its state.
+  // Missing labels cannot override a conflicting explicit state or subdivision.
+  if((state&&japanesePrefectureName(state)!=='tokyo')||(code&&/^JP-\d{2}$/u.test(code)&&code!=='JP-13'))return [];
+  if(!state&&code!=='JP-13')return [];
+  const name=foldForSearch(city).replace(/(?:\s+(?:city|ward)|[-\s]ku)$/u,'');
+  return tokyoSpecialWards.has(name)?['Tokyo']:[];
+}
+
 export function administrativeRegionMatches(region:string,resolved:ResolvedPlaceCandidate):boolean {
   const prefecture=resolved.countryCode==='JP'?japanesePrefectureName(region):null;
-  if(prefecture)return [resolved.region,resolved.administrativeLabels?.state].some(label=>label&&japanesePrefectureName(label)===prefecture);
+  if(prefecture){
+    const states=[resolved.region,resolved.administrativeLabels?.state];
+    if(states.some(label=>label&&japanesePrefectureName(label)===prefecture))return true;
+    return prefecture==='tokyo'&&states.every(label=>!label||japanesePrefectureName(label)==='tokyo')&&
+      tokyoSpecialWardParentLabels(resolved.countryCode,resolved.region,resolved.city,resolved.subdivisionCode).length>0;
+  }
   const source=administrativeName(region);
   if(!source.name)return false;
   // Only structured administrative fields participate. Names of businesses,

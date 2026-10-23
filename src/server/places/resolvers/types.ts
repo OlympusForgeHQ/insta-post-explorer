@@ -55,6 +55,8 @@ export type ResolvedPlaceCandidate = {
   address: string | null;
   city: string | null;
   region: string | null;
+  // Raw structured provider subdivision code; does not replace its state label.
+  subdivisionCode?: string | null;
   country: string | null;
   countryCode: string | null;
   latitude: number;

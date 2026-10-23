@@ -107,6 +107,28 @@ async function businessRecord(postId: string, name: string | null, ownerId = OWN
     evidence: [{type: "CAPTION", excerpt}]})]);
 }
 
+let landmarkName: string;
+function namedLandmarkPlan(overrides: Partial<ResolvedPlaceCandidate> = {}): import('@/server/places/analysis').CandidatePlan {
+  return {candidate: candidate({name: `${landmarkName} Scramble Crossing`, category: "voyage", city: "Tokyo", country: "Japan"}),
+    best: {resolved: resolved({providerPlaceId: "osm-landmark", providerName: `${landmarkName} Scramble Crossing`,
+      displayName: `${landmarkName} Scramble Crossing`, providerNameAliases: [`${landmarkName} Crossing`],
+      category: "tourism.attraction", address: "Synthetic Square, Shibuya, Japan", city: "Shibuya", region: null,
+      subdivisionCode: "JP-13", country: "Japan", countryCode: "JP", latitude: 35.66, longitude: 139.7, ...overrides}),
+    scored: {precision: "EXACT", confidence: .95, approximationRadiusMeters: null, reasons: ["venue_identity_and_context"]}}};
+}
+
+async function seedNamedLandmark() {
+  // Canonical deletion tombstones survive fixture cleanup, just as in production.
+  landmarkName = `Lantern ${crypto.randomUUID()}`;
+  await seedPost("original-landmark", OWNER_A, "Voyages");
+  const original = namedLandmarkPlan({providerPlaceId: "geonames-landmark", providerName: `${landmarkName} Crossing`,
+    displayName: `${landmarkName} Crossing`, providerNameAliases: [], address: "Synthetic Square, Tokyo, Japan",
+    city: "Tokyo", region: "Tokyo", latitude: 35.66002});
+  original.best!.scored = {precision: "PROBABLE", confidence: .89, approximationRadiusMeters: null, reasons: ["venue_identity_and_context"]};
+  await persistPlans("original-landmark", [original]);
+  return prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+}
+
 describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = databaseUrl;
@@ -145,6 +167,113 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     expect(receipt.unknownCandidates).toBe(1);
     expect(await prisma.place.count({where:{ownerId:OWNER_A}})).toBe(0);
     expect((await prisma.placeAnalysisJob.findFirstOrThrow({where:{postId:'raw-google-blocked'}})).result).toMatchObject({decisions:[{reasons:['provider_content_not_persistable']}]});
+  });
+
+  it.each(["same_city", "verified_parent"])("reuses a unique nearby named POI through literal provider aliases (%s)", async locality => {
+    const original = await seedNamedLandmark();
+    const originalLink = await prisma.postPlace.findFirstOrThrow({where: {placeId: original.id}});
+    const originalEvidence = await prisma.placeEvidence.findMany({where: {placeId: original.id}, orderBy: {id: "asc"}});
+    await seedPost("incoming-landmark", OWNER_A, "Voyages");
+    const plan = namedLandmarkPlan(locality === "same_city" ? {city: "Tokyo", region: "Tokyo"} : {});
+    const receipt = await persistPlans("incoming-landmark", [plan], true);
+    expect(receipt).toMatchObject({status: "SUCCEEDED", placesPersisted: 1, unknownCandidates: 0});
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(1);
+    expect(await prisma.place.findUniqueOrThrow({where: {id: original.id}})).toEqual(original);
+    expect(await prisma.postPlace.findFirstOrThrow({where: {postId: "incoming-landmark"}}))
+      .toMatchObject({placeId: original.id, precision: "EXACT"});
+    expect(await prisma.placeEvidence.findFirstOrThrow({where: {postId: "incoming-landmark", evidenceType: "PROVIDER_MATCH"}}))
+      .toMatchObject({placeId: original.id, normalizedValue: "geoapify:osm-landmark"});
+    expect(await prisma.postPlace.findUniqueOrThrow({where: {id: originalLink.id}})).toEqual(originalLink);
+    expect(await prisma.placeEvidence.findMany({where: {id: {in: originalEvidence.map(item => item.id)}}, orderBy: {id: "asc"}})).toEqual(originalEvidence);
+  });
+
+  it.each(["ambiguous", "removed", "deleted_place", "renamed_then_deleted", "renamed", "rejected", "past_rename", "past_confirmation", "unrelated_ward"] as const)(
+    "keeps a nearby named provider identity in review when history is protected or ambiguous: %s", async protection => {
+      const original = await seedNamedLandmark();
+      if (protection === "ambiguous") {
+        await seedPost("duplicate-landmark", OWNER_A, "Voyages");
+        const duplicate = await prisma.place.create({data: {...original, id: undefined, providerPlaceId: "ambiguous-landmark",
+          metadata: {providerResultType: "amenity"}}});
+        await prisma.postPlace.create({data: {ownerId: OWNER_A, postId: "duplicate-landmark", placeId: duplicate.id,
+          precision: "PROBABLE", confidence: .89}});
+      }
+      if (protection === "removed") await prisma.postPlace.deleteMany({where: {placeId: original.id}});
+      if (protection === "deleted_place") await prisma.place.delete({where: {id: original.id}});
+      if (protection === "renamed_then_deleted") {
+        await prisma.place.update({where: {id: original.id}, data: {displayName: "Owner landmark", normalizedName: "owner landmark"}});
+        await prisma.place.delete({where: {id: original.id}});
+      }
+      if (protection === "renamed" || protection === "past_rename") {
+        await prisma.place.update({where: {id: original.id}, data: {displayName: "Owner landmark", normalizedName: "owner landmark"}});
+        if (protection === "past_rename") await prisma.place.update({where: {id: original.id},
+          data: {displayName: original.displayName, normalizedName: original.normalizedName}});
+      }
+      if (protection === "rejected") await prisma.place.update({where: {id: original.id}, data: {reviewStatus: "REJECTED"}});
+      if (protection === "past_confirmation") {
+        await prisma.place.update({where: {id: original.id}, data: {isUserConfirmed: true, reviewStatus: "CONFIRMED"}});
+        await prisma.place.update({where: {id: original.id}, data: {isUserConfirmed: false, reviewStatus: "UNREVIEWED"}});
+      }
+      if (protection === "unrelated_ward") await prisma.place.update({where: {id: original.id}, data: {city: "Shinjuku"}});
+      const before = await prisma.place.findMany({where: {ownerId: OWNER_A}, orderBy: {id: "asc"}});
+      await seedPost("incoming-landmark", OWNER_A, "Voyages");
+      expect(await persistPlans("incoming-landmark", [namedLandmarkPlan()], true))
+        .toMatchObject({status: "NEEDS_REVIEW", linksPersisted: 0, unknownCandidates: 1});
+      expect(await prisma.place.findMany({where: {ownerId: OWNER_A}, orderBy: {id: "asc"}})).toEqual(before);
+      expect(await prisma.postPlace.count({where: {postId: "incoming-landmark"}})).toBe(0);
+    });
+
+  it.each(["no_literal_alias", "distant", "different_owner"] as const)(
+    "keeps distinct nearby provider entries separate without complete identity proof: %s", async difference => {
+      const original = await seedNamedLandmark();
+      if (difference === "different_owner") {
+        await prisma.post.deleteMany({where: {ownerId: OWNER_A}});
+        await prisma.place.update({where: {id: original.id}, data: {ownerId: OWNER_B}});
+      }
+      await seedPost("incoming-landmark", OWNER_A, "Voyages");
+      const plan = namedLandmarkPlan(difference === "no_literal_alias" ? {providerNameAliases: []}
+        : difference === "distant" ? {latitude: 35.661} : {});
+      expect(await persistPlans("incoming-landmark", [plan], true)).toMatchObject({status: "SUCCEEDED"});
+      const nextLink = await prisma.postPlace.findFirstOrThrow({where: {postId: "incoming-landmark"}});
+      expect(nextLink.placeId).not.toBe(original.id);
+    });
+
+  it.each(["cafe", "voyage"] as const)("keeps explicit adjacent branch addresses distinct for %s", async category => {
+    const original = await seedNamedLandmark();
+    const before = await prisma.place.update({where: {id: original.id}, data: {category, address: "10 Main Street, Tokyo, Japan"}});
+    await seedPost("incoming-landmark", OWNER_A, "Voyages");
+    const plan = namedLandmarkPlan({address: "12 Main Street, Tokyo, Japan", city: "Tokyo", region: "Tokyo", street: "Main Street", houseNumber: "12"});
+    plan.candidate.category = category;
+    plan.candidate.address = category === "voyage" ? "12 Main Street" : null;
+    expect(await persistPlans("incoming-landmark", [plan], true)).toMatchObject({status: "SUCCEEDED"});
+    expect((await prisma.postPlace.findFirstOrThrow({where: {postId: "incoming-landmark"}})).placeId).not.toBe(original.id);
+    expect(await prisma.place.findUniqueOrThrow({where: {id: original.id}})).toEqual(before);
+  });
+
+  it("does not recreate a named POI deleted while its canonical lock is pending", async () => {
+    const original = await seedNamedLandmark();
+    await seedPost("incoming-landmark", OWNER_A, "Voyages");
+    const ready = Promise.withResolvers<number>(), release = Promise.withResolvers<void>();
+    const writer = prisma.$transaction(async tx => {
+      const [{pid}] = await tx.$queryRaw<Array<{pid: number}>>`SELECT pg_backend_pid() AS pid`;
+      await tx.place.delete({where: {id: original.id}});
+      ready.resolve(pid);
+      await release.promise;
+    }, {timeout: 10_000});
+    let waiting: ReturnType<typeof persistPlans> | undefined;
+    try {
+      const pid = await ready.promise;
+      waiting = persistPlans("incoming-landmark", [namedLandmarkPlan()], true);
+      await expect.poll(async () => (await prisma.$queryRaw<Array<{pid: number}>>`
+        SELECT pid FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`).length).toBe(1);
+      release.resolve();
+      await writer;
+      expect(await waiting).toMatchObject({status: "NEEDS_REVIEW", linksPersisted: 0});
+      expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(0);
+      expect(await prisma.postPlace.count({where: {postId: "incoming-landmark"}})).toBe(0);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([writer, waiting]);
+    }
   });
 
   it("labels an anonymous verified building from its source business without rewriting provider identity", async () => {
@@ -290,6 +419,102 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     expect(await prisma.place.findUniqueOrThrow({where: {id: before.id}})).toEqual(before);
     expect(await prisma.postPlace.count({where: {postId: "legacy-incoming"}})).toBe(0);
   });
+
+  it.each([false, true])("promotes a legacy automatic address only with matching historical business proof (additive %s)", async preserveExisting => {
+    const provider = anonymousBuilding();
+    // Older provider results omitted providerName, so the source name was saved
+    // in evidence while the canonical label remained the verified address.
+    for (const postId of ["legacy-business-proof", "legacy-second-proof"]) {
+      await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+        record: await businessRecord(postId, "Maison Étoile"),
+        resolver: {resolve: async () => [{...provider, providerName: undefined}]}});
+    }
+    const original = await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+    const obsoleteJob = await jobs.createMetadataAnalysisJob({ownerId: OWNER_A, postId: "legacy-business-proof", analysisVersion: "synthetic-obsolete-extraction"});
+    await prisma.placeEvidence.createMany({data: ["Dubai", "10–15€"].map(normalizedValue => ({
+      ownerId: OWNER_A, postId: "legacy-business-proof", placeId: original.id, analysisJobId: obsoleteJob.id,
+      evidenceType: "CAPTION", normalizedValue, excerpt: "Pastries in Dubai for 10–15€", confidence: .8,
+    }))});
+    const originalLinks = await prisma.postPlace.findMany({where: {placeId: original.id}, orderBy: {id: "asc"}});
+    const originalEvidence = await prisma.placeEvidence.findMany({where: {placeId: original.id}, orderBy: {id: "asc"}});
+    const originalJobs = await prisma.placeAnalysisJob.findMany({where: {ownerId: OWNER_A}, orderBy: {id: "asc"}});
+    const record = await businessRecord("legacy-business-incoming", "MaisonEtoile");
+    for (let replay = 0; replay < 2; replay++) {
+      const receipt = await persistPlans(record.post_id, await analysis.planAll(record.candidates, "Restaurant",
+        new FakeResolver({MaisonEtoile: [provider]})), preserveExisting);
+      expect(receipt).toMatchObject({status: "SUCCEEDED", placesPersisted: 1, unknownCandidates: 0});
+    }
+    const promoted = await prisma.place.findUniqueOrThrow({where: {id: original.id}});
+    expect(promoted).toMatchObject({displayName: "MaisonEtoile", normalizedName: "maisonetoile",
+      provider: original.provider, providerPlaceId: original.providerPlaceId,
+      latitude: original.latitude, longitude: original.longitude, confidence: original.confidence,
+      metadata: {label: {source: "source_candidate_verified_address", candidateName: "MaisonEtoile",
+        sourcePostId: record.post_id, providerDisplayName: provider.displayName}}});
+    expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(1);
+    expect(await prisma.postPlace.count({where: {placeId: original.id}})).toBe(3);
+    expect(await prisma.postPlace.findMany({where: {id: {in: originalLinks.map(item => item.id)}}, orderBy: {id: "asc"}})).toEqual(originalLinks);
+    expect(await prisma.placeEvidence.findMany({where: {id: {in: originalEvidence.map(item => item.id)}}, orderBy: {id: "asc"}})).toEqual(originalEvidence);
+    expect(await prisma.placeAnalysisJob.findMany({where: {id: {in: originalJobs.map(item => item.id)}}, orderBy: {id: "asc"}})).toEqual(originalJobs);
+  });
+
+  it.each(["confirmed", "confirmed_status", "rejected", "renamed", "correction", "confirmed_link", "removed_link",
+    "past_confirmation", "past_rename", "past_link_confirmation", "past_correction", "conflicting_proof", "conflicting_link",
+    "missing_proof", "ungrounded_proof", "missing_provider_proof"] as const)(
+    "refuses legacy address promotion with protected or ambiguous history: %s", async protection => {
+      const provider = anonymousBuilding();
+      await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+        record: await businessRecord("protected-legacy-proof", "Maison Étoile"),
+        resolver: {resolve: async () => [{...provider, providerName: undefined}]}});
+      const original = await prisma.place.findFirstOrThrow({where: {ownerId: OWNER_A}});
+      const link = await prisma.postPlace.findFirstOrThrow({where: {placeId: original.id}});
+      if (protection === "confirmed") await prisma.place.update({where: {id: original.id}, data: {isUserConfirmed: true}});
+      if (protection === "confirmed_status") await prisma.place.update({where: {id: original.id}, data: {reviewStatus: "CONFIRMED"}});
+      if (protection === "rejected") await prisma.place.update({where: {id: original.id}, data: {reviewStatus: "REJECTED"}});
+      if (protection === "renamed") await prisma.place.update({where: {id: original.id}, data: {displayName: "Owner's label"}});
+      if (protection === "correction") await prisma.placeEvidence.create({data: {ownerId: OWNER_A, postId: link.postId,
+        placeId: original.id, analysisJobId: link.analysisJobId!, evidenceType: "USER_CORRECTION", confidence: 1,
+        metadata: {action: "PLACE_CATEGORY_CORRECTED"}}});
+      if (protection === "confirmed_link") await prisma.postPlace.update({where: {id: link.id}, data: {isUserConfirmed: true}});
+      if (protection === "removed_link") await prisma.postPlace.delete({where: {id: link.id}});
+      if (protection === "past_confirmation") {
+        await prisma.place.update({where: {id: original.id}, data: {isUserConfirmed: true, reviewStatus: "CONFIRMED"}});
+        await prisma.place.update({where: {id: original.id}, data: {isUserConfirmed: false, reviewStatus: "UNREVIEWED"}});
+      }
+      if (protection === "past_rename") {
+        await prisma.place.update({where: {id: original.id}, data: {displayName: "Owner's label"}});
+        await prisma.place.update({where: {id: original.id}, data: {displayName: original.displayName}});
+      }
+      if (protection === "past_link_confirmation") {
+        await prisma.postPlace.update({where: {id: link.id}, data: {isUserConfirmed: true}});
+        await prisma.postPlace.update({where: {id: link.id}, data: {isUserConfirmed: false}});
+      }
+      if (protection === "past_correction") {
+        const correction = await prisma.placeEvidence.create({data: {ownerId: OWNER_A, postId: link.postId,
+          placeId: original.id, analysisJobId: link.analysisJobId!, evidenceType: "USER_CORRECTION", confidence: 1,
+          metadata: {action: "PLACE_CATEGORY_CORRECTED"}}});
+        await prisma.placeEvidence.delete({where: {id: correction.id}});
+      }
+      if (protection === "conflicting_proof") await prisma.placeEvidence.create({data: {ownerId: OWNER_A, postId: link.postId,
+        placeId: original.id, analysisJobId: link.analysisJobId!, evidenceType: "VIDEO_OCR", confidence: .95,
+        normalizedValue: "different bakery", excerpt: "Different Bakery"}});
+      if (protection === "conflicting_link") await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+        record: await businessRecord("protected-other-occupant", "Different Bakery"),
+        resolver: {resolve: async () => [{...provider, providerName: undefined}]}});
+      if (protection === "missing_proof") await prisma.placeEvidence.deleteMany({where: {placeId: original.id, evidenceType: {not: "PROVIDER_MATCH"}}});
+      if (protection === "ungrounded_proof") await prisma.placeEvidence.updateMany({where: {placeId: original.id, evidenceType: "CAPTION"},
+        data: {excerpt: "Pastries at this address"}});
+      if (protection === "missing_provider_proof") await prisma.placeEvidence.deleteMany({where: {placeId: original.id, evidenceType: "PROVIDER_MATCH"}});
+      const before = await prisma.place.findUniqueOrThrow({where: {id: original.id}});
+      const beforeLinks = await prisma.postPlace.findMany({where: {placeId: original.id}});
+      const beforeEvidence = await prisma.placeEvidence.findMany({where: {placeId: original.id}, orderBy: {id: "asc"}});
+      const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
+        record: await businessRecord("protected-legacy-incoming", "Maison Étoile"), resolver: {resolve: async () => [provider]}});
+      expect(receipt).toMatchObject({status: "NEEDS_REVIEW", linksPersisted: 0, unknownCandidates: 1});
+      expect(await prisma.place.count({where: {ownerId: OWNER_A}})).toBe(1);
+      expect(await prisma.place.findUniqueOrThrow({where: {id: original.id}})).toEqual(before);
+      expect(await prisma.postPlace.findMany({where: {placeId: original.id}})).toEqual(beforeLinks);
+      expect(await prisma.placeEvidence.findMany({where: {placeId: original.id}, orderBy: {id: "asc"}})).toEqual(beforeEvidence);
+    });
 
   it("serializes competing occupants of one anonymous building and keeps owners independent", async () => {
     const provider = anonymousBuilding();

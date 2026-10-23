@@ -331,7 +331,7 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[result.candidates[0],unknown]}},dependencies);
    expect(receipt).toMatchObject({status:'NEEDS_REVIEW',unknownCandidates:1,linksPersisted:1});
    const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
-   expect(job.result).toMatchObject({resolutionPolicy:'provider-context-v8',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
+   expect(job.result).toMatchObject({resolutionPolicy:'provider-context-v9',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
  });
 
  it('learns only from fenced failures, backs off, and retains the recovery outcome and sync provenance',async()=>{
