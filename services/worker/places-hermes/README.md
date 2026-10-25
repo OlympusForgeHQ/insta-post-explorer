@@ -34,7 +34,7 @@ privately, install the reviewed replacement, reload and restart only this servic
 Never print `.env` or use credentials as command arguments.
 
 API base: `http://127.0.0.1:8645/v1`; advertised alias: `insta-places`.
-Actual model: `deepseek/deepseek-v4.1-flash`; provider: OpenRouter. This endpoint
+Actual model: `deepseek/deepseek-v4.1-flash-1017`; provider: OpenRouter. This endpoint
 is for trusted backend clients. It has no public hostname or reverse proxy route.
 Future container clients need an explicitly reviewed private-network route;
 host loopback is not container loopback.

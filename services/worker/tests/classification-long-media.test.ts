@@ -29,6 +29,7 @@ it('passes all sixty minutes of audio and frames through the classifier, while P
    const analyzer=createClassificationAnalyzer({origin:'https://app.test',apiKey:'test',hermesUrl:'http://127.0.0.1:8645/v1',hermesKey:'test',tempRoot:dir,python:'/usr/bin/python3',transcribeScript:transcribe,modelCache:dir},()=>undefined,request);
    const output=await analyzer({jobId:'job',leaseToken:'c31dc4f4-2e82-4926-88f2-1b0875d28a5b',heartbeatIntervalMs:30000,input:{post_id:'post',input_hash:'hash',caption:'Long recipe',author_username:'baker'},media:[{...media,byteSize:bytes.length}],themes:['Sucré'],existingTags:[],outputSchema:{type:'object'}},dir,signal);
    expect(output.media).toEqual([{mediaId:'long',kind:'VIDEO',durationMs:3_600_000,frameCount:12,audio:'transcribed'}]);expect(inferenceCalls).toBe(1);
+   expect(output.model).toBe('deepseek/deepseek-v4.1-flash-1017');
   }finally{download.mockRestore();}
   await expect(extractLocalMedia(media,source,1,dir,{python:'/not-called',transcribeScript:'/not-called',modelCache:dir},signal)).rejects.toThrow('MEDIA_LIMIT');
  }finally{await rm(dir,{recursive:true,force:true});}

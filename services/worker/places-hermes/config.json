@@ -1,14 +1,14 @@
 {
   "model": {
     "provider": "openrouter",
-    "default": "deepseek/deepseek-v4.1-flash",
+    "default": "deepseek/deepseek-v4.1-flash-1017",
     "base_url": "https://openrouter.ai/api/v1",
     "supports_vision": true
   },
   "auxiliary": {
     "vision": {
       "provider": "openrouter",
-      "model": "deepseek/deepseek-v4.1-flash"
+      "model": "deepseek/deepseek-v4.1-flash-1017"
     }
   },
   "agent": {"max_turns": 4, "verbose": false, "reasoning_effort": "low"},
@@ -29,7 +29,7 @@
         "model_routes": {
           "insta-places": {
             "provider": "openrouter",
-            "model": "deepseek/deepseek-v4.1-flash"
+            "model": "deepseek/deepseek-v4.1-flash-1017"
           }
         }
       }

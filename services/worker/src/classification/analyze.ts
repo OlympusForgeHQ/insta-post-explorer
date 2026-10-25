@@ -15,6 +15,6 @@ export function createClassificationAnalyzer(config:PlacesConfig,log:(event:Reco
    if(claim.media.length>1){const note=await inference.inspect({caption:claim.input.caption,mediaId:source.coverage.mediaId,transcript:source.transcript},source.frames,signal);notes.push({mediaId:source.coverage.mediaId,...note.output});}
   }
   const output=await inference.classify(claim,{post:claim.input,media:notes,transcripts:claim.media.length===1?extracted.map(m=>m.transcript):[]},claim.media.length===1?extracted[0].frames:[],signal);
-  return {...output.output,media:extracted.map(m=>m.coverage),model:'deepseek/deepseek-v4.1-flash',usage,elapsedMs:Date.now()-start};
+  return {...output.output,media:extracted.map(m=>m.coverage),model:'deepseek/deepseek-v4.1-flash-1017',usage,elapsedMs:Date.now()-start};
  };
 }

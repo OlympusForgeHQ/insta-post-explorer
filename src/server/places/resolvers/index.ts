@@ -69,7 +69,7 @@ export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:strin
   // approximate fallback available. Only neutral postal geocoding is used here.
   const addressGeocoder=new GeoapifyPlaceResolver({apiKey,baseUrl,timeoutMs:8000,maxAttempts:1,maxResults:5});
   return new ComplementaryPlaceResolver(primary,addressGeocoder,new OpenRouterPlaceAddressResearch({
-    apiKey:researchKey,model:process.env.PLACES_WEB_SEARCH_MODEL?.trim()||'deepseek/deepseek-v4.1-flash',
+    apiKey:researchKey,model:process.env.PLACES_WEB_SEARCH_MODEL?.trim()||'deepseek/deepseek-v4.1-flash-1017',
     reserveRequest:()=>reserveWebSearchRequest(context.ownerId,context.postId),
   }));
 }

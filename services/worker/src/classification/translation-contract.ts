@@ -1,5 +1,5 @@
 import {z} from 'zod';
-const CLASSIFICATION_MODEL='deepseek/deepseek-v4.1-flash';
+const CLASSIFICATION_MODEL='deepseek/deepseek-v4.1-flash-1017';
 export const CAPTION_TRANSLATION_VERSION='caption-translation-v1';
 export const CAPTION_TRANSLATION_TIMEOUT_MS=900_000;
 const fields={decision:z.enum(['TRANSLATED','UNCHANGED','NEEDS_REVIEW']),sourceLanguages:z.array(z.string().regex(/^[a-z]{2,3}$/)).min(1).max(16),translatedCaption:z.string().min(1).max(200_000).refine(text=>text.trim().length>0,'Empty translation').nullable(),reason:z.string().trim().min(1).max(1000)};
@@ -11,7 +11,7 @@ function checkOutcome(value:Output,ctx:z.RefinementCtx){
 }
 export const translationOutputSchema=baseOutputSchema.superRefine(checkOutcome);
 export type TranslationOutput=z.infer<typeof translationOutputSchema>;
-export const translationResultSchema=z.object({...fields,model:z.literal(CLASSIFICATION_MODEL),usage:z.object({inputTokens:z.number().int().nonnegative().max(2_000_000),outputTokens:z.number().int().nonnegative().max(200_000)}).strict(),elapsedMs:z.number().int().nonnegative().max(CAPTION_TRANSLATION_TIMEOUT_MS)}).strict().superRefine(checkOutcome);
+export const translationResultSchema=z.object({...fields,model:z.enum([CLASSIFICATION_MODEL,'deepseek/deepseek-v4.1-flash']),usage:z.object({inputTokens:z.number().int().nonnegative().max(2_000_000),outputTokens:z.number().int().nonnegative().max(200_000)}).strict(),elapsedMs:z.number().int().nonnegative().max(CAPTION_TRANSLATION_TIMEOUT_MS)}).strict().superRefine(checkOutcome);
 export type TranslationResult=z.infer<typeof translationResultSchema>;
 export function protectedCaptionTokens(text:string){
  return (text.match(/https?:\/\/[^\s<>"“”]+|[@#][\p{L}\p{N}_.]+|\p{N}+(?:[.,:/-]\p{N}+)*/gu)??[]).map(t=>t.replace(/[.!?,;:)]*$/u,'')).sort();

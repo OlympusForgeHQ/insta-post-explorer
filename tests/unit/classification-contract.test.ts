@@ -2,6 +2,10 @@ import {describe,it,expect} from 'vitest';
 import {classificationResultSchema,classificationCommandSchema} from '@/lib/classification/contract';
 const valid={status:'SUCCEEDED',mainTheme:'Sucré',tags:['Chocolat','Brownie','Dessert protéiné'],reason:'The dessert recipe contains chocolate',media:[{mediaId:'m1',kind:'IMAGE',durationMs:null,frameCount:1,audio:'not_applicable'}],model:'deepseek/deepseek-v4.1-flash',usage:{inputTokens:50,outputTokens:30},elapsedMs:100};
 describe('Classification contract',()=>{
+ it('accepts current and historical inference provenance while rejecting unrelated models',()=>{
+  for(const model of ['deepseek/deepseek-v4.1-flash-1017','deepseek/deepseek-v4.1-flash'])expect(classificationResultSchema.parse({...valid,model}).model).toBe(model);
+  expect(classificationResultSchema.safeParse({...valid,model:'other/model'}).success).toBe(false);
+ });
  it('accepts complete sixty-minute coverage and a ninety-minute job, while rejecting larger results',()=>{
   const long={...valid,elapsedMs:5_400_000,media:[{mediaId:'long',kind:'VIDEO',durationMs:3_600_000,frameCount:12,audio:'transcribed'}]};
   expect(classificationResultSchema.safeParse(long).success).toBe(true);
