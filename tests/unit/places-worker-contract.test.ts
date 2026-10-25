@@ -4,6 +4,15 @@ import { placeCandidateBatchSchema } from '@/lib/places/candidates';
 
 const candidate={name:'Example Cafe',address:null,city:'Paris',region:null,country:'France',category:'cafe',categoryReason:'The source recommends brunch.',confidence:0.8,evidence:[{type:'CAPTION',excerpt:'Brunch at Example Cafe'}]};
 
+it('accepts new analysis provenance and historical recovery inputs without admitting unrelated models',()=>{
+ const result={candidates:[candidate],media:[],model:'deepseek/deepseek-v4.1-flash-1017',usage:{inputTokens:10,outputTokens:5},elapsedMs:10};
+ const originalResult={...result,model:'deepseek/deepseek-v4.1-flash'};
+ expect(workerResultSchema.parse(result).model).toBe('deepseek/deepseek-v4.1-flash-1017');
+ const command={action:'recover',postId:'post',sourceJobId:'job',inputHash:'a'.repeat(64),sourceCandidateIndices:[0],originalResult,result};
+ expect(workerCommandSchema.parse(command)).toMatchObject({originalResult:{model:'deepseek/deepseek-v4.1-flash'},result:{model:'deepseek/deepseek-v4.1-flash-1017'},commit:false});
+ for(const field of ['result','originalResult'])expect(workerCommandSchema.safeParse({...command,[field]:{...result,model:'other/model'}}).success).toBe(false);
+});
+
 it('requires an explicitly scoped fresh reprocess command and defaults it to preview',()=>{
  const command={action:'reprocess',postId:'post',sourceJobId:'job',inputHash:'a'.repeat(64),expectedCompletionHash:'b'.repeat(64),
   result:{candidates:[candidate],media:[],model:'deepseek/deepseek-v4.1-flash',usage:{inputTokens:10,outputTokens:20},elapsedMs:100}};

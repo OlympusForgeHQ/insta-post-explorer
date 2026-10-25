@@ -1,5 +1,20 @@
 # Operational Handoff
 
+## DeepSeek Flash 1017 — 25 October 2026
+
+The shared `insta-places` alias now targets
+`deepseek/deepseek-v4.1-flash-1017` in the managed Hermes profile for Places,
+classification and caption translation. The complementary address resolver uses
+the same new default; `PLACES_WEB_SEARCH_MODEL` can explicitly select it.
+Fresh worker results record the new identifier. Result contracts still accept the
+previous Flash identifier so historical analyses and scoped recovery remain valid.
+
+Deploy the compatible application first, then switch the idle consumers and
+shared profile together. Preserve local ASR, resource limits, credentials and the
+sync schedule. The sync importer has no LLM selector. See
+[scope and validation](changes/2026-10-25-deepseek-flash-1017.md); private rollout
+receipts under `.tmp/models-20261025/` establish the actual production state.
+
 ## Legacy identities and Japanese destinations — 23 October 2026
 
 Policy `provider-context-v9` reconciles automatic address-only records only when

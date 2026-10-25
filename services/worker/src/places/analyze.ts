@@ -22,6 +22,6 @@ export function createPlacesAnalyzer(config:PlacesConfig,log:(event:Record<strin
     const final=await inference.analyze(prepared,'fusion',{post:prepared.input,captionCandidates:caption.candidates,ocrCandidates:ocr,transcripts:extracted.map(m=>m.transcript),mediaCoverage:coverage},[],signal,
       candidates=>groundPlacesEvidence(candidates,prepared.input.caption??'',coverage));addUsage(final.usage);
     log({postId:prepared.input.post_id,stage:'fusion',candidates:final.candidates.length});
-    return {candidates:final.candidates,media:extracted.map(m=>m.coverage),model:'deepseek/deepseek-v4.1-flash',usage,elapsedMs:Date.now()-started};
+    return {candidates:final.candidates,media:extracted.map(m=>m.coverage),model:'deepseek/deepseek-v4.1-flash-1017',usage,elapsedMs:Date.now()-started};
   };
 }
