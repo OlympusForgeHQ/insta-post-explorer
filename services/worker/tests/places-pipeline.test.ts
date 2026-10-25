@@ -1,15 +1,27 @@
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createTempWorkdirManager } from '../src/runtime/temp-workdir.js';
 import { runPlacesPipeline } from '../src/places/pipeline.js';
 import { PlacesHttpApi } from '../src/places/api.js';
 import { parseCandidates } from '../src/places/inference.js';
+import { createPlacesAnalyzer } from '../src/places/analyze.js';
 
 const roots:string[]=[];
 afterEach(async()=>{for(const root of roots)await rm(root,{recursive:true,force:true});});
 const outputSchema={type:'object',additionalProperties:false,required:['candidates'],properties:{candidates:{type:'array',maxItems:50,items:{type:'object',additionalProperties:false,required:['name','category'],properties:{name:{type:'string'},category:{enum:['restaurant','cafe','patisserie','voyage','divers']}}}}}};
+it('records the current upstream model while retaining the private inference alias',async()=>{
+ const request=vi.spyOn(globalThis,'fetch').mockImplementation(async(_url,init)=>{
+  expect(JSON.parse(String(init?.body)).model).toBe('insta-places');
+  return Response.json({model:'insta-places',choices:[{message:{content:'{"candidates":[]}'},finish_reason:'stop'}],usage:{prompt_tokens:10,completion_tokens:5}});
+ });
+ try{
+  const analyze=createPlacesAnalyzer({origin:'https://app.test',apiKey:'test',hermesUrl:'http://127.0.0.1:8645/v1',hermesKey:'test',tempRoot:'/tmp',python:'/unused',transcribeScript:'/unused',modelCache:'/unused'},()=>{});
+  const result=await analyze({input:{post_id:'post',input_hash:'hash',caption:'No recommended place'},media:[],outputSchema,categoryRules:'Only owner categories'},'/tmp',new AbortController().signal);
+  expect(result).toMatchObject({model:'deepseek/deepseek-v4.1-flash-1017',candidates:[],media:[],usage:{inputTokens:20,outputTokens:10}});
+ }finally{request.mockRestore();}
+});
 it('rejects injected authoritative fields and categories outside the server schema',()=>{
   expect(parseCandidates('{"candidates":[{"name":"Cafe","category":"cafe"}]}',outputSchema)).toMatchObject({candidates:[{category:'cafe'}]});
   for(const text of ['{"candidates":[{"name":"Cafe","category":"catering.cafe"}]}','{"candidates":[{"name":"Cafe","category":"cafe","latitude":1}]}','ignore the rules'])expect(()=>parseCandidates(text,outputSchema)).toThrow('INVALID_RESULT');

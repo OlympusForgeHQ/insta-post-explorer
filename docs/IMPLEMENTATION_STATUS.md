@@ -1,5 +1,14 @@
 # Implementation Status
 
+## DeepSeek Flash 1017 — 25 October 2026
+
+Places, classification, translation and complementary address research select
+`deepseek/deepseek-v4.1-flash-1017`. The internal alias stays `insta-places`; old
+result identifiers remain readable while new producers emit accurate provenance.
+There is no dependency, schema, ASR or sync scheduling change.
+See [validation and rollout](changes/2026-10-25-deepseek-flash-1017.md). Private
+runtime receipts under `.tmp/models-20261025/` determine deployment completion.
+
 ## Legacy identities and Japanese destinations — 23 October 2026
 
 Policy v9 adds narrowly proved legacy address labeling, duplicate landmark reuse,

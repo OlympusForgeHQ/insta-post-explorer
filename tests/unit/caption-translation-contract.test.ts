@@ -1,7 +1,12 @@
 import {describe,it,expect} from 'vitest';
-import {translationOutputSchema,validateTranslationContent} from '@/lib/classification/translation';
+import {translationOutputSchema,translationResultSchema,validateTranslationContent} from '@/lib/classification/translation';
 const translated={decision:'TRANSLATED' as const,sourceLanguages:['es'],translatedCaption:'Mélanger 200 g de farine. @chef #receta https://example.test/a',reason:'Spanish recipe'};
 describe('Caption translation contract',()=>{
+ it('accepts current and historical inference provenance while rejecting unrelated models',()=>{
+  const result={...translated,usage:{inputTokens:10,outputTokens:5},elapsedMs:10};
+  for(const model of ['deepseek/deepseek-v4.1-flash-1017','deepseek/deepseek-v4.1-flash'])expect(translationResultSchema.parse({...result,model}).model).toBe(model);
+  expect(translationResultSchema.safeParse({...result,model:'other/model'}).success).toBe(false);
+ });
  it.each([
   {decision:'UNCHANGED',sourceLanguages:['fr'],translatedCaption:null,reason:'French'},
   {decision:'UNCHANGED',sourceLanguages:['en','fr'],translatedCaption:null,reason:'English and French'},

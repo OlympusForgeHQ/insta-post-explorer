@@ -3,7 +3,7 @@ import {learningReportSchema} from '../../../services/worker/src/classification/
 import {SYNC_MAIN_THEMES} from '@/lib/sync/enrich-post';
 import {tagSlug} from '@/lib/import/normalize';
 export const CLASSIFICATION_VERSION='post-classification-v1';
-export const CLASSIFICATION_MODEL='deepseek/deepseek-v4.1-flash';
+export const CLASSIFICATION_MODEL='deepseek/deepseek-v4.1-flash-1017';
 export const CLASSIFICATION_LEASE_MS=90_000;
 export const CLASSIFICATION_MAX_VIDEO_BYTES=600*1024*1024;
 export const CLASSIFICATION_MAX_DURATION_MS=3_600_000;
@@ -23,7 +23,7 @@ export const classificationOutputSchema=z.discriminatedUnion('status',[
 });
 export const classificationResultSchema=z.object({
  status:z.enum(['SUCCEEDED','NEEDS_REVIEW']),mainTheme:z.enum(SYNC_MAIN_THEMES).nullable(),tags:z.array(tag).max(5),reason:z.string().trim().min(1).max(1000),
- media:z.array(classificationCoverageSchema).min(1).max(20),model:z.literal(CLASSIFICATION_MODEL),usage:z.object({inputTokens:z.number().int().nonnegative().max(2_000_000),outputTokens:z.number().int().nonnegative().max(100_000)}).strict(),elapsedMs:z.number().int().nonnegative().max(CLASSIFICATION_JOB_TIMEOUT_MS),
+ media:z.array(classificationCoverageSchema).min(1).max(20),model:z.enum([CLASSIFICATION_MODEL,'deepseek/deepseek-v4.1-flash']),usage:z.object({inputTokens:z.number().int().nonnegative().max(2_000_000),outputTokens:z.number().int().nonnegative().max(100_000)}).strict(),elapsedMs:z.number().int().nonnegative().max(CLASSIFICATION_JOB_TIMEOUT_MS),
 }).strict().superRefine((result,ctx)=>{if(!classificationOutputSchema.safeParse({status:result.status,mainTheme:result.mainTheme,tags:result.tags,reason:result.reason}).success)ctx.addIssue({code:'custom',message:'Invalid classification'});});
 const lease={jobId:id,leaseToken:z.string().uuid()};
 export const classificationCommandSchema=z.discriminatedUnion('action',[
