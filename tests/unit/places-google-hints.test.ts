@@ -6,6 +6,11 @@ import type {PlaceCandidate} from '@/lib/places/candidates';
 import type {PlaceResolutionInput,ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
 const candidate:PlaceCandidate={name:'Example Cafe',address:null,city:'Paris',country:'France',region:null,category:'cafe',confidence:.2,evidence:[]};
 const geo:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'geo-only',displayName:'Example Cafe',providerName:'Example Cafe',address:'Geoapify Address',city:'Paris',country:'France',countryCode:'FR',region:null,latitude:48.85,longitude:2.35,providerResultType:'amenity',providerRank:1,providerMatchType:'full_match',category:null,attribution:'Powered by Geoapify'};
+it('stops resolution when Google admission loses completion authority',async()=>{
+ const resolver=new FallbackPlaceResolver({resolve:async()=>[]},
+  {searchHints:async()=>{throw Error('PLACES_LEASE_LOST');}});
+ await expect(resolver.resolve({candidate,sourceTheme:'Restaurant'})).rejects.toThrow('PLACES_LEASE_LOST');
+});
 it('returns only independently retrieved Geoapify records after transient Google proximity hints',async()=>{
  const resolve=vi.fn(async(input:PlaceResolutionInput)=>input.proximity?[geo]:[]);
  const hints={searchHints:async()=>[{placeId:'google-id',latitude:48.8501,longitude:2.3501}]};

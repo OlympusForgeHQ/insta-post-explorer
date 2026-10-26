@@ -203,9 +203,11 @@ export async function planAll(
   resolver: PlaceResolver,
   memory: VerifiedPlaceMemory[] = [],
   sourceContext?:CityBranchSourceContext,
+  beforeCandidate?:()=>Promise<void>,
 ): Promise<CandidatePlan[]> {
   const plans: CandidatePlan[] = [];
   for (const candidate of candidates) {
+    await beforeCandidate?.();
     const enriched=enrichFromVerifiedMemory(candidate,memory);
     const plan=await planCandidate(enriched,sourceTheme,resolver,sourceContext);
     if(enriched!==candidate)plan.reasons=['verified_memory_context',...(plan.reasons??[])];

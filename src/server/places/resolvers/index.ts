@@ -8,6 +8,7 @@ import {ComplementaryPlaceResolver} from './complementary';
 import {OpenRouterPlaceAddressResearch} from './web-search';
 import {reserveWebSearchRequest} from './web-search-budget';
 import type { PlaceResolver } from "@/server/places/resolvers/types";
+import {assertCompletionAuthority,type CompletionAuthority} from '../completion-ownership';
 
 // Configured resolver selection. Reads server-only environment variables and
 // fails closed with a stable code when Places resolution is requested without a
@@ -33,7 +34,7 @@ function parseBoundedInt(raw: string | undefined, fallback: number, min: number,
   return Math.min(max, Math.max(min, value));
 }
 
-export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:string}): PlaceResolver {
+export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:string;completionAuthority?:CompletionAuthority}): PlaceResolver {
   const provider = process.env.PLACES_RESOLVER_PROVIDER?.trim() || "geoapify";
   if (provider !== "geoapify") {
     throw new PlacesResolverConfigError("UNSUPPORTED_PLACES_RESOLVER");
@@ -50,9 +51,12 @@ export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:strin
     throw new PlacesResolverConfigError("PLACES_RESOLVER_INSECURE_BASE_URL");
   }
 
+  const authority=context?.completionAuthority;
+  const beforeRequest=context&&authority?()=>assertCompletionAuthority(context.ownerId,context.postId,authority):undefined;
   const geoapify = new GeoapifyPlaceResolver({
     apiKey,
     baseUrl,
+    beforeRequest,
     timeoutMs: parseBoundedInt(process.env.PLACES_RESOLVER_TIMEOUT_MS, 8_000, 1_000, 30_000),
     maxResults: parseBoundedInt(process.env.PLACES_RESOLVER_MAX_RESULTS, 5, 1, 5),
     // Robustness knobs for large batches: total attempts and the backoff window.
@@ -62,15 +66,15 @@ export function getConfiguredPlaceResolver(context?:{ownerId:string;postId:strin
   });
   const googleKey = process.env.GOOGLE_PLACES_API_KEY?.trim();
   const primary = googleKey && context ? new FallbackPlaceResolver(geoapify,new GooglePlacesSearch({apiKey:googleKey,
-    reserveRequest:()=>reserveGoogleRequest(context.ownerId,context.postId)})) : geoapify;
+    reserveRequest:()=>reserveGoogleRequest(context.ownerId,context.postId,authority)})) : geoapify;
   const researchKey=process.env.OPENROUTER_API_KEY?.trim();
   if(process.env.PLACES_WEB_SEARCH_ENABLED!=='1'||!context||!researchKey)return primary;
   // A failed optional research path must stay bounded and leave the existing
   // approximate fallback available. Only neutral postal geocoding is used here.
-  const addressGeocoder=new GeoapifyPlaceResolver({apiKey,baseUrl,timeoutMs:8000,maxAttempts:1,maxResults:5});
+  const addressGeocoder=new GeoapifyPlaceResolver({apiKey,baseUrl,beforeRequest,timeoutMs:8000,maxAttempts:1,maxResults:5});
   return new ComplementaryPlaceResolver(primary,addressGeocoder,new OpenRouterPlaceAddressResearch({
     apiKey:researchKey,model:process.env.PLACES_WEB_SEARCH_MODEL?.trim()||'deepseek/deepseek-v4.1-flash-1017',
-    reserveRequest:()=>reserveWebSearchRequest(context.ownerId,context.postId),
+    reserveRequest:()=>reserveWebSearchRequest(context.ownerId,context.postId,authority),
   }));
 }
 

@@ -1,5 +1,16 @@
 # Operational Handoff
 
+## Places completion ownership — 26 October 2026
+
+Long completion retries share one durable computation per lease and payload.
+Provider admission is fenced to that computation; terminal or stale work cannot
+reserve new Google/web requests or continue Geoapify/candidate work. Caught
+failures release only their own marker; crashes use existing lease reclaim.
+Manual decisions, historical recovery budgets and receipts remain protected.
+Web/API deployment only, without a migration or consumer restart. See
+[design, risks and evidence](changes/2026-10-26-places-completion-ownership.md).
+Private release receipts determine actual production activation.
+
 ## Bounded video frame admission — 26 October 2026
 
 Hermes accepts at most ten images in one API admission. Classification and Places
