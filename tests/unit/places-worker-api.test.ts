@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 vi.mock('server-only',()=>({}));
 import { requireExternalApiKey } from '@/auth/api-key';
+import {PLACE_CONTEXT_RULES} from '@/lib/places/resolution';
+import {PLACE_CLASSIFICATION_RULES} from '@/lib/places/categories';
+import {preparedSchema} from '../../services/worker/src/places/api';
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 afterEach(()=>vi.unstubAllEnvs());
 it('keeps Places writes separate from read and Instagram sync credentials and fails closed',()=>{
@@ -43,4 +46,8 @@ it('returns a transient response when an identical completion is still owned by 
     expect(await response.json()).toMatchObject({error:{code:'SERVICE_UNAVAILABLE'}});
     expect(response.headers.get('cache-control')).toBe('private, no-store');
   }finally{pending.mockRestore();}
+});
+it('keeps server guidance compatible with the deployed consumer preparation contract',()=>{
+  expect(preparedSchema.safeParse({input:{post_id:'synthetic-post',input_hash:'synthetic-hash'},media:[],outputSchema:{},
+    categoryRules:PLACE_CLASSIFICATION_RULES+'\n'+PLACE_CONTEXT_RULES}).success).toBe(true);
 });

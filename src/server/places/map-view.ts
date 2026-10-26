@@ -1,4 +1,6 @@
 import "server-only";
+import type { Prisma } from "@prisma/client";
+import { entityNamesAgree } from "@/lib/places/scoring";
 
 import { canonicalPlacesTheme, type PlacesEligibleTheme } from "@/lib/places/eligibility";
 import { groupForRawCategory, type PlaceCategoryGroupKey } from "@/lib/places/categories";
@@ -18,6 +20,35 @@ import { activePlaceWhere } from "@/server/places/visibility";
 
 export const PLACES_MAP_MAX = 1_000;
 
+const AREA_LEVELS = ["building", "street", "district", "city"] as const;
+const MISSING_AREA_DETAILS = ["venue_identity", "unit", "floor", "street_number", "street_address", "business_address"] as const;
+export type PlaceAreaContext = {
+  level: (typeof AREA_LEVELS)[number];
+  missingDetails: (typeof MISSING_AREA_DETAILS)[number][];
+};
+
+function areaContext(metadata: Prisma.JsonValue, displayName: string, precision: PlacePrecisionDto, linkedPostIds: readonly string[]): PlaceAreaContext | null {
+  if (precision !== "APPROXIMATE" || !metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const label = metadata.label;
+  if (!label || typeof label !== "object" || Array.isArray(label) || label.source !== "source_candidate_approximate_area"
+    || typeof label.candidateName !== "string" || typeof label.candidateKey !== "string" || !/^[a-f0-9]{64}$/.test(label.candidateKey)
+    || typeof label.sourcePostId !== "string" || !linkedPostIds.includes(label.sourcePostId)
+    || !(entityNamesAgree(displayName, label.candidateName) || entityNamesAgree(label.candidateName, displayName))) return null;
+  // Match the persisted source-label contract, without exporting source text or
+  // treating stale provenance from a manually renamed place as current proof.
+  const context = label.sourceContext;
+  if (!context || typeof context !== "object" || Array.isArray(context)
+    || ["address", "city", "region", "country"].some(field => context[field] !== null && typeof context[field] !== "string")
+    || typeof label.level !== "string" || !(AREA_LEVELS as readonly string[]).includes(label.level)
+    || !Array.isArray(label.missingDetails) || label.missingDetails.length > 20
+    || label.missingDetails.some(detail => typeof detail !== "string")) return null;
+  return {
+    level: label.level as PlaceAreaContext["level"],
+    missingDetails: [...new Set(label.missingDetails.filter((detail): detail is PlaceAreaContext["missingDetails"][number] =>
+      typeof detail === "string" && (MISSING_AREA_DETAILS as readonly string[]).includes(detail)))],
+  };
+}
+
 export type PlacesMapItem = {
   id: string;
   displayName: string;
@@ -33,6 +64,7 @@ export type PlacesMapItem = {
   precision: PlacePrecisionDto;
   confidence: number;
   approximationRadiusMeters: number | null;
+  areaContext?: PlaceAreaContext | null;
   reviewStatus: PlaceReviewStatusDto;
   isUserConfirmed: boolean;
   postCount: number;
@@ -88,10 +120,11 @@ export async function loadPlacesMapView(ownerId: string, max: number = PLACES_MA
       precision: true,
       confidence: true,
       approximationRadiusMeters: true,
+      metadata: true,
       reviewStatus: true,
       isUserConfirmed: true,
       _count: { select: { postLinks: true } },
-      postLinks: { select: { post: { select: { mainTheme: true } } } },
+      postLinks: { select: { postId: true, post: { select: { mainTheme: true } } } },
     },
   });
 
@@ -121,6 +154,7 @@ export async function loadPlacesMapView(ownerId: string, max: number = PLACES_MA
       precision: row.precision,
       confidence: row.confidence,
       approximationRadiusMeters: row.approximationRadiusMeters,
+      areaContext: areaContext(row.metadata, row.displayName, row.precision, row.postLinks.map(link => link.postId)),
       reviewStatus: row.reviewStatus,
       isUserConfirmed: row.isUserConfirmed,
       postCount: row._count.postLinks,

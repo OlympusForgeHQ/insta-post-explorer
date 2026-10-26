@@ -1,5 +1,23 @@
 # Implementation Status
 
+## Progressive geographic context — 26 October 2026
+
+Policy `provider-context-v10` recognizes bounded Belgian street abbreviations,
+bilingual municipality labels and the directional relationship between Brussels
+and its communes. Literal guide context can ground a venue's city; conflicting
+branches, explicit municipalities, postal codes and house numbers stay distinct.
+A fallback uses the smallest independently verified building, street, district or
+city area. Place details describe that precision in plain language; selection and
+the existing Zones control retain their map behavior.
+
+Provider address observations remain available when nearby business observations
+cannot corroborate the source address. Worker preparation receives the context
+rules through the existing API. Only the web/API needs deployment; no migration,
+new provider, consumer restart or global historical backfill is introduced.
+See [scope and evidence](changes/2026-10-26-geographic-mentions.md). Private release
+and scoped recovery receipts under `.tmp/geographic-mentions-20261026/` determine
+actual production activation and data results.
+
 ## Places completion ownership — 26 October 2026
 
 Long completion retries share one durable computation per lease and payload.

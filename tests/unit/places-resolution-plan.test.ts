@@ -220,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v9'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v10'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
@@ -358,5 +358,170 @@ describe('Japanese municipality and interior context',()=>{
    {...building,providerName:'Different Tenant'}]){
    expect((await planAll([candidate],'Restaurant',{resolve:async()=>[resolved]}))[0].best).toBeNull();
   }
+ });
+});
+
+it('grounds compact source handles and restores literal caption context for approximate locations',async()=>{
+ const source:PlaceCandidate={name:'Example Bakery',address:'Unit C, 12 Example Road',city:'Paris',region:null,country:'France',category:'patisserie',confidence:.5,
+  evidence:[{type:'CAPTION',excerpt:'@examplebakery'},{type:'CAPTION',excerpt:'Unit C, 12 Example Road'}]};
+ const anchor:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'building-context',displayName:'12 Example Road, Paris',providerName:null,
+  address:'12 Example Road, Paris',street:'Example Road',houseNumber:'12',city:'Paris',region:null,country:'France',countryCode:'FR',
+  latitude:48.85,longitude:2.35,providerResultType:'building',providerRank:1,providerMatchType:'full_match',category:'building',attribution:null};
+ const caption='Our autumn addresses in Paris\nA bakery to visit: @examplebakery\nUnit C, 12 Example Road';
+ source.inferredFields=['city'];
+ const original=structuredClone(source);
+ const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[anchor]},[],{caption,structuredLocation:null});
+ expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'building',sourceName:'Example Bakery'}});
+ expect(source).toEqual(original);
+ expect(plan.candidate.evidence).toEqual(expect.arrayContaining(original.evidence));
+ expect(plan.candidate.evidence.filter(item=>item.type==='CAPTION').every(item=>caption.includes(item.excerpt))).toBe(true);
+ for(const changed of [
+  {...source,name:'Different Bakery'},
+  {...source,city:'Lyon'},
+  {...source,name:'Example Bakery North'},
+  {...source,evidence:[{type:'CAPTION' as const,excerpt:'@examplebakery_north'}]},
+ ])expect((await planAll([changed],'Restaurant',{resolve:async()=>[anchor]},[],{caption:caption.replace(/@examplebakery\b/u,changed.evidence[0].excerpt),structuredLocation:null}))[0].best).toBeNull();
+});
+
+it('keeps handle geography separate and never borrows an unrelated venue name from a shared caption',async()=>{
+ const area:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'paris-zone',displayName:'Paris',providerName:'Paris',address:'Paris, France',street:null,houseNumber:null,
+  city:'Paris',region:null,country:'France',countryCode:'FR',latitude:48.85,longitude:2.35,providerResultType:'city',providerRank:1,providerMatchType:'full_match',
+  category:'populated_place',attribution:null,providerBounds:{lon1:2.22,lat1:48.81,lon2:2.42,lat2:48.90}};
+ const source:PlaceCandidate={name:'Example Bakery',address:null,city:'Paris',region:null,country:'France',category:'patisserie',confidence:.5,
+  inferredFields:['city'],evidence:[{type:'CAPTION',excerpt:'Example Bakery'}]};
+ for(const caption of ['Try @examplebakery #Paris','Try @examplebakery. Follow @paris',
+  'Paris ideas\nOther Bakery\n12 Example Road',
+  'Example Bakery in Lyon\nOther Bakery in Paris',
+  'Example Bakery in Lyon\nParis Baguette, another recommendation',
+  'Our guide in Paris\n\nExample Bakery in Lyon',
+  'Things to do in Paris\n1. Example Bakery à Lyon',
+  '1️⃣ Example Bakery in Lyon\n📍Lyon\n2️⃣ Other Bakery\n📍Paris',
+  'Example Bakery in Lyon\nOther Bakery\n📍Paris',
+  'Our guide in Paris\n\nTry Example Bakery\n📍Lyon']) {
+  const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[area]},[],{caption,structuredLocation:null});
+  expect(plan.best).toBeNull();
+  const [whole]=await planAll([{...source,evidence:[{type:'CAPTION',excerpt:caption}]}],'Restaurant',{resolve:async()=>[area]},[],{caption,structuredLocation:null});
+  expect(whole.best).toBeNull();
+ }
+});
+
+it.each(['@examplebakerynorth','@example_bakery_north','@example.bakery.north'])('never grounds a shorter venue from a suffixed handle: %s',async handle=>{
+ const source:PlaceCandidate={name:'Example Bakery',address:null,city:'Paris',country:'France',region:null,category:'patisserie',confidence:.5,
+  evidence:[{type:'CAPTION',excerpt:handle},{type:'CAPTION',excerpt:'Paris'}]};
+ const {canApproximateVenue}=await import('@/lib/places/approximate-resolution');
+ expect(canApproximateVenue(source)).toBe(false);
+});
+
+it('uses a literally named neighborhood as a verified bounded zone without inventing a street address',async()=>{
+ const source:PlaceCandidate={name:'Example Bakery',address:'North Quarter',city:'Paris',region:null,country:'France',category:'patisserie',confidence:.5,
+  evidence:[{type:'CAPTION',excerpt:'Example Bakery, North Quarter, Paris'}]};
+ const area:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'quarter-context',displayName:'North Quarter, Paris',providerName:'North Quarter',
+  address:'North Quarter, Paris',city:'Paris',region:null,country:'France',countryCode:'FR',latitude:48.85,longitude:2.35,
+  providerResultType:'suburb',providerRank:1,providerMatchType:'full_match',category:'populated_place',attribution:null,
+  administrativeLabels:{suburb:'North Quarter'},providerBounds:{lon1:2.34,lat1:48.84,lon2:2.36,lat2:48.86}};
+ const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[],resolveApproximate:async()=>[area]});
+ expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'district',sourceName:'Example Bakery'}});
+ expect(plan.candidate).toEqual(source);
+ for(const other of [{...area,providerName:'Other Quarter',administrativeLabels:{suburb:'Other Quarter'}},{...area,providerBounds:null},
+  {...area,providerResultType:'amenity',category:'catering.restaurant',providerName:'Other Bakery'}])
+  expect((await planAll([source],'Restaurant',{resolve:async()=>[],resolveApproximate:async()=>[other]}))[0].best).toBeNull();
+});
+
+it('retains an independently evidenced Belgian city alias through final area verification',async()=>{
+ const source:PlaceCandidate={name:'Example Bakery',address:null,city:'Brussels',country:'Belgium',region:null,category:'patisserie',confidence:.5,
+  evidence:[{type:'CAPTION',excerpt:'Example Bakery in Bruxelles'}]};
+ const area:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'brussels-area',providerName:'Brussels',displayName:'Brussels',address:'Brussels, Belgium',
+  city:'Brussels',region:'Brussels-Capital',country:'Belgium',countryCode:'BE',latitude:50.85,longitude:4.35,providerResultType:'city',providerRank:1,providerMatchType:'full_match',
+  category:'populated_place',attribution:null,providerBounds:{lon1:4.3,lat1:50.8,lon2:4.4,lat2:50.9}};
+ expect((await planAll([source],'Restaurant',{resolve:async()=>[area]}))[0].best?.scored.precision).toBe('APPROXIMATE');
+ expect((await planAll([{...source,country:null}],'Restaurant',{resolve:async()=>[{...area,country:'United States',countryCode:'US'}]}))[0].best).toBeNull();
+});
+
+it('keeps a named public square inside its verified street envelope without fabricating a house number',async()=>{
+ const source:PlaceCandidate={name:'Weekend Market',address:'Place Example',city:'Paris',region:null,country:'France',category:'divers',confidence:.5,
+  evidence:[{type:'CAPTION',excerpt:'Weekend Market, Place Example, Paris'}]};
+ const street:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'market-square',displayName:'Place Example, Paris',providerName:'Place Example',street:'Place Example',houseNumber:null,
+  address:'Place Example, Paris',city:'Paris',region:null,country:'France',countryCode:'FR',latitude:48.85,longitude:2.35,
+  providerResultType:'street',providerRank:1,providerMatchType:'full_match',category:null,attribution:null,
+  providerBounds:{lon1:2.349,lat1:48.849,lon2:2.351,lat2:48.851}};
+ const [plan]=await planAll([source],'Voyages',{resolve:async()=>[street]});
+ expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'street',sourceName:'Weekend Market'}});
+ expect(plan.best?.resolved.houseNumber).toBeNull();
+ for(const other of [{...street,street:'Place Elsewhere',providerName:'Place Elsewhere'},{...street,providerBounds:null}])
+  expect((await planAll([source],'Voyages',{resolve:async()=>[other]}))[0].best).toBeNull();
+});
+
+describe('Belgian street envelopes with literal source names',()=>{
+ const source=(address:string):PlaceCandidate=>({name:'Weekend Market',address,city:'Bruxelles',region:null,country:'Belgique',category:'voyage',confidence:.5,
+  evidence:[{type:'CAPTION',excerpt:`Weekend Market, ${address}, Bruxelles`}]});
+ const street=(name:string):ResolvedPlaceCandidate=>({provider:'geoapify',providerPlaceId:'synthetic-street',displayName:`${name}, Bruxelles`,providerName:name,
+  street:name,houseNumber:null,address:`${name}, Bruxelles`,city:'Bruxelles',region:null,country:'Belgium',countryCode:'BE',latitude:50.85,longitude:4.35,
+  providerResultType:'street',providerRank:1,providerMatchType:'full_match',category:null,attribution:null,
+  providerBounds:{lon1:4.349,lat1:50.849,lon2:4.351,lat2:50.851}});
+ it.each([
+  ['Chaussée Exemple','Chaussée Exemple'],['Allée Exemple','Allée Exemple'],
+  ['Chau. Exemple','Chaussée Exemple'],['Pl. Exemple','Place Exemple'],
+  ['Place Exemple','Place Exemple - Voorbeeldplein'],['Pl. Exemple','Place Exemple – Voorbeeldplein'],
+  ['Rue Exemple','Rue Exemple / Voorbeeldstraat'],
+  ['Chaussée Exemple','Chaussée Exemple - Voorbeeld Steenweg'],
+  ['Chau. Exemple 133/135','Chaussée Exemple'],['133/135 Allée Exemple','Allée Exemple'],
+ ])('verifies the complete source street %s against %s without rewriting either identity',async(address,providerName)=>{
+  const candidate=source(address),resolved=street(providerName),original=structuredClone(candidate),provider=structuredClone(resolved);
+  const [plan]=await planAll([candidate],'Voyages',{resolve:async()=>[resolved]});
+  expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'street',sourceName:'Weekend Market',missingDetails:expect.arrayContaining(['street_number'])}});
+  expect(plan.best?.resolved).toEqual(provider);expect(plan.candidate).toEqual(original);
+  expect(candidate).toEqual(original);expect(resolved).toEqual(provider);
+ });
+ it.each([
+  ['prefix',{street:'Place Exemple Nord - Noordplein',providerName:'Place Exemple Nord - Noordplein'}],
+  ['two French streets',{street:'Place Exemple - Place Ailleurs',providerName:'Place Exemple - Place Ailleurs'}],
+  ['different street types',{street:'Place Exemple - Voorbeeldstraat',providerName:'Place Exemple - Voorbeeldstraat'}],
+  ['three components',{street:'Place Exemple - Voorbeeldplein - Anderplein',providerName:'Place Exemple - Voorbeeldplein - Anderplein'}],
+  ['city as alias',{street:'Place Exemple - Bruxelles',providerName:'Place Exemple - Bruxelles'}],
+  ['bare street type',{street:'Place Exemple - Plein',providerName:'Place Exemple - Plein'}],
+  ['occupant',{providerName:'Other Market'}],['wrong city',{city:'Leuven'}],['missing bounds',{providerBounds:null}],
+  ['unranked',{providerRank:.9}],['foreign provider',{country:'France',countryCode:'FR'}],
+ ] as const)('rejects an unsafe bilingual street envelope: %s',async(_scenario,overrides)=>{
+  const candidate=source('Place Exemple'),resolved={...street('Place Exemple - Voorbeeldplein'),...overrides};
+  expect((await planAll([candidate],'Voyages',{resolve:async()=>[resolved]}))[0].best).toBeNull();
+ });
+ it('does not apply Belgian abbreviations or bilingual splitting to a foreign street',async()=>{
+  const candidate={...source('Pl. Exemple'),country:'France'},resolved={...street('Place Exemple - Voorbeeldplein'),country:'France',countryCode:'FR'};
+  expect((await planAll([candidate],'Voyages',{resolve:async()=>[resolved]}))[0].best).toBeNull();
+ });
+ it('derives only one literally numbered Belgian street for a neutral retry, keeping the original branch number',async()=>{
+  const {approximateStreet}=await import('@/lib/places/approximate-resolution');
+  const candidate=source('Chau. Exemple 133/135, 1050 Bruxelles'),original=structuredClone(candidate);
+  expect(approximateStreet(candidate)).toBe('Chau. Exemple');
+  expect(candidate).toEqual(original);
+  for(const changed of [
+   {...candidate,evidence:[{type:'CAPTION' as const,excerpt:'Weekend Market, Chau. Exemple 133, Bruxelles'}]},
+   source('Chau. Exemple 133/135, Rue Ailleurs 2'),
+  ])expect(approximateStreet(changed)).toBeNull();
+ });
+ it('selects the same-named Belgian street whose explicit postcode matches the source',async()=>{
+  const candidate=source('Rue Exemple 133/135, 1040 Bruxelles');
+  const anchors=['1040','1410','1310'].map((postalCode,index)=>{
+   const latitude=50.85-index*.1;
+   return {...street('Rue Exemple - Voorbeeldstraat'),providerPlaceId:`street-${postalCode}`,postalCode,latitude,
+    providerBounds:{lon1:4.349,lon2:4.351,lat1:latitude-.001,lat2:latitude+.001}};
+  });
+  const original=structuredClone(candidate),providers=structuredClone(anchors);
+  const [plan]=await planAll([candidate],'Voyages',{resolve:async()=>anchors});
+  expect(plan.best?.resolved.providerPlaceId).toBe('street-1040');
+  expect(plan.best?.scored.contextualArea?.level).toBe('street');
+  expect(candidate).toEqual(original);expect(anchors).toEqual(providers);
+ });
+ it.each([true,false])('rejects a Belgian street with a conflicting explicit postcode (structured: %s)',async structured=>{
+  const candidate=source('Rue Exemple 133/135, 1040 Bruxelles');
+  const anchor={...street('Rue Exemple - Voorbeeldstraat'),postalCode:structured?'1410':null,
+   address:'Rue Exemple - Voorbeeldstraat, 1410 Bruxelles'};
+  expect((await planAll([candidate],'Voyages',{resolve:async()=>[anchor]}))[0].best).toBeNull();
+ });
+ it('does not invent a postal contradiction when the source or provider omits the postcode',async()=>{
+  for(const [candidate,anchor] of [
+   [source('Rue Exemple 133/135, 1040 Bruxelles'),street('Rue Exemple - Voorbeeldstraat')],
+   [source('Rue Exemple 133/135'),{...street('Rue Exemple - Voorbeeldstraat'),postalCode:'1410'}],
+  ] as const)expect((await planAll([candidate],'Voyages',{resolve:async()=>[anchor]}))[0].best?.scored.contextualArea?.level).toBe('street');
  });
 });
