@@ -4,10 +4,11 @@ import { HermesPlacesInference } from './inference.js';
 import { extractMedia, type ExtractedMedia } from './media.js';
 import type { PipelineResult } from './pipeline.js';
 import {groundPlacesEvidence} from './evidence.js';
+import {frameBatches} from './inference-admission.js';
 
 export function createPlacesAnalyzer(config:PlacesConfig,log:(event:Record<string,unknown>)=>void){
-  const inference=new HermesPlacesInference(config.hermesUrl,config.hermesKey);
   return async(prepared:PreparedPost,dir:string,signal:AbortSignal):Promise<PipelineResult>=>{
+    const inference=new HermesPlacesInference(config.hermesUrl,config.hermesKey,undefined,undefined,event=>log({postId:prepared.input.post_id,...event}));
     const started=Date.now(),usage={inputTokens:0,outputTokens:0};
     const addUsage=(u:typeof usage)=>{usage.inputTokens+=u.inputTokens;usage.outputTokens+=u.outputTokens;if(usage.inputTokens>2_000_000||usage.outputTokens>100_000)throw Error('MEDIA_LIMIT');};
     const caption=await inference.analyze(prepared,'caption',prepared.input,[],signal);addUsage(caption.usage);
@@ -16,8 +17,12 @@ export function createPlacesAnalyzer(config:PlacesConfig,log:(event:Record<strin
     for(let index=0;index<prepared.media.length;index++){
       const media=await extractMedia(prepared.media[index],index,dir,config,signal);extracted.push(media);
       log({postId:prepared.input.post_id,stage:'media',...media.coverage,transcriptSegments:media.transcript.segments.length});
-      const result=await inference.analyze(prepared,'ocr',{mediaId:media.coverage.mediaId},media.frames,signal);addUsage(result.usage);ocr.push(result.candidates);
+      for(const frames of frameBatches(media.frames)){
+        signal.throwIfAborted();
+        const result=await inference.analyze(prepared,'ocr',{mediaId:media.coverage.mediaId},frames,signal);addUsage(result.usage);ocr.push(result.candidates);
+      }
     }
+    signal.throwIfAborted();
     const coverage=extracted.map(m=>m.coverage);
     const final=await inference.analyze(prepared,'fusion',{post:prepared.input,captionCandidates:caption.candidates,ocrCandidates:ocr,transcripts:extracted.map(m=>m.transcript),mediaCoverage:coverage},[],signal,
       candidates=>groundPlacesEvidence(candidates,prepared.input.caption??'',coverage));addUsage(final.usage);

@@ -22,13 +22,21 @@ it('passes all sixty minutes of audio and frames through the classifier, while P
   const source=path.join(dir,'source.mp4'),transcribe=path.join(dir,'transcribe.py');
   await runProcess('/usr/bin/ffmpeg',['-nostdin','-v','error','-f','lavfi','-i','color=c=blue:s=32x32:r=1:d=3600','-f','lavfi','-i','anullsrc=r=8000:cl=mono','-t','3600','-c:v','libx264','-threads','1','-c:a','pcm_s16le','-f','mov',source],signal);
   await writeFile(transcribe,'import json,sys,wave\nwith wave.open(sys.argv[2]) as audio:\n assert 3600 <= audio.getnframes()/audio.getframerate() < 3600.1\nprint(json.dumps({"segments":[{"startMs":3599000,"endMs":3600000,"text":"Contexte final de la recette"}]}))\n');
-  const bytes=await readFile(source);let inferenceCalls=0;
-  const request:typeof fetch=async(_url,init)=>{inferenceCalls++;const body=JSON.parse(String(init?.body));expect(JSON.stringify(body)).toContain('Contexte final de la recette');expect(body.messages[1].content.filter((c:{type:string})=>c.type==='image_url')).toHaveLength(12);const frames=body.messages[1].content.filter((c:{type:string,text?:string})=>c.type==='text').slice(1).map((c:{text:string})=>JSON.parse(c.text));expect(frames[0].timestampMs).toBe(0);expect(frames.at(-1).timestampMs).toBe(3_599_000);return Response.json({model:'insta-places',choices:[{message:{content:JSON.stringify({status:'SUCCEEDED',mainTheme:'Sucré',tags:['Chocolat','Brownie','Pistache'],reason:'Complete recipe context'})},finish_reason:'stop'}],usage:{prompt_tokens:100,completion_tokens:50}});};
+  const bytes=await readFile(source);let inferenceCalls=0;const seenTimestamps:number[]=[];
+  const request:typeof fetch=async(_url,init)=>{
+   inferenceCalls++;const body=JSON.parse(String(init?.body));expect(JSON.stringify(body)).toContain('Contexte final de la recette');
+   const images=body.messages[1].content.filter((c:{type:string})=>c.type==='image_url');
+   if(images.length>10)return Response.json({error:{code:'invalid_params'}},{status:400});
+   const frames=body.messages[1].content.filter((c:{type:string,text?:string})=>c.type==='text').slice(1).map((c:{text:string})=>JSON.parse(c.text));
+   seenTimestamps.push(...frames.map((frame:{timestampMs:number})=>frame.timestampMs));
+   const output=images.length?{summary:'Complete sampled recipe context',visibleText:'Recipe'}:{status:'SUCCEEDED',mainTheme:'Sucré',tags:['Chocolat','Brownie','Pistache'],reason:'Complete recipe context'};
+   return Response.json({model:'insta-places',choices:[{message:{content:JSON.stringify(output)},finish_reason:'stop'}],usage:{prompt_tokens:100,completion_tokens:50}});
+  };
   const download=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(bytes,{headers:{'Content-Length':String(bytes.length)}}));
   try{
    const analyzer=createClassificationAnalyzer({origin:'https://app.test',apiKey:'test',hermesUrl:'http://127.0.0.1:8645/v1',hermesKey:'test',tempRoot:dir,python:'/usr/bin/python3',transcribeScript:transcribe,modelCache:dir},()=>undefined,request);
    const output=await analyzer({jobId:'job',leaseToken:'c31dc4f4-2e82-4926-88f2-1b0875d28a5b',heartbeatIntervalMs:30000,input:{post_id:'post',input_hash:'hash',caption:'Long recipe',author_username:'baker'},media:[{...media,byteSize:bytes.length}],themes:['Sucré'],existingTags:[],outputSchema:{type:'object'}},dir,signal);
-   expect(output.media).toEqual([{mediaId:'long',kind:'VIDEO',durationMs:3_600_000,frameCount:12,audio:'transcribed'}]);expect(inferenceCalls).toBe(1);
+   expect(output.media).toEqual([{mediaId:'long',kind:'VIDEO',durationMs:3_600_000,frameCount:12,audio:'transcribed'}]);expect(inferenceCalls).toBe(3);expect(seenTimestamps).toHaveLength(12);expect(seenTimestamps[0]).toBe(0);expect(seenTimestamps.at(-1)).toBe(3_599_000);
    expect(output.model).toBe('deepseek/deepseek-v4.1-flash-1017');
   }finally{download.mockRestore();}
   await expect(extractLocalMedia(media,source,1,dir,{python:'/not-called',transcribeScript:'/not-called',modelCache:dir},signal)).rejects.toThrow('MEDIA_LIMIT');
