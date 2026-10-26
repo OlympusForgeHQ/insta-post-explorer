@@ -21,6 +21,7 @@ export class FallbackPlaceResolver implements PlaceResolver {
     try {hints=await this.secondary.searchHints(input);}
     catch(error) {
       const message=error instanceof Error?error.message:'';
+      if(message==='PLACES_LEASE_LOST')throw error;
       const code=/^GOOGLE_[A-Z0-9_]{1,64}$/u.test(message)?message:'GOOGLE_HINTS_UNAVAILABLE';
       console.warn(JSON.stringify({stage:'places_google_hints',code}));
       return {results,hints:[]};

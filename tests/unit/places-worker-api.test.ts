@@ -28,3 +28,19 @@ it('guards the real V1 route before handling malformed or oversized worker comma
   expect((await POST(request('worker',' '.repeat(512*1024+1)))).status).toBe(413);
   vi.stubEnv('PLACES_WORKER_ENABLED','0');expect((await POST(request('worker','{}'))).status).toBe(503);
 });
+
+it('returns a transient response when an identical completion is still owned by another request',async()=>{
+  vi.stubEnv('PLACES_WORKER_ENABLED','1');vi.stubEnv('PLACES_WORKER_API_KEY_SHA256',hash('worker'));
+  vi.stubEnv('EXTERNAL_API_KEY_SHA256',hash('reader'));vi.stubEnv('INSTAGRAM_AUTO_SYNC_KEY_SHA256',hash('sync'));vi.stubEnv('APP_OWNER_ID','route-owner');
+  const service=await import('@/server/places/worker');
+  const pending=vi.spyOn(service,'completePlacesJob').mockRejectedValueOnce(Error('PLACES_COMPLETION_PENDING'));
+  try{
+    const {POST}=await import('@/app/api/v1/places/worker/route');
+    const response=await POST(new Request('http://localhost/api/v1/places/worker',{method:'POST',headers:{Authorization:'Bearer worker','Content-Type':'application/json'},body:JSON.stringify({
+      action:'complete',jobId:'job',leaseToken:'00000000-0000-4000-8000-000000000000',result:{candidates:[],media:[],model:'deepseek/deepseek-v4.1-flash-1017',usage:{inputTokens:0,outputTokens:0},elapsedMs:0},
+    })}));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({error:{code:'SERVICE_UNAVAILABLE'}});
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+  }finally{pending.mockRestore();}
+});
