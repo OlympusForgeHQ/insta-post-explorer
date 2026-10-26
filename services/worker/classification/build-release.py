@@ -16,7 +16,7 @@ def build(destination):
     destination.mkdir(mode=0o755, parents=True)
     for directory in ['classification']:
         shutil.copytree(WORKER / 'dist' / directory, destination / 'dist' / directory)
-    for filename in ['places/api.js', 'places/learning.js', 'places/config.js', 'places/media.js', 'runtime/temp-workdir.js']:
+    for filename in ['places/api.js', 'places/learning.js', 'places/config.js', 'places/media.js', 'places/inference-admission.js', 'runtime/temp-workdir.js']:
         target = destination / 'dist' / filename
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(WORKER / 'dist' / filename, target)
