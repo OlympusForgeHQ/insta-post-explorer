@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition, type RefObject } from "react";
 import { ExternalLink, Loader2, MapPin, X } from "lucide-react";
 
-import type { PlacesMapItem } from "@/server/places/map-view";
+import type { PlaceAreaContext, PlacesMapItem } from "@/server/places/map-view";
 import { PLACE_CATEGORY_GROUPS } from "@/lib/places/categories";
 import { cn } from "@/lib/utils";
 import { confirmPlaceAction, loadPlacePostsAction, rejectPlaceAction, type PlacePostDetailDto } from "@/features/places/actions";
@@ -19,6 +19,24 @@ const PRECISION_LABEL: Record<string, string> = {
   PROBABLE: "Probable",
   APPROXIMATE: "Approximatif",
 };
+
+const AREA_LABEL: Record<PlaceAreaContext["level"], string> = {
+  building: "Adresse à confirmer",
+  street: "Rue identifiée",
+  district: "Quartier identifié",
+  city: "Ville identifiée",
+};
+
+function areaExplanation(context: PlaceAreaContext): string {
+  if (context.level === "city") return "Adresse à confirmer : seule la ville est identifiée.";
+  if (context.level === "district") return "Adresse à confirmer : seule la zone du quartier est identifiée.";
+  if (context.level === "street") return "Adresse à confirmer : le numéro dans cette rue n’est pas vérifié.";
+  const floor = context.missingDetails.includes("floor"), unit = context.missingDetails.includes("unit");
+  if (floor && unit) return "Bâtiment repéré ; l’étage et le local restent à confirmer.";
+  if (floor) return "Bâtiment repéré ; l’étage reste à confirmer.";
+  if (unit) return "Bâtiment repéré ; le local reste à confirmer.";
+  return "Bâtiment repéré ; l’emplacement de l’établissement reste à confirmer.";
+}
 
 const ERROR_LABEL: Record<string, string> = {
   FORBIDDEN: "Connectez-vous en administrateur pour modifier ce lieu.",
@@ -139,12 +157,15 @@ function PlaceDetailSheetContent({ place, isAdmin, onClose, returnFocusRef, fall
       </div>
 
       {place.precision === "APPROXIMATE" ? (
-        <p className="places-sheet-meta">Emplacement approximatif : le centre de la zone n’indique pas une adresse précise.</p>
+        <p className="places-sheet-meta">
+          {place.areaContext ? <><strong>{AREA_LABEL[place.areaContext.level]}</strong><br />{areaExplanation(place.areaContext)} </> : "Emplacement approximatif. "}
+          Le centre de la zone n’indique pas une adresse précise.
+        </p>
       ) : null}
 
       <p className="places-sheet-meta">
         {place.postCount} post(s) associé(s)
-        {place.confidence ? ` · confiance ${place.confidence.toFixed(2)}` : ""}
+        {place.precision !== "APPROXIMATE" && place.confidence ? ` · confiance ${place.confidence.toFixed(2)}` : ""}
       </p>
 
       {showPostSelector ? (

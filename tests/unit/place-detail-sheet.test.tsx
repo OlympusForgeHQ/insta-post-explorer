@@ -21,6 +21,33 @@ const { PlaceDetailSheet } = await import("@/features/places/components/place-de
 afterEach(cleanup);
 
 describe("Place detail sheet", () => {
+  it.each([
+    {level: "building", missingDetails: ["venue_identity", "floor"], label: "Adresse à confirmer", detail: "Bâtiment repéré ; l’étage reste à confirmer."},
+    {level: "street", missingDetails: ["venue_identity", "street_number"], label: "Rue identifiée", detail: "Adresse à confirmer : le numéro dans cette rue n’est pas vérifié."},
+    {level: "district", missingDetails: ["venue_identity", "street_address"], label: "Quartier identifié", detail: "Adresse à confirmer : seule la zone du quartier est identifiée."},
+    {level: "city", missingDetails: ["venue_identity", "street_address"], label: "Ville identifiée", detail: "Adresse à confirmer : seule la ville est identifiée."},
+  ])("explains a contextual $level area without presenting a confidence score or verified business", async ({level, missingDetails, label, detail}) => {
+    render(<PlaceDetailSheet place={{id: "contextual-place", displayName: "Maison Exemple", city: "Paris", region: null, country: "France",
+      precision: "APPROXIMATE", approximationRadiusMeters: 1000, areaContext: {level, missingDetails},
+      isUserConfirmed: false, sourceThemes: ["Restaurant"], postCount: 2, confidence: 0.5} as never} isAdmin={false} onClose={() => {}} />);
+    expect(screen.getByRole("heading", {name: "Maison Exemple"})).toBeVisible();
+    expect(screen.getByText(label)).toBeVisible();
+    expect(screen.getByText(detail, {exact: false})).toBeVisible();
+    expect(screen.getByText(/le centre de la zone n’indique pas une adresse précise/i)).toBeVisible();
+    expect(screen.queryByText(/confiance/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Zone approximative · rayon ~1 km")).toBeVisible();
+    expect(await screen.findByRole("link", {name: "Voir le post"})).toHaveAttribute("href", "https://instagram.com/p/1");
+  });
+
+  it("keeps an unlabelled area generic and hides numeric confidence", async () => {
+    render(<PlaceDetailSheet place={{id: "generic-area", displayName: "France", city: null, country: "France", precision: "APPROXIMATE",
+      approximationRadiusMeters: 500000, isUserConfirmed: false, sourceThemes: ["Voyages"], postCount: 2, confidence: 0.5} as never} isAdmin={false} onClose={() => {}} />);
+    expect(screen.getByText(/Emplacement approximatif/)).toBeVisible();
+    expect(screen.queryByText("Ville identifiée")).not.toBeInTheDocument();
+    expect(screen.queryByText(/confiance/i)).not.toBeInTheDocument();
+    await screen.findByRole("link", {name: "Voir le post"});
+  });
+
   it.each([false, true])("moves focus once and returns safely after Escape (inert opener: %s)", async (inertOpener) => {
     const openerRef = createRef<HTMLButtonElement>();
     const fallbackRef = createRef<HTMLButtonElement>();

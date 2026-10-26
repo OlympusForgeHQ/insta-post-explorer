@@ -6,11 +6,11 @@ import { foldForSearch } from "@/lib/import/normalize";
 import { distanceMeters } from "@/lib/places/distance";
 import {decidePlaceResolution} from '@/lib/places/resolution';
 import {entityNamesAgree} from '@/lib/places/scoring';
-import {administrativeRegionMatches,isJapaneseCountry,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels,tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
+import {administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpelling,brusselsMunicipalityParentLabels,isBelgianCountry,isJapaneseCountry,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels,tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
-import {addressDistrictHint,approximateAddress, approximateDistrict, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {addressDistrictHint,approximateAddress, approximateDistrict, approximateStreet, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 
 // Geoapify geographic resolver behind the replaceable PlaceResolver interface.
 // It turns a textual candidate into provider-verified coordinates and a provider
@@ -107,6 +107,20 @@ const geoapifyResultSchema = z
 
 const geoapifyResponseSchema = z.object({ results: z.array(geoapifyResultSchema) });
 
+// A retrieval variant only: the source candidate is never modified or rescored
+// with a different address. Omit a duplicated city only for a complete postal
+// component belonging to the same closed Belgian municipality alias set.
+function frenchBelgianAddress(candidate:PlaceCandidate,address=candidate.address):PlaceCandidate|null {
+  if(!address||!isBelgianCountry(candidate.country)||!approximateAddress(candidate))return null;
+  const normalized=belgianStreetSpelling(address,'BE');
+  if(!normalized.split(/[,;]/u).some(part=>
+    /^(?:\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)*\s+)?(?:rue|chaussee|place|avenue|boulevard|allee|quai|square|impasse)\s+\p{L}/u.test(foldForSearch(part.trim()))))return null;
+  const cityAliases=belgianMunicipalityAliases('BE',candidate.city).map(foldForSearch);
+  const hasCity=normalized.split(/[,;]/u).slice(1).some(part=>
+    belgianMunicipalityAliases('BE',part.trim().replace(/^\d{4}\s+/u,'')).some(alias=>cityAliases.includes(foldForSearch(alias))));
+  return {...candidate,name:null,address:normalized,city:hasCity?null:candidate.city};
+}
+
 function clampMaxResults(value: number | undefined): number {
   if (!value || !Number.isFinite(value)) return 5;
   return Math.min(5, Math.max(1, Math.trunc(value)));
@@ -183,7 +197,15 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
       // name. Bounded free-form retrieval preserves the full source context.
       for(const language of ['en','fr']){
         const text=[...new Set([input.candidate.name,input.candidate.address,input.candidate.city,input.candidate.region,input.candidate.country].filter(Boolean))].join(', ');
-        for(const match of await this.searchText(text,language,input.proximity))this.mergePoi(results,match,input);
+        try{
+          for(const match of await this.searchText(text,language,input.proximity))this.mergePoi(results,match,input);
+        }catch(error){
+          // A timed-out optional name lookup must not discard already received
+          // geography. The planner may still verify a fresh source street/area.
+          // Empty retrieval, ungrounded venues and all other failures stay fatal.
+          if(error instanceof GeoapifyResolverError&&error.code==='GEOAPIFY_TIMEOUT'&&results.length&&canApproximateVenue(input.candidate))return results;
+          throw error;
+        }
         if(results.some(resolved=>decidePlaceResolution({candidate:input.candidate,resolved}).precision!=='UNKNOWN'))break;
       }
     }
@@ -284,7 +306,8 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     // coordinates. Each response is still checked against the unchanged source.
     const results:ResolvedPlaceCandidate[]=[];
     if(address){
-      results.push(...await this.search({...candidate,name:null,address}));
+      const french=frenchBelgianAddress(candidate,address);
+      results.push(...await this.search(french??{...candidate,name:null,address},undefined,undefined,french?'fr':undefined));
       if(['building','street'].includes(selectContextualVenueArea(candidate,results)?.scored.contextualArea?.level??''))return results;
     }
     // A weak administrative match is only a name hint. Re-query it without the
@@ -293,8 +316,10 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
       const name=addressDistrictHint(candidate,result);return name?[[foldForSearch(name),name] as const]:[];
     })).values()];
     const district=approximateDistrict(candidate)??(hints.length===1?hints[0]:null);
-    if(district){
-      results.push(...await this.search({...candidate,name:null,address:district,region:null},undefined,'locality'));
+    const street=approximateStreet(candidate);
+    const area=street??district;
+    if(area){
+      results.push(...await this.search({...candidate,name:null,address:area,region:null},undefined,street?undefined:'locality'));
       if(['building','street','district'].includes(selectContextualVenueArea(candidate,results)?.scored.contextualArea?.level??''))return results;
     }
     const japanese=isJapaneseCountry(candidate.country);
@@ -326,11 +351,32 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   }
 
   private async resolveGeocoding(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {
-    const addressResults = await this.search(input.candidate,input.proximity);
+    const french=frenchBelgianAddress(input.candidate);
+    let localeRetried=false;
+    let addressResults:ResolvedPlaceCandidate[];
+    try{addressResults=await this.search(input.candidate,input.proximity);}
+    catch(error){
+      // An exhausted provider timeout may be specific to its default-language
+      // query. Exactly one alternative is allowed; all other errors propagate.
+      if(!(error instanceof GeoapifyResolverError)||error.code!=='GEOAPIFY_TIMEOUT'||!french)throw error;
+      localeRetried=true;
+      addressResults=await this.search(french,input.proximity,undefined,'fr');
+    }
     // A caption can identify both a business and its street address. Keep the
     // business identity only when a specific address independently locates it.
     // Never substitute address coordinates into a named provider result.
     if (!input.candidate.address || !input.candidate.name || input.candidate.name.startsWith("@")) return addressResults;
+    // The first address query is already neutral, but abbreviated Belgian
+    // street prefixes or the default language can produce a weak building match.
+    // Re-query one literal numbered address in French when its street type is
+    // French. Preserve every source component and score the unchanged candidate.
+    const literalBelgianAddress=isBelgianCountry(input.candidate.country)&&Boolean(approximateAddress(input.candidate));
+    const normalizedAddress=literalBelgianAddress
+      ?belgianStreetSpelling(input.candidate.address,'BE'):input.candidate.address;
+    if(!localeRetried&&(normalizedAddress!==input.candidate.address||french)&&!addressResults.some(result=>
+      decidePlaceResolution({candidate:input.candidate,resolved:result}).precision!=='UNKNOWN')){
+      for(const match of await this.search(french??{...input.candidate,name:null,address:normalizedAddress},input.proximity,undefined,french?'fr':undefined))this.mergePoi(addressResults,match,input);
+    }
     const anchors = addressResults.filter(result =>
       ["building", "housenumber", "house", "amenity"].includes(result.providerResultType ?? "") &&
       (result.providerRank ?? 0) >= 0.9);
@@ -340,11 +386,15 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     const corroborated = named.filter(result =>
       foldName(result.displayName) === foldName(input.candidate.name!) &&
       anchors.some(anchor => distanceMeters(anchor, result) <= 100));
-    return corroborated.length ? corroborated : addressResults;
+    if(corroborated.some(result=>decidePlaceResolution({candidate:input.candidate,resolved:result}).precision!=='UNKNOWN'))return corroborated;
+    // Proximity alone cannot replace a verified numbered building with a POI
+    // that omits the source address. Keep each raw result's own identity/point.
+    for(const match of corroborated)this.mergePoi(addressResults,match,input);
+    return addressResults;
   }
 
-  private async search(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"],type?:'locality'|'city'): Promise<ResolvedPlaceCandidate[]> {
-    const response = await this.fetchWithRetry(this.buildUrl(candidate,proximity,type));
+  private async search(candidate: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"],type?:'locality'|'city',language?:'fr'): Promise<ResolvedPlaceCandidate[]> {
+    const response = await this.fetchWithRetry(this.buildUrl(candidate,proximity,type,language));
 
     let payload: unknown;
     try {
@@ -467,13 +517,14 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   // Address candidates use Geoapify's free-form address alternative. Other
   // candidates retain the structured request. The API key travels in the query
   // string but is never logged, and the full caption is never included.
-  private buildUrl(source: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"],type?:'locality'|'city'): string {
+  private buildUrl(source: PlaceCandidate, proximity?:PlaceResolutionInput["proximity"],type?:'locality'|'city',language?:'fr'): string {
     const city=source.city&&isJapaneseCountry(source.country)?japaneseMunicipalityName(source.city):source.city;
     // Retrieval normalization changes neither source evidence nor provider labels.
     // Replace only a complete locality component, never a street or business name.
     const candidate=city!==source.city?{...source,city,address:source.address?.split(/[,;]/u).map(part=>
       foldForSearch(part.trim())===foldForSearch(source.city!)?city:part.trim()).join(', ')??null}:source;
     const params = new URLSearchParams();
+    if(language)params.set('lang',language);
     if(type)params.set('type',type);
     if(candidate.category==='voyage'&&!candidate.address&&!candidate.city&&!candidate.region&&candidate.country&&
       (!candidate.name||foldForSearch(candidate.name)===foldForSearch(candidate.country))){
@@ -503,6 +554,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
 
 function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'geocoding'|'places'='geocoding'): ResolvedPlaceCandidate {
   const tokyoParentLabels=tokyoSpecialWardParentLabels(result.country_code??null,result.state??null,result.city??null,result.iso3166_2??null);
+  const brusselsParentLabels=brusselsMunicipalityParentLabels(result.country_code??null,result.state??null,result.city??null,result.iso3166_2??null);
   const structuredTokyo=foldForSearch(result.city??'')==='tokyo'||tokyoParentLabels.length>0;
   // The formatted postal locality may differ from the administrative city.
   // Keep only separate address components after the street; never turn a street
@@ -525,7 +577,7 @@ function normalizeResult(result: z.infer<typeof geoapifyResultSchema>,source:'ge
     houseNumber: result.housenumber ?? null,
     ...(result.postcode ? {postalCode: result.postcode} : {}),
     localityNames: [...new Set([result.city,...postalLocalities,...municipalityCityLabels(result.country_code??null,result.state??null),
-      ...tokyoParentLabels].filter((value):value is string=>Boolean(value)))],
+      ...tokyoParentLabels,...brusselsParentLabels].filter((value):value is string=>Boolean(value)))],
     administrativeLabels: Object.fromEntries((['city','state','county','district','suburb','municipality'] as const)
       .flatMap(key=>result[key]?[ [key,result[key]] ]:[])),
     category: result.category ?? result.categories?.slice().sort((a,b)=>b.length-a.length)[0] ?? null,

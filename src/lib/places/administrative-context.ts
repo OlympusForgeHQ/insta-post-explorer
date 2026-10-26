@@ -2,6 +2,44 @@ import {foldForSearch} from '@/lib/import/normalize';
 import type {ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
 
 export const isJapaneseCountry=(country:string|null)=>Boolean(country&&['jp','japan','japon','日本'].includes(foldForSearch(country)));
+export const isBelgianCountry=(country:string|null)=>Boolean(country&&['be','belgium','belgique','belgie','belgien'].includes(foldForSearch(country)));
+
+// Official closed list and bilingual identities. These are municipalities, not
+// interchangeable neighbours: only a separately proved parent can add Brussels.
+// https://be.brussels/en/about-region/structure-and-organisations/local-authorities-and-municipalities/municipalities
+// https://www.vlaanderen.be/gemeenten-en-provincies/brussel/het-brusselse-hoofdstedelijke-gewest
+const brusselsMunicipalities=[
+  ['Brussels','Bruxelles','Brussel'],['Anderlecht'],['Ixelles','Elsene'],['Etterbeek'],['Evere'],
+  ['Ganshoren'],['Jette'],['Koekelberg'],['Auderghem','Oudergem'],['Schaerbeek','Schaarbeek'],
+  ['Berchem-Sainte-Agathe','Sint-Agatha-Berchem'],['Saint-Gilles','Sint-Gillis'],
+  ['Molenbeek-Saint-Jean','Sint-Jans-Molenbeek'],['Saint-Josse-ten-Noode','Sint-Joost-ten-Node'],
+  ['Woluwe-Saint-Lambert','Sint-Lambrechts-Woluwe'],['Woluwe-Saint-Pierre','Sint-Pieters-Woluwe'],
+  ['Uccle','Ukkel'],['Forest','Vorst'],['Watermael-Boitsfort','Watermaal-Bosvoorde'],
+] as const;
+const belgianLabel=(value:string)=>foldForSearch(value).replace(/[-\s]+/gu,' ').trim();
+export function belgianMunicipalityAliases(countryCode:string|null,value:string|null):readonly string[]{
+  if(countryCode?.trim().toUpperCase()!=='BE'||!value)return [];
+  const parts=value.split(/\s+[-–—/]\s+/u).map(belgianLabel);
+  return brusselsMunicipalities.find(names=>parts.every(part=>names.some(name=>belgianLabel(name)===part)))??[];
+}
+const brusselsRegions=new Set(['Brussels-Capital Region','Brussels Capital','Brussels-Capital',
+  'Région de Bruxelles-Capitale','Région Bruxelles-Capitale','Bruxelles-Capitale',
+  'Brussels Hoofdstedelijk Gewest','Brussel Hoofdstedelijk Gewest'].map(belgianLabel));
+export function brusselsMunicipalityParentLabels(countryCode:string|null,state:string|null,city:string|null,subdivisionCode:string|null=null):readonly string[]{
+  if(countryCode?.trim().toUpperCase()!=='BE'||!belgianMunicipalityAliases(countryCode,city).length)return [];
+  const code=subdivisionCode?.trim().toUpperCase();
+  if((state&&!brusselsRegions.has(belgianLabel(state)))||(code&&code!=='BE-BRU'))return [];
+  if(!state&&code!=='BE-BRU')return [];
+  return brusselsMunicipalities[0];
+}
+
+// Comparison only: expand complete Belgian street-type abbreviations, leaving
+// numbers, interior qualifiers and all raw source/provider strings untouched.
+export function belgianStreetSpelling(value:string,countryCode:string|null):string{
+  if(countryCode?.trim().toUpperCase()!=='BE')return value;
+  return value.replace(/(^|[,;]\s*)(\s*(?:\d{1,6}[a-z]?(?:[-/]\d{1,6}[a-z]?)*\s+)?)((?:chau|pl)\.)(?=\s+\p{L})/giu,
+    (_match,start:string,number:string,kind:string)=>`${start}${number}${kind.toLowerCase()==='chau.'?'Chaussée':'Place'}`);
+}
 
 // These are administrative suffixes, not translations or parent-city aliases.
 // In particular Shibuya and Tokyo must remain different location identities.

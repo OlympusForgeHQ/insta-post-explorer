@@ -2,7 +2,7 @@ import { foldForSearch } from "@/lib/import/normalize";
 import { continentCodeForCountry } from "@/lib/places/continents";
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
-import {addressComponents,japaneseFloor,japaneseMunicipalityMatches} from '@/lib/places/administrative-context';
+import {addressComponents,belgianMunicipalityAliases,belgianStreetSpelling,brusselsMunicipalityParentLabels,japaneseFloor,japaneseMunicipalityMatches} from '@/lib/places/administrative-context';
 
 // Deterministic resolution scoring (design section 6). A textual candidate and
 // its provider-verified resolution are combined into a bounded confidence and a
@@ -136,6 +136,8 @@ function countryAgreement(candidateValue: string | null, resolved: ResolvedPlace
 function cityAgreement(candidateValue: string | null, resolvedValue: string | null, countryCode: string | null = null) {
   if (candidateValue && resolvedValue) {
     if(japaneseMunicipalityMatches(candidateValue,resolvedValue,countryCode))return {match:1,contradiction:false};
+    const belgianAliases=belgianMunicipalityAliases(countryCode,resolvedValue);
+    if(belgianAliases.length&&belgianMunicipalityAliases(countryCode,candidateValue)[0]===belgianAliases[0])return {match:1,contradiction:false};
     // London is often source context for a POI whose provider locality is the
     // City of London or Greater London. This is directional and GB-only; it
     // does not make those areas interchangeable or verify a different POI.
@@ -147,6 +149,8 @@ function cityAgreement(candidateValue: string | null, resolvedValue: string | nu
     // Only a complete bilingual component asserted by the provider is an alias.
     // Do not split ordinary hyphenated names or accept arbitrary substrings.
     const aliases = resolvedValue.split(/\s+[-–—/]\s+/u);
+    if(countryCode?.toUpperCase()==='BE'&&aliases.length>1&&!belgianAliases.length&&
+      aliases.some(alias=>belgianMunicipalityAliases(countryCode,alias).length))return {match:0,contradiction:true};
     if (aliases.some(alias => normalizedEquals(candidateValue, alias))) return { match: 1, contradiction: false };
   }
   return fieldAgreement(candidateValue, resolvedValue);
@@ -212,6 +216,15 @@ export function addressAgreement(candidateValue: string | null, resolvedValue: s
 }
 
 function providerAddressAgreement(candidateValue: string | null, resolved: ResolvedPlaceCandidate): AddressAgreement {
+  if(resolved.countryCode==='BE'){
+    const postcode=(value:string|null)=>value?.split(',').slice(1)
+      .map(part=>part.trim().match(/^(\d{4})(?:\s+\p{L}|$)/u)?.[1]).find(Boolean);
+    const sourcePostcode=postcode(candidateValue),providerPostcode=resolved.postalCode??postcode(resolved.address);
+    if(sourcePostcode&&providerPostcode&&sourcePostcode!==providerPostcode)return {match:false,houseNumberMatch:false,contradiction:true};
+    candidateValue=candidateValue===null?null:belgianStreetSpelling(candidateValue,resolved.countryCode);
+    resolved={...resolved,address:resolved.address===null?null:belgianStreetSpelling(resolved.address,resolved.countryCode),
+      street:resolved.street?belgianStreetSpelling(resolved.street,resolved.countryCode):resolved.street};
+  }
   // Floors are checked independently by the decision layer. They may not
   // become house numbers or hide a different block/building identifier.
   const numberedAddress=(value:string|null)=>value===null?null:addressComponents(value,resolved.countryCode)
@@ -305,7 +318,7 @@ export function entityNamesAgree(left: string, right: string): boolean {
   if (a === b) return true;
   // Compact account spellings must preserve the entire name, not a fuzzy prefix.
   if(!/\s/u.test(left)&&a.replace(/ /g,'').length>=8&&a.replace(/ /g,'')===b.replace(/ /g,''))return true;
-  const descriptors:Record<string,string>={restaurant:'restaurant',hotel:'hotel',plage:'beach',
+  const descriptors:Record<string,string>={restaurant:'restaurant',pizzeria:'restaurant',gallery:'gallery',galerie:'gallery',hotel:'hotel',plage:'beach',
     cafe:'cafe',coffee:'cafe',bakery:'bakery',bakehouse:'bakery',boulangerie:'bakery',patisserie:'bakery'};
   const cuisines=new Set(['italian','french','japanese','korean','chinese','indian']);
   const parts=(name:string)=>{
@@ -345,8 +358,19 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   // when the provider reports a containing municipality under `city`.
   const namesDestinationArea=resultKind.kind==='area'&&explicitlyNamesCity(candidate)&&
     entityNames.some(name=>normalizedEntityName(candidate.name!)===normalizedEntityName(name));
-  const city = namesDestinationArea||resolved.localityNames?.some(value => cityAgreement(candidate.city,value,resolved.countryCode).match)
-    ? {match:1,contradiction:false} : cityAgreement(candidate.city, resolved.city, resolved.countryCode);
+  const directCity=cityAgreement(candidate.city,resolved.city,resolved.countryCode);
+  const sourceMunicipality=belgianMunicipalityAliases(resolved.countryCode,candidate.city);
+  const providerMunicipality=belgianMunicipalityAliases(resolved.countryCode,resolved.city);
+  const broadBrussels=sourceMunicipality[0]==='Brussels';
+  const parentLabels=brusselsMunicipalityParentLabels(resolved.countryCode,resolved.region,resolved.city,resolved.subdivisionCode);
+  // A broad Brussels mention can include a proved constituent municipality.
+  // An explicit different commune cannot borrow a parent's postal alias.
+  const belgianConflict=sourceMunicipality.length>0&&providerMunicipality.length>0&&!broadBrussels&&!directCity.match;
+  const parentRequired=broadBrussels&&!directCity.match;
+  const city = belgianConflict?directCity:parentRequired
+    ?parentLabels.length?{match:1,contradiction:false}:directCity
+    :namesDestinationArea||resolved.localityNames?.some(value => cityAgreement(candidate.city,value,resolved.countryCode).match)
+      ?{match:1,contradiction:false}:directCity;
   let contextualName = candidate.name;
   if (contextualName && candidate.city && city.match && address.match) {
     const suffix = ` ${normalizedEntityName(candidate.city)}`;

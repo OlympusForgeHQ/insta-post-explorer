@@ -1,6 +1,7 @@
 import {foldForSearch} from '@/lib/import/normalize';
+import type {CityBranchSourceContext} from '@/lib/places/branch-scope';
 import type {PlaceCandidate} from '@/lib/places/candidates';
-import {addressComponents,administrativeRegionMatches,isJapaneseCountry,japaneseFloor,japaneseMunicipalityMatches,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
+import {addressComponents,administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpelling,isBelgianCountry,isJapaneseCountry,japaneseFloor,japaneseMunicipalityMatches,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
 import {distanceMeters} from '@/lib/places/distance';
 import {decidePlaceResolution, RESOLUTION_POLICY_VERSION} from '@/lib/places/resolution';
 import {scoreResolvedCandidate, type ContextualVenueArea, type ScoredResolution} from '@/lib/places/scoring';
@@ -19,7 +20,8 @@ function cityAliases(candidate:PlaceCandidate):readonly string[] {
   if(!candidate.city)return [];
   const mayBeChina=!candidate.country||['cn','china','chine','中国','中國'].includes(foldForSearch(candidate.country));
   return [candidate.city,...(mayBeChina?municipalityCityLabels('CN',candidate.city):[]),
-    ...(isJapaneseCountry(candidate.country)?[japaneseMunicipalityName(candidate.city)]:[])];
+    ...(isJapaneseCountry(candidate.country)?[japaneseMunicipalityName(candidate.city)]:[]),
+    ...(isBelgianCountry(candidate.country)?belgianMunicipalityAliases('BE',candidate.city):[])];
 }
 
 // Keep only a whole source name or a fully evidenced bilingual component. A
@@ -36,7 +38,62 @@ export function groundedVenueName(candidate:PlaceCandidate):string|null {
     for(const label of geography)remainder=remainder.split(` ${label} `).join(' ');
     return remainder.trim()&&!generic.has(remainder.trim());
   };
-  return [...new Set(variants)].find(value=>(words(value).length>=3||/^[\p{Script=Han}]{2}$/u.test(words(value)))&&distinctive(value)&&literalProof(value,candidate))??null;
+  return [...new Set(variants)].find(value=>(words(value).length>=3||/^[\p{Script=Han}]{2}$/u.test(words(value)))&&distinctive(value)&&(literalProof(value,{...candidate,evidence:candidate.evidence.map(item=>({...item,excerpt:item.excerpt.replace(/[@#][\p{L}\p{N}_.]+/gu,' ')}))})||literalHandleProof(value,candidate)))??null;
+}
+
+// A handle can spell the complete proposed name without spaces. It cannot
+// establish a branch, a city suffix or a fuzzy prefix of another business.
+function literalHandleProof(value:string,candidate:PlaceCandidate):boolean {
+  const compact=words(value).replace(/ /gu,'');
+  if(compact.length<8)return false;
+  return candidate.evidence.some(item=>literalTypes.includes(item.type)&&
+    [...item.excerpt.matchAll(/(?:^|[^\p{L}\p{N}_@])@([\p{L}\p{N}_.]+)/gu)]
+      .some(match=>words(match[1]).replace(/ /gu,'')===compact));
+}
+
+// Recover bounded literal context omitted from an extraction excerpt. This
+// does not infer fields or broaden branch scope; the original input/evidence
+// stays unchanged and provider verification remains mandatory.
+export function enrichApproximationEvidence(candidate:PlaceCandidate,source?:CityBranchSourceContext):PlaceCandidate {
+  if(!source?.caption||!candidate.name||!candidate.city||candidate.evidence.length>=8)return candidate;
+  const caption=source.caption;
+  const lines=(text:string)=>text.split(/\r?\n/u).map(line=>line.trim()).filter(line=>line.length>0&&line.length<=500);
+  const proof=(excerpt:string)=>({...candidate,evidence:[{type:'CAPTION' as const,excerpt}]});
+  const cityProof=(excerpt:string)=>cityAliases(candidate).some(city=>independentCityProof(city,proof(excerpt)));
+  const captionLines=lines(caption);
+  const grounded=groundedVenueName(candidate);
+  const venueLine=captionLines.find(excerpt=>groundedVenueName(proof(excerpt)));
+  const existingLiteral=candidate.evidence.some(item=>item.type!=='CAPTION'||caption.includes(item.excerpt));
+  if(!existingLiteral||(!grounded&&!venueLine))return candidate;
+  const blocks=caption.split(/\r?\n\s*\r?\n|(?=^\s*\d{1,3}[.)]\s)/mu);
+  const ownBlocks=venueLine?blocks.filter(block=>lines(block).includes(venueLine)):[];
+  // Only the venue's own line and the explicit location line in its bounded
+  // item can supply locality. Another recommendation never contributes a city.
+  const ownLines=ownBlocks.length===1?lines(ownBlocks[0]):[];
+  const literalAddressCity=candidate.address&&caption.includes(candidate.address)&&cityProof(candidate.address)?candidate.address:null;
+  const cityAtEnd=(line:string)=>cityAliases(candidate).some(city=>
+    ['in','a','en','de','of'].some(join=>words(line).endsWith(` ${join} ${words(city)}`))||
+    line.split(',').some((part,index,parts)=>index===parts.length-1&&words(part)===words(city)));
+  const ownCityLine=venueLine&&cityProof(venueLine)&&cityAtEnd(venueLine)?venueLine:null;
+  // A guide header must explicitly end in its geographic scope. Business
+  // names, hashtags and free text elsewhere in the caption are not headers.
+  const header=captionLines[0]??'';
+  const headerWords=words(header);
+  const uncorroboratedLocation=ownLines.some(line=>/^📍/u.test(line)&&!cityProof(line));
+  const globalCity= !uncorroboratedLocation&&!/[@#]/u.test(header)&&/\b(?:things to do|adresses?|addresses|guide|spots|places|ideas|idees|activites|sorties|lieux)\b/u.test(headerWords)&&
+    cityAliases(candidate).some(city=>['in','a','en','de','of'].some(join=>headerWords.endsWith(` ${join} ${words(city)}`)))?header:null;
+  const context=[...ownLines,...candidate.evidence.map(item=>item.excerpt)];
+  const ownContradiction=context.some(line=>{
+    const asserted=line.match(/(?:^|[^\p{L}\p{N}])(?:in|à|ville\s*:|city\s*:)\s+([^\n.!?;]+)[.!?]?$/iu)?.[1];
+    return asserted&&!cityAliases(candidate).some(city=>words(asserted)===words(city));
+  });
+  if(ownContradiction)return candidate;
+  const cityLine=literalAddressCity||ownCityLine||globalCity;
+  const additions=[...(!grounded&&venueLine?[venueLine]:[]),...(cityLine?[cityLine]:[])]
+    .filter((excerpt,index,all)=>all.indexOf(excerpt)===index&&!candidate.evidence.some(item=>item.type==='CAPTION'&&item.excerpt===excerpt));
+  if(candidate.evidence.length+additions.length>8||(!additions.length&&!(cityLine&&candidate.inferredFields?.includes('city'))))return candidate;
+  return {...candidate,...(cityLine&&candidate.inferredFields?.includes('city')?{inferredFields:candidate.inferredFields.filter(field=>field!=='city')}:{}),
+    evidence:[...candidate.evidence,...additions.map(excerpt=>({type:'CAPTION' as const,excerpt}))]};
 }
 
 function independentCityProof(city:string,candidate:PlaceCandidate):boolean {
@@ -98,7 +155,55 @@ export function approximateDistrict(candidate:PlaceCandidate):string|null {
   const district=candidate.region&&!(isJapaneseCountry(candidate.country)&&japanesePrefectureName(candidate.region))&&
     !candidate.inferredFields?.includes('region')&&candidate.region!==candidate.city&&literalProof(candidate.region,candidate)
     ?candidate.region:addressParts(candidate.address).find(part=>['district','county'].includes(administrativeLevel(part)??''));
-  return district&&literalProof(district,candidate)?district:null;
+  if(district&&literalProof(district,candidate))return district;
+  // A single explicitly named neighborhood is a retrieval hint only. A fresh
+  // provider district must still corroborate its name, locality and bounds.
+  const partial=candidate.address?.trim();
+  if(!partial||partial.length>120||/[\d+,;|/]|[-–—]\s|\s[-–—]|\b(?:and|et)\b/iu.test(partial)||!literalProof(partial,candidate))return null;
+  if([candidate.name,...cityAliases(candidate),candidate.country].some(value=>value&&words(value)===words(partial)))return null;
+  return partial;
+}
+
+// A complete named street or square can be a zone even when no number was
+// supplied. Its geometry and full name must still be verified independently.
+export function approximateStreet(candidate:PlaceCandidate):string|null {
+  const countryCode=isBelgianCountry(candidate.country)?'BE':null;
+  if(countryCode){
+    const numbered=addressParts(approximateAddress(candidate)).flatMap(part=>{
+      const street=withoutStreetNumber(part);
+      return street!==part&&isStreetName(street,countryCode)?[{part,street}]:[];
+    });
+    if(numbered.length)return numbered.length===1&&literalProof(numbered[0].part,candidate)?numbered[0].street:null;
+  }
+  const value=approximateDistrict(candidate);
+  if(!value)return null;
+  return isStreetName(value,countryCode)?value:null;
+}
+
+const streetKey=(value:string,countryCode:string|null)=>words(belgianStreetSpelling(value,countryCode));
+const isStreetName=(value:string,countryCode:string|null)=>/^(?:rue|place|avenue|boulevard|square|road|street|chaussee|quai|allee|impasse)\s+\p{L}|\p{L}\s+(?:street|road|avenue|square)$/u.test(streetKey(value,countryCode));
+// Remove a whole edge house number before punctuation folding, so 133/135 or
+// 12a-14b cannot leave a fragment masquerading as part of the street name.
+function withoutStreetNumber(value:string):string {
+  const number='\\d{1,6}[a-z]?(?:[-/]\\d{1,6}[a-z]?)*';
+  return value.replace(new RegExp(`^${number}\\s+`,'iu'),'').replace(new RegExp(`\\s+${number}$`,'iu'),'');
+}
+
+// Only the provider's own complete bilingual street label supplies aliases.
+// Accept one French/Dutch pair of the same street type, never a list of roads,
+// a city suffix, an unspaced compound or a prefix of a longer street name.
+function providerStreetKeys(value:string,countryCode:string|null):string[] {
+  const full=streetKey(value,countryCode);
+  if(countryCode!=='BE')return [full];
+  const parts=value.split(/\s+[-–—/]\s+/u);
+  if(parts.length!==2||parts.some(part=>part.length>120))return [full];
+  const keys=parts.map(part=>streetKey(part,countryCode));
+  const frenchTypes:Record<string,string>={rue:'street',place:'square',avenue:'avenue',chaussee:'causeway',allee:'alley',quai:'quay'};
+  const dutchTypes:Record<string,string>={straat:'street',plein:'square',laan:'avenue',steenweg:'causeway',dreef:'alley',kaai:'quay'};
+  const french=(key:string)=>frenchTypes[key.match(/^(rue|place|avenue|chaussee|allee|quai)\s+\p{L}/u)?.[1]??''];
+  const dutch=(key:string)=>dutchTypes[key.match(/\p{L}\s*(straat|plein|laan|steenweg|dreef|kaai)$/u)?.[1]??''];
+  return (french(keys[0])&&french(keys[0])===dutch(keys[1]))||(french(keys[1])&&french(keys[1])===dutch(keys[0]))
+    ?[full,...keys]:[full];
 }
 
 // Only discard standalone interior qualifiers. Street names, building numbers,
@@ -158,7 +263,8 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
   // when the source omitted its country.
   const japaneseCityProof=resolved.countryCode==='JP'&&isJapaneseCountry(candidate.country)&&
     independentCityProof(japaneseMunicipalityName(candidate.city!),candidate);
-  if(!independentCityProof(candidate.city!,candidate)&&!japaneseCityProof&&!municipalityCityLabels(resolved.countryCode,candidate.city)
+  const belgianCityProof=resolved.countryCode==='BE'&&isBelgianCountry(candidate.country)&&cityAliases(candidate).some(city=>independentCityProof(city,candidate));
+  if(!independentCityProof(candidate.city!,candidate)&&!japaneseCityProof&&!belgianCityProof&&!municipalityCityLabels(resolved.countryCode,candidate.city)
     .some(city=>independentCityProof(city,candidate)))return null;
   const reportedType=resolved.providerResultType??'';
   const sourceDistrict=approximateDistrict(candidate);
@@ -188,10 +294,20 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
     // A numbered address may be represented by its source street envelope,
     // provided the complete street wording is independently corroborated.
     if(!resolved.street||!candidate.address||radius===null||resolved.providerRank!==1||conflictingAdministrativeContext(candidate,resolved))return null;
-    const street=words(resolved.street);
-    const source=addressParts(approximateAddress(candidate)).map(part=>words(part).replace(/^\d+[a-z]?(?:[-/]\d+)?\s+/u,'').replace(/\s+\d+[a-z]?$/u,''));
-    if(!source.includes(street)||!literalProof(resolved.street,candidate))return null;
-    if(resolved.providerName&&!['street',words(resolved.street)].includes(words(resolved.providerName)))return null;
+    if(resolved.countryCode==='BE'){
+      // A broad provider city label cannot override an explicit source postcode.
+      // Match the numbered-address policy, only for street envelopes: wider
+      // districts/cities may legitimately contain several postal areas.
+      const postcode=(value:string|null)=>value?.split(',').slice(1)
+        .map(part=>part.trim().match(/^(\d{4})(?:\s+\p{L}|$)/u)?.[1]).find(Boolean);
+      const sourcePostcode=postcode(candidate.address),providerPostcode=resolved.postalCode??postcode(resolved.address);
+      if(sourcePostcode&&providerPostcode&&sourcePostcode!==providerPostcode)return null;
+    }
+    const streets=providerStreetKeys(resolved.street,resolved.countryCode);
+    const source=addressParts(approximateAddress(candidate)??approximateStreet(candidate)).filter(part=>literalProof(part,candidate))
+      .map(part=>streetKey(withoutStreetNumber(part),resolved.countryCode));
+    if(!source.some(part=>streets.includes(part)))return null;
+    if(resolved.providerName&&!['street',...streets].includes(streetKey(resolved.providerName,resolved.countryCode)))return null;
     level='street';radius=Math.max(100,radius);missingDetails.push('street_number');
   }else if(['district','suburb','neighbourhood','quarter'].includes(type)){
     const name=resolved.providerName??resolved.displayName.split(',')[0];
