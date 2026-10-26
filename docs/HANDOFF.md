@@ -1,5 +1,19 @@
 # Operational Handoff
 
+## Bounded video frame admission — 26 October 2026
+
+Hermes accepts at most ten images in one API admission. Classification and Places
+OCR batch larger frame sets, retaining all extracted frames, media IDs, timestamps
+and the complete transcript for synthesis. Inputs within the limit retain the
+direct classification path. Failed batches never publish partial evidence. HTTP
+errors log only bounded, allowlisted diagnostics, without private source content.
+
+Only the two consumer releases need switching; keep the model, Hermes profile,
+ASR environment, web application and sync schedule unchanged. See
+[requirements and verification](changes/2026-10-26-video-frame-admission.md).
+Private receipts under `.tmp/video-http400-20261026/` determine deployment and
+scoped recovery completion; this entry alone does not assert either is complete.
+
 ## DeepSeek Flash 1017 — 25 October 2026
 
 The shared `insta-places` alias now targets

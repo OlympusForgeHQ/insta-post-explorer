@@ -120,3 +120,11 @@ application endpoint; retain Places data and audit history on rollback.
 ASR dependency compatibility: PyAV 19 removed the API used by faster-whisper 1.2.1.
 The explicit PyAV pin prevents that observed runtime failure; see
 [upstream issue 1589](https://github.com/SYSTRAN/faster-whisper/issues/1589).
+
+### Video frame admission
+
+The API admits at most ten images per request. Consumers preserve the full
+twelve-frame extraction by splitting larger image sets and synthesizing all
+observations with the complete transcript. Keep this admission boundary in live
+smoke checks when updating Hermes or a model; a single-image probe cannot prove
+video compatibility. See `docs/changes/2026-10-26-video-frame-admission.md`.
