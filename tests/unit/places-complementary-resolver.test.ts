@@ -20,6 +20,15 @@ const building: ResolvedPlaceCandidate = {provider: 'geoapify', providerPlaceId:
   providerResultType: 'building', providerRank: 1, providerMatchType: 'full_match',
   providerStreetConfidence: 1, providerBuildingConfidence: 1, category: null, attribution: 'Powered by Geoapify'};
 
+it('propagates authority loss from research or independent address verification',async()=>{
+ for(const stage of ['research','geocoder']){
+  const resolver=new ComplementaryPlaceResolver({resolve:async()=>[]},
+   {resolve:async()=>{throw Error('PLACES_LEASE_LOST');}},
+   {search:async()=>{if(stage==='research')throw Error('PLACES_LEASE_LOST');return [research];}});
+  await expect(resolver.resolve(input)).rejects.toThrow('PLACES_LEASE_LOST');
+ }
+});
+
 it('retrieves a supported address independently without rewriting the source or inventing a provider business', async () => {
   const source={...input,candidate:{...input.candidate,region:'New York',inferredFields:['region' as const]}};
   const original = structuredClone(source);

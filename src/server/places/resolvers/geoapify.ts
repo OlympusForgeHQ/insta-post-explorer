@@ -50,6 +50,7 @@ export type GeoapifyResolverConfig = {
   apiKey: string;
   baseUrl: string;
   fetchImpl?: typeof fetch;
+  beforeRequest?: () => Promise<void>;
   timeoutMs?: number;
   maxResults?: number;
   // Total attempts including the first (bounded 1..6). One means no retry.
@@ -146,6 +147,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly beforeRequest?: () => Promise<void>;
   private readonly timeoutMs: number;
   private readonly maxResults: number;
   private readonly maxAttempts: number;
@@ -158,6 +160,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.beforeRequest = config.beforeRequest;
     this.timeoutMs = config.timeoutMs ?? 8_000;
     this.maxResults = clampMaxResults(config.maxResults);
     this.maxAttempts = clampInt(config.maxAttempts, DEFAULT_MAX_ATTEMPTS, 1, 6);
@@ -375,6 +378,8 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   // attempts surface a stable error. The URL, key, and body are never logged.
   private async fetchWithRetry(url: string): Promise<Response> {
     for (let attempt = 1; ; attempt += 1) {
+      // Authority loss is terminal, not a retryable provider transport failure.
+      await this.beforeRequest?.();
       let response: Response | null = null;
       let transientError: GeoapifyResolverError | null = null;
       try {

@@ -2,9 +2,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import type { PlaceResolver } from '@/server/places/resolvers/types';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {workerResultSchema} from '@/lib/places/worker-contract';
 vi.mock('server-only',()=>({}));
+const polling=vi.hoisted(()=>({fast:false}));
+vi.mock('node:timers/promises',async importOriginal=>{
+  const actual=await importOriginal<typeof import('node:timers/promises')>();
+  return {...actual,setTimeout:(...args:Parameters<typeof actual.setTimeout>)=>polling.fast?Promise.resolve():actual.setTimeout(...args)};
+});
+function deferred(){let release!:()=>void;const promise=new Promise<void>(resolve=>{release=resolve;});return {promise,release};}
+
 const url=process.env.TEST_DATABASE_URL?.trim();
 const owner='places-worker-test', other='places-worker-other';
 let db:PrismaClient;
@@ -428,6 +435,109 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    await db.placeAnalysisJob.update({where:{id:job.id},data:{status:'FAILED',attemptCount:3,errorCode:'MEDIA_UNAVAILABLE'}});
    await db.placeEvidence.create({data:{ownerId:owner,postId:job.postId,analysisJobId:job.id,evidenceType:'USER_CORRECTION',excerpt:'No place',confidence:1,metadata:{action:'POST_NO_PLACE_CONFIRMED',actorType:'USER',actorId:owner}}});
    await expect(service.retryPlacesJob(owner,{jobId:job.id,postId:job.postId,inputHash:job.inputHash,repairInfrastructure:true})).rejects.toThrow('POST_NOT_PLACES_ELIGIBLE');
+ });
+ it('coalesces concurrent completion across module instances before any repeated provider work',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   vi.resetModules();const independent=await import('@/server/places/worker');
+   const started=deferred(),release=deferred(),duplicate=deferred();let calls=0;
+   const slow:PlaceResolver={resolve:async input=>{if(++calls===1)started.release();else duplicate.release();await release.promise;return resolver.resolve(input);}};
+   const command={jobId:claim.jobId,leaseToken:claim.leaseToken,result};
+   const first=service.completePlacesJob(owner,command,{...dependencies,resolver:slow});
+   await started.promise;
+   const second=independent.completePlacesJob(owner,command,{...dependencies,resolver:slow});
+   let replies:Awaited<typeof first>[]=[];
+   try{
+     await Promise.race([duplicate.promise,new Promise(resolve=>setTimeout(resolve,150))]);
+     expect(calls).toBe(1);
+   }finally{release.release();replies=await Promise.all([first,second]);}
+   expect(replies[1]).toEqual(replies[0]);
+   expect(await independent.completePlacesJob(owner,command,{...dependencies,resolver:slow})).toEqual(replies[0]);
+   expect(calls).toBe(1);
+   expect(await db.placeEvidence.count({where:{ownerId:owner}})).toBe(2);
+ });
+ it('rejects a divergent payload while its original completion is resolving',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const started=deferred(),release=deferred();
+   const command={jobId:claim.jobId,leaseToken:claim.leaseToken,result};
+   const first=service.completePlacesJob(owner,command,{...dependencies,resolver:{resolve:async input=>{started.release();await release.promise;return resolver.resolve(input);}}});
+   await started.promise;
+   try{
+     await expect(service.completePlacesJob(owner,{...command,result:{...result,elapsedMs:1001}},dependencies)).rejects.toThrow('PLACES_JOB_CONFLICT');
+   }finally{release.release();await Promise.allSettled([first]);}
+ });
+ it('releases only its own failed computation for an immediate retry without refunding metadata',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const metadata={automation:{source:'sync'},googleUsage:{month:'2026-10',requests:2}};
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{result:metadata}});
+   const command={jobId:claim.jobId,leaseToken:claim.leaseToken,result};
+   await expect(service.completePlacesJob(owner,command,{...dependencies,resolver:{resolve:async()=>{throw Error('GEOAPIFY_UNAVAILABLE');}}})).rejects.toThrow('GEOAPIFY_UNAVAILABLE');
+   polling.fast=true;
+   try{expect(await service.completePlacesJob(owner,command,dependencies)).toMatchObject({status:'SUCCEEDED',placesPersisted:1});}
+   finally{polling.fast=false;}
+   const saved=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+   expect(saved.result).toMatchObject(metadata);
+   expect(saved.result).not.toHaveProperty('completionInProgress');
+   expect(await db.placeEvidence.count({where:{ownerId:owner}})).toBe(2);
+ });
+ it('keeps a crashed computation owned until lease reclaim and bounds identical follower waits',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const command={jobId:claim.jobId,leaseToken:claim.leaseToken,result};
+   // A terminated process cannot run its catch/finally. Seed its durable,
+   // already-admitted state to exercise recovery independently of HTTP errors.
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{result:{completionInProgress:{
+     requestHash:createHash('sha256').update(JSON.stringify(workerResultSchema.parse(result))).digest('hex'),
+     leaseHash:createHash('sha256').update(JSON.stringify(claim.leaseToken)).digest('hex'),token:randomUUID(),
+   }}}});
+   let repeatedCalls=0;
+   polling.fast=true;
+   try{await expect(service.completePlacesJob(owner,command,{...dependencies,resolver:{resolve:async input=>{repeatedCalls++;return resolver.resolve(input);}}})).rejects.toThrow('PLACES_COMPLETION_PENDING');}
+   finally{polling.fast=false;}
+   expect(repeatedCalls).toBe(0);
+   expect(await service.claimPlacesJob(owner,{},dependencies)).toBeNull();
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{leaseExpiresAt:new Date(0)}});
+   const resumed=(await service.claimPlacesJob(owner,{},dependencies))!;
+   expect(resumed.leaseToken).not.toBe(claim.leaseToken);
+   expect((await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}})).result).not.toHaveProperty('completionInProgress');
+   await expect(service.completePlacesJob(owner,command,dependencies)).rejects.toThrow('PLACES_LEASE_LOST');
+   expect(await service.completePlacesJob(owner,{...command,leaseToken:resumed.leaseToken},dependencies)).toMatchObject({status:'SUCCEEDED',placesPersisted:1});
+ });
+ it('rejects a replaced computation token and preserves the replacement through failure cleanup',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const replacement=randomUUID();
+   const attempt=service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result},{...dependencies,resolver:{resolve:async input=>{
+     const saved=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+     const metadata=saved.result as {completionInProgress:{requestHash:string;leaseHash:string;token:string}};
+     await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{result:{...metadata,completionInProgress:{...metadata.completionInProgress,token:replacement}}}});
+     return resolver.resolve(input);
+   }}});
+   await expect(attempt).rejects.toThrow('PLACES_LEASE_LOST');
+   expect((await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}})).result).toMatchObject({completionInProgress:{token:replacement}});
+   expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+   expect(await db.placeEvidence.count({where:{ownerId:owner}})).toBe(0);
+ });
+ it('fences a former producer before its next candidate after reclaim',async()=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const started=deferred(),release=deferred();let calls=0;
+   const old=service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[result.candidates[0],result.candidates[0]]}},
+     {...dependencies,resolver:{resolve:async input=>{calls++;started.release();await release.promise;return resolver.resolve(input);}}});
+   // Attach rejection handling immediately so losing a lease is never unhandled.
+   const settled=old.then(value=>({value,error:null}),error=>({value:null,error}));
+   await started.promise;
+   await db.placeAnalysisJob.update({where:{id:claim.jobId},data:{leaseExpiresAt:new Date(0)}});
+   const resumed=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const receipt=await service.completePlacesJob(owner,{jobId:resumed.jobId,leaseToken:resumed.leaseToken,result},dependencies);
+   release.release();
+   expect((await settled).error?.message).toBe('PLACES_LEASE_LOST');
+   expect(calls).toBe(1);
+   expect(receipt.placesPersisted).toBe(1);
+   expect((await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}})).result).toMatchObject({completion:{receipt}});
+   expect(await db.placeEvidence.count({where:{ownerId:owner}})).toBe(2);
  });
  it('previews without jobs and commits a claimed result exactly once with the post category',async()=>{
    const preview=await service.preparePlacesPost(owner,'worker-post',dependencies);

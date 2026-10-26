@@ -37,6 +37,16 @@ function resolutionInput(overrides: Partial<PlaceCandidate> = {}): PlaceResoluti
   return { candidate: restaurantCandidate(overrides), sourceTheme: "Restaurant" };
 }
 
+it('checks completion authority before each network retry and propagates its loss',async()=>{
+ let admitted=true;let requests=0;
+ const resolver=new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://geo.test',
+  beforeRequest:async()=>{if(!admitted)throw Error('PLACES_LEASE_LOST');},
+  fetchImpl:async()=>{requests++;admitted=false;return new Response('',{status:503});},
+  sleepImpl:async()=>{},maxAttempts:3});
+ await expect(resolver.resolve(resolutionInput())).rejects.toThrow('PLACES_LEASE_LOST');
+ expect(requests).toBe(1);
+});
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }

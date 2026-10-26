@@ -30,6 +30,7 @@ export async function POST(request:Request){
     if(['POST_NOT_FOUND','PLACES_JOB_NOT_FOUND'].includes(code))return externalApiError('NOT_FOUND','Resource not found',404);
     if(['PLACES_LEASE_LOST','PLACES_INPUT_STALE','POST_NOT_PLACES_ELIGIBLE','PLACES_JOB_CONFLICT'].includes(code))return externalApiJson({error:{code,message:'The post or claim is no longer current'}},{status:409});
     if(['PLACES_MEDIA_INCOMPLETE','PLACES_EVIDENCE_INVALID'].includes(code))return externalApiJson({error:{code,message:'Analysis evidence is incomplete or invalid'}},{status:400});
+    if(code==='PLACES_COMPLETION_PENDING')return externalApiError('SERVICE_UNAVAILABLE','Analysis completion is still in progress',503);
     if(code==='PLACES_MEDIA_UNAVAILABLE')return externalApiError('SERVICE_UNAVAILABLE','Verified media unavailable',503);
     return externalApiErrorResponse(error);
   }

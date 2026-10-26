@@ -1,6 +1,7 @@
 import {deferredFailureCodes,repairableFailureCodes} from '../../../services/worker/src/places/learning';
 import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db';
@@ -21,6 +22,8 @@ import {isSupportedRecovery} from '@/lib/places/recovery';
 import {assertPostAllowsPlaceAnalysis, hasOwnerNoPlaceConfirmation, OWNER_NO_PLACE_REVIEW} from './post-exclusion';
 import {automaticPlacesEnabled} from './automation';
 import {loadPlacesLearning,placesJobMetadata,recordPlacesOutcome} from './learning';
+
+import {assertCompletionAuthority,releaseCompletionAuthority,withoutCompletionInProgress,type CompletionInProgress,type CompletionAuthority} from './completion-ownership';
 
 type Dependencies={resolver?:PlaceResolver;signMedia?:MediaSigner};
 type Lease={jobId:string;leaseToken:string};
@@ -232,7 +235,7 @@ export async function claimPlacesJob(ownerId:string,options:{postId?:string;scop
       }
       const learning=options.learning?await loadPlacesLearning(tx,ownerId,currentJob,prepared.input.caption,prepared.media):undefined;
       const leaseToken=randomUUID();
-      await tx.placeAnalysisJob.update({where:{id:job.id},data:{result:{...placesJobMetadata(currentJob.result),learningClaim:learning?{shape:learning.shape,context:learning.context}:null},status:'PROCESSING',stage:'EXTRACTING',leaseOwner:leaseToken,leaseExpiresAt:new Date(now.getTime()+PLACES_WORKER_LEASE_MS),heartbeatAt:now,claimedAt:now,startedAt:job.startedAt??now,attemptCount:{increment:1},nextAttemptAt:null,errorCode:null,errorMessage:null}});
+      await tx.placeAnalysisJob.update({where:{id:job.id},data:{result:{...withoutCompletionInProgress(currentJob.result),learningClaim:learning?{shape:learning.shape,context:learning.context}:null},status:'PROCESSING',stage:'EXTRACTING',leaseOwner:leaseToken,leaseExpiresAt:new Date(now.getTime()+PLACES_WORKER_LEASE_MS),heartbeatAt:now,claimedAt:now,startedAt:job.startedAt??now,attemptCount:{increment:1},nextAttemptAt:null,errorCode:null,errorMessage:null}});
       return {jobId:job.id,leaseToken,heartbeatIntervalMs:30_000,...prepared,...(learning?{learningContext:learning.context}:{})};
     }
     return null;
@@ -256,13 +259,13 @@ export async function retryPlacesJob(ownerId:string,options:{jobId:string;postId
     const current=await inputs(ownerId,options.postId,tx);
     if(current.inputHash!==options.inputHash||job.inputHash!==options.inputHash)throw Error('PLACES_INPUT_STALE');
     if(job.status!=='FAILED')return {requeued:false};
-    const metadata=placesJobMetadata(job.result),repair=options.repairInfrastructure===true;
+    const metadata=withoutCompletionInProgress(job.result),repair=options.repairInfrastructure===true;
     if(repair){
       if(!repairableFailureCodes.has(job.errorCode??'')||metadata.infrastructureRepair||job.maxAttempts>=6||job.attemptCount>=6)return {requeued:false};
     }else if(job.errorCode!=='INVALID_RESULT'||job.attemptCount>=job.maxAttempts)return {requeued:false};
     await setAuditAction(tx,repair?'places.worker.repair_infrastructure':'places.worker.retry');
     await tx.placeAnalysisJob.update({where:{id:job.id},data:{status:'PENDING',stage:'QUEUED',errorCode:null,errorMessage:null,
-      ...(repair?{maxAttempts:Math.min(6,job.maxAttempts+3),result:{...metadata,
+      result:metadata,...(repair?{maxAttempts:Math.min(6,job.maxAttempts+3),result:{...metadata,
         infrastructureRepair:{at:new Date().toISOString(),priorErrorCode:job.errorCode,attemptCount:job.attemptCount,maxAttempts:job.maxAttempts,infrastructure:metadata.infrastructure??null,learning:metadata.learning??null},infrastructure:{...placesJobMetadata(metadata.infrastructure??null),deferrals:0}}}:{}),
       nextAttemptAt:null,completedAt:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
     return {requeued:true};
@@ -300,46 +303,101 @@ export async function previewPlacesResult(ownerId:string,options:{postId:string;
   await assertPostAllowsPlaceAnalysis(ownerId,options.postId);
   return {postId:options.postId,committed:false,plans};
 }
+function completedReceipt(job:Awaited<ReturnType<typeof loadLease>>,requestHash:string,leaseHash:string):AnalyzeRecordResult|null{
+  if(!['SUCCEEDED','NEEDS_REVIEW'].includes(job.status))return null;
+  const saved=job.result as {completion?:{requestHash:string;leaseHash:string;receipt:AnalyzeRecordResult}}|null;
+  if(saved?.completion?.requestHash===requestHash&&saved.completion.leaseHash===leaseHash)return saved.completion.receipt;
+  throw Error('PLACES_LEASE_LOST');
+}
+async function awaitCompletionReceipt(ownerId:string,postId:string,authority:CompletionAuthority,requestHash:string,leaseHash:string):Promise<AnalyzeRecordResult>{
+  // Stay below the consumer's 240 s transport deadline. Both a wall-clock bound
+  // and a poll-count bound apply; no follower can become a second producer.
+  const deadline=Date.now()+230_000;
+  for(let poll=0;poll<230&&Date.now()<deadline;poll++){
+    const job=await prisma.placeAnalysisJob.findFirst({where:{id:authority.jobId,ownerId,postId,analysisVersion:PLACES_WORKER_VERSION}});
+    if(!job)throw Error('PLACES_JOB_NOT_FOUND');
+    await assertPostAllowsPlaceAnalysis(ownerId,postId);
+    const receipt=completedReceipt(job,requestHash,leaseHash);
+    if(receipt)return receipt;
+    const marker=placesJobMetadata(job.result).completionInProgress as CompletionInProgress|undefined;
+    if(job.status!=='PROCESSING'||job.leaseOwner!==authority.leaseToken||!job.leaseExpiresAt||job.leaseExpiresAt<=new Date())throw Error('PLACES_LEASE_LOST');
+    if(!marker)throw Error('PLACES_COMPLETION_PENDING');
+    if(marker.leaseHash!==leaseHash)throw Error('PLACES_LEASE_LOST');
+    if(marker.requestHash!==requestHash)throw Error('PLACES_JOB_CONFLICT');
+    if(marker.token!==authority.completionToken)throw Error('PLACES_COMPLETION_PENDING');
+    await delay(Math.max(0,Math.min(1000,deadline-Date.now())));
+  }
+  throw Error('PLACES_COMPLETION_PENDING');
+}
 export async function completePlacesJob(ownerId:string,options:Lease&{result:unknown},deps:Dependencies={}):Promise<AnalyzeRecordResult>{
   const result=workerResultSchema.parse(options.result),requestHash=digest(result),leaseHash=digest(options.leaseToken);
   const existing=await prisma.placeAnalysisJob.findFirst({where:{id:options.jobId,ownerId,analysisVersion:PLACES_WORKER_VERSION}});
-  if(existing)await assertPostAllowsPlaceAnalysis(ownerId,existing.postId);
-  if(existing&&['SUCCEEDED','NEEDS_REVIEW'].includes(existing.status)){
-    const saved=existing.result as {completion?:{requestHash:string;leaseHash:string;receipt:AnalyzeRecordResult}}|null;
-    if(saved?.completion?.requestHash===requestHash&&saved.completion.leaseHash===leaseHash)return saved.completion.receipt;
-    throw Error('PLACES_LEASE_LOST');
-  }
   if(!existing)throw Error('PLACES_JOB_NOT_FOUND');
+  await assertPostAllowsPlaceAnalysis(ownerId,existing.postId);
+  const replay=completedReceipt(existing,requestHash,leaseHash);
+  if(replay)return replay;
   if(existing.status!=='PROCESSING'||existing.leaseOwner!==options.leaseToken||!existing.leaseExpiresAt||existing.leaseExpiresAt<=new Date())throw Error('PLACES_LEASE_LOST');
-  const job=existing;
-  const prepared=await preparePlacesPost(ownerId,job.postId,deps);
-  if(prepared.input.input_hash!==job.inputHash)throw Error('PLACES_INPUT_STALE');
+  const prepared=await preparePlacesPost(ownerId,existing.postId,deps);
+  if(prepared.input.input_hash!==existing.inputHash)throw Error('PLACES_INPUT_STALE');
   validateCoverage(result,prepared.media,prepared.input.caption);
-  const plans=await planAll(result.candidates,prepared.input.main_theme,deps.resolver??getConfiguredPlaceResolver({ownerId,postId:prepared.input.post_id}),await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location});
-  return prisma.$transaction(async tx=>{
-    // Same post lock as admission; a concurrent admin delete/update wins before
-    // this gate or waits until the entire domain transaction has committed.
-    await tx.$queryRaw`SELECT id FROM posts WHERE id=${job.postId} AND owner_id=${ownerId} FOR UPDATE`;
-    await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${job.id} AND owner_id=${ownerId} FOR UPDATE`;
-    await assertPostAllowsPlaceAnalysis(ownerId,job.postId,tx);
-    const locked=await tx.placeAnalysisJob.findFirst({where:{id:job.id,ownerId}});
-    if(locked&&['SUCCEEDED','NEEDS_REVIEW'].includes(locked.status)){
-      const saved=locked.result as {completion?:{requestHash:string;leaseHash:string;receipt:AnalyzeRecordResult}}|null;
-      if(saved?.completion?.requestHash===requestHash&&saved.completion.leaseHash===leaseHash)return saved.completion.receipt;
-      throw Error('PLACES_LEASE_LOST');
-    }
-    await loadLease(ownerId,options,tx);
+  const admission=await prisma.$transaction(async tx=>{
+    // Keep the existing post-before-job order. All provider work is outside TX.
+    await tx.$queryRaw`SELECT id FROM posts WHERE id=${existing.postId} AND owner_id=${ownerId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${existing.id} AND owner_id=${ownerId} FOR UPDATE`;
+    await assertPostAllowsPlaceAnalysis(ownerId,existing.postId,tx);
+    const locked=await tx.placeAnalysisJob.findFirst({where:{id:existing.id,ownerId}});
+    if(!locked)throw Error('PLACES_JOB_NOT_FOUND');
+    const receipt=completedReceipt(locked,requestHash,leaseHash);
+    if(receipt)return {kind:'receipt' as const,receipt};
+    const job=await loadLease(ownerId,options,tx);
     const current=await inputs(ownerId,job.postId,tx);
     if(current.inputHash!==job.inputHash)throw Error('PLACES_INPUT_STALE');
-    const currentMedia=await loadWorkerMedia(ownerId,job.postId,async()=>'',tx);
-    validateCoverage(result,currentMedia,current.post.caption);
-    await setAuditAction(tx,'places.worker.complete');
-    const receipt=await persistMetadataAnalysis(tx,{ownerId,postId:job.postId,jobId:job.id,plans});
-    const saved=await tx.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id},select:{result:true}});
-    const decisions=saved.result && typeof saved.result==='object' && !Array.isArray(saved.result)?saved.result:{};
-    await tx.placeAnalysisJob.update({where:{id:job.id},data:{leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,result:{...recordPlacesOutcome({...placesJobMetadata(locked!.result),...decisions},{attempt:locked!.attemptCount,status:receipt.status==='SUCCEEDED'?'SUCCEEDED':'NEEDS_REVIEW'}),...receipt,model:result.model,usage:result.usage,elapsedMs:result.elapsedMs,media:result.media,completion:{requestHash,leaseHash,receipt}} as Prisma.InputJsonValue}});
-    return receipt;
+    validateCoverage(result,await loadWorkerMedia(ownerId,job.postId,async()=>'',tx),current.post.caption);
+    const marker=placesJobMetadata(job.result).completionInProgress as CompletionInProgress|undefined;
+    if(marker){
+      if(marker.leaseHash!==leaseHash||!marker.token)throw Error('PLACES_LEASE_LOST');
+      if(marker.requestHash!==requestHash)throw Error('PLACES_JOB_CONFLICT');
+      return {kind:'follower' as const,job,authority:{jobId:job.id,leaseToken:options.leaseToken,completionToken:marker.token}};
+    }
+    const completionToken=randomUUID();
+    await setAuditAction(tx,'places.worker.completion_admit');
+    await tx.placeAnalysisJob.update({where:{id:job.id},data:{stage:'RESOLVING',result:{...placesJobMetadata(job.result),
+      completionInProgress:{requestHash,leaseHash,token:completionToken}}}});
+    return {kind:'owner' as const,job,authority:{jobId:job.id,leaseToken:options.leaseToken,completionToken}};
   },{timeout:30_000});
+  if(admission.kind==='receipt')return admission.receipt;
+  const {job,authority}=admission;
+  if(admission.kind==='follower')return awaitCompletionReceipt(ownerId,job.postId,authority,requestHash,leaseHash);
+  try{
+    const guard=()=>assertCompletionAuthority(ownerId,job.postId,authority);
+    const resolver=deps.resolver??getConfiguredPlaceResolver({ownerId,postId:job.postId,completionAuthority:authority});
+    const plans=await planAll(result.candidates,prepared.input.main_theme,resolver,
+      await loadVerifiedResolutionMemory(ownerId,result.candidates),{caption:prepared.input.caption,structuredLocation:prepared.input.instagram_location},guard);
+    return await prisma.$transaction(async tx=>{
+      // A concurrent admin delete/update wins before this gate or waits until the
+      // entire domain transaction has committed. The computation token is fenced.
+      await tx.$queryRaw`SELECT id FROM posts WHERE id=${job.postId} AND owner_id=${ownerId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${job.id} AND owner_id=${ownerId} FOR UPDATE`;
+      await assertPostAllowsPlaceAnalysis(ownerId,job.postId,tx);
+      await assertCompletionAuthority(ownerId,job.postId,authority,tx);
+      const locked=await loadLease(ownerId,options,tx);
+      const current=await inputs(ownerId,job.postId,tx);
+      if(current.inputHash!==job.inputHash)throw Error('PLACES_INPUT_STALE');
+      const currentMedia=await loadWorkerMedia(ownerId,job.postId,async()=>'',tx);
+      validateCoverage(result,currentMedia,current.post.caption);
+      await setAuditAction(tx,'places.worker.complete');
+      const receipt=await persistMetadataAnalysis(tx,{ownerId,postId:job.postId,jobId:job.id,plans});
+      const saved=await tx.placeAnalysisJob.findUniqueOrThrow({where:{id:job.id},select:{result:true}});
+      const decisions=placesJobMetadata(saved.result);
+      await tx.placeAnalysisJob.update({where:{id:job.id},data:{leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,result:{...recordPlacesOutcome({...withoutCompletionInProgress(locked.result),...decisions},{attempt:locked.attemptCount,status:receipt.status==='SUCCEEDED'?'SUCCEEDED':'NEEDS_REVIEW'}),...receipt,model:result.model,usage:result.usage,elapsedMs:result.elapsedMs,media:result.media,completion:{requestHash,leaseHash,receipt}} as Prisma.InputJsonValue}});
+      return receipt;
+    },{timeout:30_000});
+  }catch(error){
+    // A lost response after commit is harmless: terminal receipts cannot be
+    // released. If cleanup itself fails, normal lease/reclaim still fences it.
+    await releaseCompletionAuthority(ownerId,job.postId,authority).catch(()=>undefined);
+    throw error;
+  }
 }
 export async function failPlacesJob(ownerId:string,options:Lease&{code:string;retryAfterMs?:number}){
   return prisma.$transaction(async tx=>{
@@ -347,7 +405,7 @@ export async function failPlacesJob(ownerId:string,options:Lease&{code:string;re
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`places-worker:${ownerId}`},0))::text`;
     await tx.$queryRaw`SELECT id FROM place_analysis_jobs WHERE id=${options.jobId} AND owner_id=${ownerId} FOR UPDATE`;
     const job=await loadLease(ownerId,options,tx),now=new Date();
-    const metadata=placesJobMetadata(job.result);
+    const metadata=withoutCompletionInProgress(job.result);
     const adaptive=Boolean(metadata.learningClaim)||(metadata.automation as {source?:string}|undefined)?.source==='sync';
     const infrastructure=deferredFailureCodes.has(options.code);
     const prior=metadata.infrastructure as {deferrals?:unknown}|undefined;
@@ -358,7 +416,7 @@ export async function failPlacesJob(ownerId:string,options:Lease&{code:string;re
     const waitMs=Math.max(providerDelay,infrastructure?Math.min(900_000,60_000*2**Math.min(deferrals-1,4)):job.attemptCount===1?60_000:300_000);
     // Environment/provider deferrals do not teach extraction rules or replace
     // an earlier outcome for the refunded attempt. Their budget stays durable.
-    const result=infrastructure?{...metadata,infrastructure:{deferrals,lastCode:options.code,lastAt:now.toISOString(),...(providerDelay?{providerBlockedUntil:new Date(now.getTime()+providerDelay).toISOString()}:{})}}:recordPlacesOutcome(job.result,{attempt:job.attemptCount,status:'FAILED',code:options.code});
+    const result=infrastructure?{...metadata,infrastructure:{deferrals,lastCode:options.code,lastAt:now.toISOString(),...(providerDelay?{providerBlockedUntil:new Date(now.getTime()+providerDelay).toISOString()}:{})}}:recordPlacesOutcome(metadata,{attempt:job.attemptCount,status:'FAILED',code:options.code});
     await setAuditAction(tx,'places.worker.fail');
     const updated=await tx.placeAnalysisJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:options.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',stage:retryable?'QUEUED':'COMPLETE',errorCode:options.code,errorMessage:null,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null,
       ...(deferred?{attemptCount:Math.max(0,job.attemptCount-1)}:{}),nextAttemptAt:retryable?new Date(now.getTime()+waitMs):null,completedAt:retryable?null:now,result}});

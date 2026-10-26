@@ -75,6 +75,7 @@ export class ComplementaryPlaceResolver implements PlaceResolver {
       return verified;
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
+      if(message==='PLACES_LEASE_LOST')throw error;
       const code = /^(?:WEB_SEARCH|GEOAPIFY)_[A-Z0-9_]{1,64}$/u.test(message) ? message : 'WEB_SEARCH_FAILED';
       console.warn(JSON.stringify({stage: 'places_complementary_research', code}));
       return initial;
