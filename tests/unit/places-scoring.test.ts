@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { PlaceCandidate } from "@/lib/places/candidates";
-import { scoreResolvedCandidate, type ScoringInput } from "@/lib/places/scoring";
+import { entityNamesAgree,scoreResolvedCandidate, type ScoringInput } from "@/lib/places/scoring";
 import type { ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
+import {decidePlaceResolution} from '@/lib/places/resolution';
 
 function candidate(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
   return {
@@ -44,6 +45,63 @@ function input(c: Partial<PlaceCandidate>, r: Partial<ResolvedPlaceCandidate>): 
 }
 
 describe("scoreResolvedCandidate", () => {
+  it.each([
+    ['Pizzeria 321 Forni','321 Forni',true],
+    ['Pizzeria 321 Forni','321 Forni Restaurant',true],
+    ['Example Art Gallery','Example Art',true],
+    ['Galerie Example Art','Example Art Gallery',true],
+    ['Pizzeria 321 Forni','321 Forni Gallery',false],
+    ['Restaurant Example Art','Example Art Gallery',false],
+    ['Example 1982','Example',false],
+    ['Pizzeria 321 Forni','123 Forni',false],
+  ])('compares only compatible generic descriptors: %s / %s', (left,right,accepted)=>{
+    expect(entityNamesAgree(left,right)).toBe(accepted);
+    expect(entityNamesAgree(right,left)).toBe(accepted);
+  });
+  it('corroborates Belgian street abbreviations without changing numbers, qualifiers or raw evidence',()=>{
+    for(const [source,street,number] of [["Chau. d’Exemple 123, 1050 Ixelles","Chaussée d’Exemple",'123'],
+      ['Pl. Exemple 6, 1050 Ixelles','Place Exemple','6'],
+      ['Chau. Exemple 133/135, 1050 Ixelles','Chaussée Exemple','133/135']] as const){
+      const pair=input({name:'Example Shop',address:source,city:'Ixelles',country:'Belgium'},
+        {providerName:'Example Shop',displayName:'Example Shop',address:`${street} ${number}, 1050 Ixelles`,street,houseNumber:number,
+          postalCode:'1050',city:'Ixelles',country:'Belgium',countryCode:'BE',providerRank:1});
+      const original=structuredClone(pair);
+      expect(decidePlaceResolution(pair).precision).toBe('EXACT');
+      expect(pair).toEqual(original);
+      for(const changed of [
+        {...pair,resolved:{...pair.resolved,countryCode:'FR',country:'France'},candidate:{...pair.candidate,country:'France'}},
+        {...pair,resolved:{...pair.resolved,houseNumber:`${number}/2`}},
+        {...pair,resolved:{...pair.resolved,postalCode:'1060'}},
+        {...pair,candidate:{...pair.candidate,address:source+', Unit 2'}},
+      ])expect(decidePlaceResolution(changed).precision).toBe('UNKNOWN');
+    }
+  });
+  it('accepts broad Brussels context only for a municipality with a verified Belgian regional parent',()=>{
+    const pair=input({city:'Brussels',country:'Belgium'},
+      {city:'Ixelles',region:'Brussels-Capital Region',subdivisionCode:'BE-BRU',country:'Belgium',countryCode:'BE'});
+    expect(decidePlaceResolution(pair).precision).toBe('EXACT');
+    for(const city of ['Bruxelles','Anderlecht','Elsene','Etterbeek','Evere','Ganshoren','Jette','Koekelberg',
+      'Oudergem','Schaarbeek','Sint-Agatha-Berchem','Sint-Gillis','Sint-Jans-Molenbeek','Sint-Joost-ten-Node',
+      'Sint-Lambrechts-Woluwe','Sint-Pieters-Woluwe','Ukkel','Vorst','Watermaal-Bosvoorde']){
+      for(const parent of [{region:null,subdivisionCode:'BE-BRU'},
+        {region:'Brussels Hoofdstedelijk Gewest',subdivisionCode:undefined}]){
+        expect(decidePlaceResolution({...pair,resolved:{...pair.resolved,...parent,city}}).precision).toBe('EXACT');
+      }
+    }
+    for(const changes of [
+      {region:null,subdivisionCode:undefined},
+      {region:'Flanders'},
+      {region:'Flanders',localityNames:['Brussels']},
+      {subdivisionCode:'BE-VLG'},
+      {city:'Zaventem'},
+      {city:'Ixelles - Saint-Gilles'},
+      {countryCode:null},
+    ])expect(decidePlaceResolution({...pair,resolved:{...pair.resolved,...changes}}).precision).toBe('UNKNOWN');
+    expect(decidePlaceResolution({...pair,candidate:{...pair.candidate,city:'Ixelles'},resolved:{...pair.resolved,city:'Saint-Gilles',localityNames:['Ixelles','Brussels']}}).precision).toBe('UNKNOWN');
+    expect(decidePlaceResolution({...pair,candidate:{...pair.candidate,city:'Ville de Bruxelles'}}).precision).toBe('UNKNOWN');
+    expect(decidePlaceResolution({...pair,candidate:{...pair.candidate,city:'Ixelles'},resolved:{...pair.resolved,city:'Elsene',region:null,subdivisionCode:undefined}}).precision).toBe('EXACT');
+    expect(decidePlaceResolution({...pair,candidate:{...pair.candidate,city:'Saint Gilles'},resolved:{...pair.resolved,city:'Sint-Gillis'}}).precision).toBe('EXACT');
+  });
   it.each(['street', 'amenity'])("rejects a zero-confidence %s even when its name matches the requested park", (providerResultType) => {
     const result = scoreResolvedCandidate(input(
       { name: "St. James's Park", city: 'London', region: 'England', country: 'United Kingdom', category: 'voyage', confidence: 0.8 },

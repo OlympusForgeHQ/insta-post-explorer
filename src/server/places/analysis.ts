@@ -12,7 +12,7 @@ import { distanceMeters } from "@/lib/places/distance";
 import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
 import {administrativeRegionMatches, municipalityCityLabels, tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
-import {approximateAddress, approximateDistrict, canApproximateVenue, groundedVenueName, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 import { prisma } from "@/server/db";
 import { assertPostAllowsPlaceAnalysis } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
@@ -208,9 +208,11 @@ export async function planAll(
   const plans: CandidatePlan[] = [];
   for (const candidate of candidates) {
     await beforeCandidate?.();
-    const enriched=enrichFromVerifiedMemory(candidate,memory);
+    const remembered=enrichFromVerifiedMemory(candidate,memory);
+    const enriched=enrichApproximationEvidence(remembered,sourceContext);
     const plan=await planCandidate(enriched,sourceTheme,resolver,sourceContext);
-    if(enriched!==candidate)plan.reasons=['verified_memory_context',...(plan.reasons??[])];
+    if(remembered!==candidate)plan.reasons=['verified_memory_context',...(plan.reasons??[])];
+    if(enriched!==remembered)plan.reasons=['literal_caption_context',...(plan.reasons??[])];
     plans.push(plan);
   }
   return plans;

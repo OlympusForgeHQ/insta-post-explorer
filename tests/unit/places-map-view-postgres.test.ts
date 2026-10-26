@@ -62,6 +62,39 @@ describeWithDatabase("Places map view on PostgreSQL", () => {
     expect(view.truncated).toBe(false);
   });
 
+  it("projects only validated contextual area fields, retaining source identity without leaking metadata", async () => {
+    const postId = await seedPost(OWNER_A, "Restaurant");
+    const place = await seedPlace(OWNER_A, {displayName: "Maison Étoile", precision: "APPROXIMATE", approximationRadiusMeters: 1000,
+      metadata: {privateProviderPayload: "not-for-ui", label: {source: "source_candidate_approximate_area", candidateName: "Maison Étoile",
+        candidateKey: "a".repeat(64), sourcePostId: postId, sourceContext: {address: null, city: "Paris", region: null, country: "France"},
+        level: "city", missingDetails: ["venue_identity", "street_address", "private-unrecognized-value", "street_address"]}}});
+    await linkPostPlace(OWNER_A, postId, place.id);
+    const view = await mapView.loadPlacesMapView(OWNER_A);
+    expect(view.items[0]).toMatchObject({displayName: "Maison Étoile", areaContext: {level: "city", missingDetails: ["venue_identity", "street_address"]}});
+    expect(JSON.stringify(view)).not.toMatch(/privateProviderPayload|not-for-ui|private-unrecognized-value|candidateKey|sourceContext/);
+  });
+
+  it("omits contextual claims for stale manual names, malformed labels and non-area places", async () => {
+    const postId = await seedPost(OWNER_A, "Restaurant");
+    const label = {source: "source_candidate_approximate_area", candidateName: "Maison Étoile", candidateKey: "a".repeat(64), sourcePostId: postId,
+      sourceContext: {address: null, city: "Paris", region: null, country: "France"}, level: "city", missingDetails: ["street_address"]};
+    for (const change of [
+      {displayName: "Autre établissement", isUserConfirmed: true},
+      {metadata: {label: {...label, source: "user_correction"}}},
+      {metadata: {label: {...label, sourceContext: {city: "Paris"}}}},
+      {metadata: {label: {...label, sourcePostId: "deleted-source-post"}}},
+      {metadata: {label: {...label, level: "precise_business"}}},
+      {metadata: {label: {...label, missingDetails: "untrusted text"}}},
+      {precision: "EXACT", approximationRadiusMeters: null},
+    ]) {
+      const place = await seedPlace(OWNER_A, {displayName: "Maison Étoile", precision: "APPROXIMATE", approximationRadiusMeters: 1000, metadata: {label}, ...change});
+      await linkPostPlace(OWNER_A, postId, place.id);
+    }
+    const view = await mapView.loadPlacesMapView(OWNER_A);
+    expect(view.items).toHaveLength(7);
+    expect(view.items.every(place => place.areaContext === null)).toBe(true);
+  });
+
   // Regression: sourceThemes used to be derived from a truncated relation, so a
   // second theme appearing after the sixth link was invisible to the theme filter.
   it("collects every source theme even when it appears after the sixth link", async () => {
