@@ -2,7 +2,7 @@ import { foldForSearch } from "@/lib/import/normalize";
 import { continentCodeForCountry } from "@/lib/places/continents";
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
-import {addressComponents,belgianMunicipalityAliases,belgianStreetSpelling,brusselsMunicipalityParentLabels,japaneseFloor,japaneseMunicipalityMatches} from '@/lib/places/administrative-context';
+import {verifiedAdministrativeCityNames,addressComponents,belgianMunicipalityAliases,belgianStreetSpelling,brusselsMunicipalityParentLabels,japaneseFloor,japaneseMunicipalityMatches} from '@/lib/places/administrative-context';
 
 // Deterministic resolution scoring (design section 6). A textual candidate and
 // its provider-verified resolution are combined into a bounded confidence and a
@@ -358,7 +358,8 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
   // when the provider reports a containing municipality under `city`.
   const namesDestinationArea=resultKind.kind==='area'&&explicitlyNamesCity(candidate)&&
     entityNames.some(name=>normalizedEntityName(candidate.name!)===normalizedEntityName(name));
-  const directCity=cityAgreement(candidate.city,resolved.city,resolved.countryCode);
+  const directCity=candidate.city&&verifiedAdministrativeCityNames(resolved).some(name=>normalizedEquals(candidate.city!,name))
+    ?{match:1,contradiction:false}:cityAgreement(candidate.city,resolved.city,resolved.countryCode);
   const sourceMunicipality=belgianMunicipalityAliases(resolved.countryCode,candidate.city);
   const providerMunicipality=belgianMunicipalityAliases(resolved.countryCode,resolved.city);
   const broadBrussels=sourceMunicipality[0]==='Brussels';

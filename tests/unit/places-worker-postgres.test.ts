@@ -338,7 +338,7 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    const receipt=await service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:{...result,candidates:[result.candidates[0],unknown]}},dependencies);
    expect(receipt).toMatchObject({status:'NEEDS_REVIEW',unknownCandidates:1,linksPersisted:1});
    const job=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
-   expect(job.result).toMatchObject({resolutionPolicy:'provider-context-v10',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
+   expect(job.result).toMatchObject({resolutionPolicy:'provider-context-v11',decisions:[{precision:'EXACT'},{precision:'UNKNOWN',reasons:['no_identity_context']}]});
  });
 
  it('learns only from fenced failures, backs off, and retains the recovery outcome and sync provenance',async()=>{
@@ -568,6 +568,26 @@ suite('Places worker ownership, leases and atomic completion',()=>{
    await db.post.delete({where:{id:'worker-post'}});
    await expect(service.completePlacesJob(owner,{jobId:resumed.jobId,leaseToken:resumed.leaseToken,result},dependencies)).rejects.toThrow();
    expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+ });
+ it.each(['preview','complete'] as const)('rejects missing scope evidence in %s before provider work or writes',async operation=>{
+   await service.enqueuePlacesPosts(owner,{postId:'worker-post'});
+   const claim=(await service.claimPlacesJob(owner,{},dependencies))!;
+   const invalid={...result,candidates:[{...result.candidates[0],locationScope:{kind:'CITY',evidenceIndex:1}}]};
+   // Historical source payloads remain readable for evidence-preserving recovery.
+   expect(workerResultSchema.safeParse(invalid).success).toBe(true);
+   const resolve=vi.fn(resolver.resolve),deps={...dependencies,resolver:{resolve}};
+   const auditCount=await db.auditEvent.count({where:{ownerId:owner}});
+   const before=await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}});
+   const attempt=operation==='preview'
+     ?service.previewPlacesResult(owner,{postId:'worker-post',inputHash:claim.input.input_hash,result:invalid},deps)
+     :service.completePlacesJob(owner,{jobId:claim.jobId,leaseToken:claim.leaseToken,result:invalid},deps);
+   await expect(attempt).rejects.toThrow('PLACES_EVIDENCE_INVALID');
+   expect(resolve).not.toHaveBeenCalled();
+   expect(await db.placeAnalysisJob.findUniqueOrThrow({where:{id:claim.jobId}})).toEqual(before);
+   expect(await db.auditEvent.count({where:{ownerId:owner}})).toBe(auditCount);
+   expect(await db.place.count({where:{ownerId:owner}})).toBe(0);
+   expect(await db.postPlace.count({where:{ownerId:owner}})).toBe(0);
+   expect(await db.placeEvidence.count({where:{ownerId:owner}})).toBe(0);
  });
  it('rejects missing media coverage and injected authoritative fields without domain writes',async()=>{
    await service.enqueuePlacesPosts(owner,{postId:'worker-post'});

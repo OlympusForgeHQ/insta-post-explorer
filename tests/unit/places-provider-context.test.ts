@@ -3,6 +3,7 @@ import {expect,it,vi} from 'vitest';
 vi.mock('server-only',()=>({}));
 import {GeoapifyPlaceResolver} from '@/server/places/resolvers/geoapify';
 import {planAll} from '@/server/places/analysis';
+import {selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 import {decidePlaceResolution} from '@/lib/places/resolution';
 import type {PlaceCandidate} from '@/lib/places/candidates';
 import type {ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
@@ -119,4 +120,45 @@ it('keeps an explicit region when verifying the city boundary, including POIs wi
  const [plan]=await planAll([{...candidate,city:'Springfield',region:'Illinois',country:'United States'}],'Restaurant',new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://example.test',fetchImpl:fetchMock}));
  expect(plan.best).toBeNull();
  expect(fetchMock.mock.calls.every(([url])=>!String(url).includes('/v2/places'))).toBe(true);
+});
+
+it('binds literal city evidence only to a bounded provider city alias and preserves the source',async()=>{
+ const source:PlaceCandidate={...candidate,name:'Sample Bakery',city:'Novara Example',address:'Novare Exemple',country:'Italy',evidence:[{type:'CAPTION',excerpt:'Sample Bakery à Novare Exemple'}]};
+ const original=structuredClone(source);
+ const area:ResolvedPlaceCandidate={...venue,providerPlaceId:'synthetic-city',providerName:'Novara Example',providerNameAliases:['Novare Exemple'],displayName:'Novara Example',city:'Novara Example',country:'Italy',countryCode:'IT',providerResultType:'city',providerBounds:{lon1:12,lon2:12.1,lat1:45,lat2:45.1},latitude:45.05,longitude:12.05};
+ const [plan]=await planAll([source],'Restaurant',{resolve:async()=>[area]});
+ expect(plan.best?.scored.contextualArea?.level).toBe('city');
+ expect(plan.candidate).toEqual(original);
+ expect(source).toEqual(original);
+ for(const invalid of [{...area,providerResultType:'amenity'},{...area,providerBounds:null},{...area,country:'France',countryCode:'FR'},{...area,city:'Other Municipality'},{...area,providerNameAliases:['Nearby Example']}]){
+  const [rejected]=await planAll([source],'Restaurant',{resolve:async()=>[invalid]});
+  expect(rejected.best).toBeNull();
+ }
+});
+
+it('retrieves one neutral city anchor before binding an otherwise ungrounded locality translation',async()=>{
+ const source:PlaceCandidate={...candidate,name:'Sample Bakery',city:'Novara Example',address:'Novare Exemple',country:'Italy',evidence:[{type:'CAPTION',excerpt:'Sample Bakery à Novare Exemple'}]};
+ const calls:URL[]=[];
+ const resolver=new GeoapifyPlaceResolver({apiKey:'test',baseUrl:'https://example.test',fetchImpl:async(input)=>{
+  const url=new URL(String(input));calls.push(url);
+  const neutral=!url.searchParams.has('name')&&!url.searchParams.has('street')&&!url.searchParams.get('text')?.includes('Sample Bakery');
+  return new Response(JSON.stringify({features:[],results:neutral?[{...raw,place_id:'synthetic-city',name:'Novara Example',city:'Novara Example',country:'Italy',country_code:'it',lat:45.05,lon:12.05,result_type:'city',bbox:{lon1:12,lon2:12.1,lat1:45,lat2:45.1},other_names:{'name:fr':'Novare Exemple'}}]:[]}));
+ }});
+ const anchors=await resolver.resolveApproximate({candidate:source,sourceTheme:'Restaurant'});
+ expect(anchors.some(anchor=>anchor.providerPlaceId==='synthetic-city')).toBe(true);
+ expect(calls.filter(url=>!url.searchParams.has('name')&&!url.searchParams.has('street')&&!url.searchParams.get('text')?.includes('Sample Bakery')).length).toBe(1);
+ calls.length=0;
+ expect(await resolver.resolveApproximate({candidate:{...source,inferredFields:['city']},sourceTheme:'Restaurant'})).toEqual([]);
+ expect(calls).toHaveLength(0);
+});
+
+it('keeps the verified building envelope when a city alias also occurs beside an already grounded city',()=>{
+ const source:PlaceCandidate={...candidate,name:'Sample Bakery',city:'Novara Example',address:'12 Example Street, Unit 4',country:'Italy',evidence:[{type:'CAPTION',excerpt:'Sample Bakery, 12 Example Street, Unit 4 in Novara Example (Novare Exemple)'}]};
+ const building:ResolvedPlaceCandidate={...venue,providerPlaceId:'synthetic-building',providerName:null,displayName:'12 Example Street',address:'12 Example Street, Novara Example, Italy',street:'Example Street',houseNumber:'12',city:'Novara Example',country:'Italy',countryCode:'IT',providerResultType:'building',providerStreetConfidence:1,providerBuildingConfidence:1};
+ const city:ResolvedPlaceCandidate={...building,providerPlaceId:'synthetic-city',providerName:'Novara Example',providerNameAliases:['Novare Exemple'],address:'Novara Example, Italy',street:null,houseNumber:null,providerResultType:'city',providerBounds:{lon1:-.2,lon2:0,lat1:51.4,lat2:51.6}};
+ for(const results of [[building],[building,city]]){
+  const selected=selectContextualVenueArea(source,results);
+  expect(selected?.scored.contextualArea?.level).toBe('building');
+  expect(selected?.scored.contextualArea?.missingDetails).toContain('unit');
+ }
 });

@@ -2,6 +2,7 @@
 import {expect, it, vi} from 'vitest';
 vi.mock('server-only', () => ({}));
 import {ComplementaryPlaceResolver} from '@/server/places/resolvers/complementary';
+import {decidePlaceResolution} from '@/lib/places/resolution';
 import {FallbackPlaceResolver} from '@/server/places/resolvers/fallback';
 import type {PlaceResolutionInput, ResearchedPlaceAddress, ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
 const input: PlaceResolutionInput = {sourceTheme: 'Restaurant', candidate: {
@@ -155,3 +156,49 @@ it('requires each known site to have an independently verified address within 10
   {search:async()=>[research,secondResearch]});
   expect(await resolver.resolve(input)).toEqual([]);
 });
+
+it('retrieves a full structured street label while preserving independent research and original house number',async()=>{
+ const source={...input,candidate:{...input.candidate,city:'Florence',country:'Italy'}};
+ const address={...research,city:'Florence',country:'Italy',streetAddress:'Piazza Verdi 12',postalCode:'50100'};
+ const full={...building,street:'Piazza Giuseppe Verdi',houseNumber:'12',postalCode:'50100',city:'Florence',
+  region:'Tuscany',country:'Italy',countryCode:'IT',address:'Piazza Giuseppe Verdi 12, 50100 Florence, Italy'};
+ const street={...full,providerPlaceId:'street-anchor',houseNumber:null,providerResultType:'street',
+  address:'Piazza Giuseppe Verdi, Florence, Italy'};
+ const geocode=vi.fn<(query:PlaceResolutionInput)=>Promise<ResolvedPlaceCandidate[]>>(async()=>[street]).mockResolvedValueOnce([street]).mockResolvedValueOnce([full]);
+ const resolver=new ComplementaryPlaceResolver({resolve:async()=>[]},{resolve:geocode},{search:async()=>[address]});
+ expect(await resolver.resolve(source)).toEqual([{...full,webResearch:address}]);
+ expect(geocode.mock.calls).toHaveLength(2);
+ expect(geocode.mock.calls[1]).toEqual([{...source,proximity:undefined,candidate:{...source.candidate,
+  name:null,address:'Piazza Giuseppe Verdi 12, 50100'}}]);
+ expect(address.streetAddress).toBe('Piazza Verdi 12');
+});
+
+
+it.each(['spelling','suffix','house','postcode','city','country','unit','confidence'] as const)(
+ 'keeps independent street expansion conservative: %s',async scenario=>{
+  const source={...input,candidate:{...input.candidate,country:'Italy'}};
+  const address={...research,country:'Italy',streetAddress:scenario==='unit'?'Piazza Verdi 12, Unit 4':'Piazza Verdi 12'};
+  const full={...building,country:'Italy',countryCode:'IT',street:scenario==='spelling'?'Piazza Giuseppe Verdiis':
+   scenario==='suffix'?'Piazza Verdi North':'Piazza Giuseppe Verdi',
+   ...(scenario==='house'?{houseNumber:'14'}:{}),
+   ...(scenario==='postcode'?{postalCode:'10006'}:{}),
+   ...(scenario==='city'?{city:'Newark'}:{}),
+   ...(scenario==='country'?{country:'France',countryCode:'FR'}:{}),
+   ...(scenario==='confidence'?{providerStreetConfidence:.5}:{})};
+  const geocode=vi.fn(async()=>[full]);
+  const resolver=new ComplementaryPlaceResolver({resolve:async()=>[]},{resolve:geocode},{search:async()=>[address]});
+  expect(await resolver.resolve(source)).toEqual([]);
+  expect(geocode).toHaveBeenCalledTimes(1);
+ });
+
+
+it.each(['North','Nord','Sud','South','East','Ovest','West','Est','NE','2','Unit','Suite','Nuova','Alta','Giuseppe North'])(
+ 'rejects inserted street qualifiers at final researched resolution: %s',qualifier=>{
+  for(const italian of [false,true]){
+   const street=italian?`Piazza ${qualifier} Verdi`:`Verdi ${qualifier} Street`;
+   const researched={...research,streetAddress:italian?'Piazza Verdi 12':'12 Verdi Street'};
+   const resolved={...building,street,address:`${street} 12, New York, United States`,webResearch:researched,
+    ...(italian?{country:'Italy',countryCode:'IT',webResearch:{...researched,country:'Italy'}}:{})};
+   expect(decidePlaceResolution({candidate:{...input.candidate,...(italian?{country:'Italy'}:{})},resolved}).precision).toBe('UNKNOWN');
+  }
+ });
