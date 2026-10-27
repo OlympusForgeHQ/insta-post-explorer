@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { HermesPlacesInference } from '../src/places/inference.js';
+import { parseCandidates, HermesPlacesInference } from '../src/places/inference.js';
 import type { PreparedPost } from '../src/places/api.js';
 import { groundPlacesEvidence } from '../src/places/evidence.js';
 
@@ -273,4 +273,15 @@ it.each(['broken_body','invalid_json'] as const)('does not repeat an accepted in
  const request=vi.fn<typeof fetch>(async()=>new Response(body));
  await expect(new HermesPlacesInference('http://hermes.test/v1','private',request,retryRuntime()).analyze(prepared,'caption',{},[],new AbortController().signal)).rejects.toThrow(scenario==='broken_body'?'INFERENCE_FAILED':'INVALID_RESULT');
  expect(request).toHaveBeenCalledTimes(1);
+});
+
+it('rejects repeated decoded JSON keys while accepting separate objects',()=>{
+ for(const text of ['{"candidates":[],"candidates":[]}', '{"candidates":[{"name":"Cafe","name":"Other","category":"cafe"}]}', String.raw`{"candidates":[],"\u0063andidates":[]}`])expect(()=>parseCandidates(text,prepared.outputSchema)).toThrow('INVALID_RESULT');
+ expect(parseCandidates(JSON.stringify({candidates:[{name:'A \"name\": value } [',category:'cafe'},{name:'Other',category:'cafe'}]}),prepared.outputSchema).candidates).toHaveLength(2);
+ expect(()=>parseCandidates('['.repeat(129)+'0'+']'.repeat(129),{type:'array'})).toThrow('INVALID_RESULT');
+});
+it('repairs duplicate keys within the existing single follow-up allowance',async()=>{
+ const request=vi.fn<typeof fetch>().mockResolvedValueOnce(reply('{"candidates":[],"candidates":[]}')).mockResolvedValueOnce(reply(valid));
+ expect((await new HermesPlacesInference('http://hermes.test/v1','private',request).analyze(prepared,'caption',{},[],new AbortController().signal)).candidates).toHaveLength(1);
+ expect(request).toHaveBeenCalledTimes(2);
 });

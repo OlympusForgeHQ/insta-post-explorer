@@ -1,5 +1,25 @@
 # Operational Handoff
 
+## Evidence-aware Places analysis — 27 October 2026
+
+Policy `provider-context-v11` binds literal city variants only through a verified
+administrative entity and preserves already grounded, more precise context.
+Complementary address lookup can expand a bounded, verified Italian street name;
+conflicting streets, house numbers, units and countries remain unverified.
+
+The Places consumer rejects duplicate JSON keys and invalid evidence references
+within its existing repair budget. Ambiguous OCR triggers a bounded review of
+neighboring images during fusion, distinguishing product branding from separately
+recommended venues. Server completion validates references before resolution.
+Historical source payloads remain readable and immutable.
+
+Deploy the compatible web/API and only the idle Places consumer. Preserve the
+model, classification consumer, Hermes profile, sync schedule and manual state.
+No migration, dependency or global reanalysis. See
+[requirements and verification](changes/2026-10-27-places-evidence-context.md).
+Private receipts under `.tmp/treviso-fix-20261027/` establish release and the
+single reviewed post's recovery; this entry alone does not assert activation.
+
 ## Progressive geographic context — 26 October 2026
 
 Policy `provider-context-v10` recognizes bounded Belgian street abbreviations,

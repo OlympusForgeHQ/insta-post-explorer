@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {createClassificationAnalyzer} from '../src/classification/analyze.js';
+import {fusionReviewFrames} from '../src/places/fusion-review.js';
 import {createPlacesAnalyzer} from '../src/places/analyze.js';
 import {runClassificationOnce} from '../src/classification/runner.js';
 import {runPlacesPipeline} from '../src/places/pipeline.js';
@@ -105,4 +106,55 @@ it.each(['classification','places'] as const)('logs only bounded allowlisted HTT
   expect(logs.find(event=>event.stage==='inference_http_error')).toMatchObject({httpStatus:400,imageCount:kind==='classification'?1:0,providerCode:scenario==='known'?code:'unknown'});
   expect(JSON.stringify(logs)).not.toMatch(/PRIVATE_|private-hermes-key/);
  }
+});
+
+it('reviews weak cross-batch OCR with its same-media neighboring frame in fusion',async()=>{
+ const weak={...candidate,name:'Uncertain Product',confidence:.45,evidence:[{type:'VIDEO_OCR',excerpt:'Uncertain Product',mediaId:'video',videoTimestampMs:10_000}]};
+ let reviewed=false;const reviewFrames:number[]=[];
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(_url,init)=>{
+  const data=source(init);
+  if(data.stage==='caption')return reply({candidates:[]});
+  if(data.stage==='ocr')return reply({candidates:contents(init).some(part=>part.text?.includes('"timestampMs":10000'))?[weak]:[{...candidate,name:'Example Brand',confidence:.95,evidence:[{type:'VIDEO_OCR',excerpt:'Example Brand',mediaId:'video',videoTimestampMs:9000}]}]});
+  verifyImages(init,reviewFrames);
+  reviewed=true;return reply({candidates:[candidate]});
+ });
+ const output=await createPlacesAnalyzer(config(),()=>{})(prepared,root,new AbortController().signal);
+ expect(reviewed).toBe(true);expect(reviewFrames).toContain(10);expect(reviewFrames).toContain(9);expect(reviewFrames.length).toBeLessThanOrEqual(10);expect(output.candidates).toEqual([candidate]);
+});
+
+it('bounds conflicting OCR review while keeping each target with context from its own media',()=>{
+ const frames=Array.from({length:12},(_,index)=>({path:`frame-${index}`,mediaId:`clip-${Math.floor(index/2)}`,timestampMs:index%2*1000}));
+ const candidates=frames.filter((_,index)=>index%2===0).map((frame,index)=>({name:`Venue ${index}`,confidence:.99,evidence:[{type:'VIDEO_OCR',mediaId:frame.mediaId,videoTimestampMs:frame.timestampMs}]}));
+ const selected=fusionReviewFrames([candidates],frames);
+ expect(selected).toHaveLength(10);
+ for(const frame of selected)expect(selected.filter(other=>other.mediaId===frame.mediaId)).toHaveLength(2);
+ expect(candidates).toHaveLength(6);
+});
+
+it('reviews both chronological same-media neighbors despite one-millisecond sampling asymmetry',()=>{
+ const times=[16283,11842,14803,13322];
+ const frames=times.map(timestampMs=>({path:`frame-${timestampMs}`,mediaId:'clip',timestampMs}));
+ frames.push({path:'other-media',mediaId:'other',timestampMs:14802});
+ const weak={name:'Uncertain Product',confidence:.4,evidence:[{type:'VIDEO_OCR',mediaId:'clip',videoTimestampMs:14803}]};
+ expect(fusionReviewFrames([[weak]],frames).map(frame=>frame.timestampMs)).toEqual([14803,13322,16283]);
+ const crowded=Array.from({length:4},(_,index)=>({name:`Strong ${index}`,confidence:.99,
+  evidence:[{type:'VIDEO_OCR',mediaId:`other-${index}`,videoTimestampMs:1000}]}));
+ const extra=crowded.flatMap((_,index)=>[0,1000,2000].map(timestampMs=>({path:`extra-${index}-${timestampMs}`,mediaId:`other-${index}`,timestampMs})));
+ const selected=fusionReviewFrames([[...crowded,weak]],[...extra,...frames]);
+ expect(selected.slice(0,3).map(frame=>frame.timestampMs)).toEqual([14803,13322,16283]);
+ expect(selected).toHaveLength(9);
+ for(const frame of selected)expect(selected.filter(other=>other.mediaId===frame.mediaId)).toHaveLength(3);
+});
+
+it('prioritizes the weakest OCR target before a moderately weak candidate fills the review budget',()=>{
+ const frames=[0,1480,2960,4440,5921,7401,8881,10362,11842,13322,14803,16283]
+  .map(timestampMs=>({path:`frame-${timestampMs}`,mediaId:'clip',timestampMs}));
+ const proof=(videoTimestampMs:number)=>({type:'VIDEO_OCR',mediaId:'clip',videoTimestampMs});
+ const moderate={name:'Main Venue',confidence:.62,evidence:[0,4440,7401,11842].map(proof)};
+ const weakest={name:'Uncertain Mark',confidence:.2,evidence:[proof(14803)]};
+ const missing={name:'Missing Confidence',evidence:[proof(2960)]};
+ const selected=fusionReviewFrames([[moderate,missing,weakest]],frames);
+ expect(selected.slice(0,3).map(frame=>frame.timestampMs)).toEqual([14803,13322,16283]);
+ expect(selected.length).toBeLessThanOrEqual(10);
+ expect(fusionReviewFrames([[moderate,missing,{...weakest,confidence:Number.NaN}]],frames).length).toBeLessThanOrEqual(10);
 });

@@ -20,3 +20,9 @@ it('rejects invented media references and timestamps rather than clamping or dro
  expect(groundPlacesEvidence(supported,'',media)).toEqual(supported);
  expect(()=>groundPlacesEvidence([candidate([{type:'AUDIO_TRANSCRIPT',mediaId:'clip',videoTimestampMs:0,excerpt:'Cafe'}])],'',[{...media[0],audio:'absent'}])).toThrow('PLACES_EVIDENCE_INVALID');
 });
+
+it('rejects scope references outside the actual evidence array',()=>{
+ const proof=[{type:'CAPTION',excerpt:'Cafe'}];
+ for(const evidenceIndex of [-1,1,1.5])expect(()=>groundPlacesEvidence([{...candidate(proof),locationScope:{kind:'CITY',evidenceIndex}}],'Cafe',[])).toThrow('PLACES_EVIDENCE_INVALID');
+ expect(groundPlacesEvidence([{...candidate(proof),locationScope:{kind:'CITY',evidenceIndex:0}}],'Cafe',[])).toHaveLength(1);
+});

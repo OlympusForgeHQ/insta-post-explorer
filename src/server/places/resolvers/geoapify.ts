@@ -10,7 +10,7 @@ import {administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpel
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
-import {addressDistrictHint,approximateAddress, approximateDistrict, approximateStreet, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {bindVerifiedCityEvidence, groundedVenueName, addressDistrictHint,approximateAddress, approximateDistrict, approximateStreet, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 
 // Geoapify geographic resolver behind the replaceable PlaceResolver interface.
 // It turns a textual candidate into provider-verified coordinates and a provider
@@ -298,13 +298,20 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
   }
 
   async resolveApproximate(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {
-    if(!canApproximateVenue(input.candidate))return [];
-    const candidate=input.candidate;
+    let candidate=input.candidate;
+    const results:ResolvedPlaceCandidate[]=[];
+    let cityQueried=false;
+    if(!canApproximateVenue(candidate)){
+      if(candidate.inferredFields?.includes('city')||!candidate.city||!candidate.country||!groundedVenueName(candidate))return [];
+      results.push(...await this.search({...candidate,name:null,address:null,region:null},undefined,'city'));
+      cityQueried=true;
+      candidate=bindVerifiedCityEvidence(candidate,results);
+      if(!canApproximateVenue(candidate))return [];
+    }
     const address=approximateAddress(candidate);
     // Three bounded neutral geocoding queries at most. They contain geographic
     // fields only, never captions, source identifiers, business names or Google
     // coordinates. Each response is still checked against the unchanged source.
-    const results:ResolvedPlaceCandidate[]=[];
     if(address){
       const french=frenchBelgianAddress(candidate,address);
       results.push(...await this.search(french??{...candidate,name:null,address},undefined,undefined,french?'fr':undefined));
@@ -324,7 +331,7 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     }
     const japanese=isJapaneseCountry(candidate.country);
     const region=japanese&&candidate.region&&japanesePrefectureName(candidate.region)?candidate.region:null;
-    results.push(...await this.search({...candidate,name:null,address:null,region},undefined,japanese?'city':undefined));
+    if(!cityQueried)results.push(...await this.search({...candidate,name:null,address:null,region},undefined,japanese?'city':undefined));
     return results;
   }
 
