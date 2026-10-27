@@ -2,7 +2,7 @@ import { entityNamesAgree, scoreResolvedCandidate, type ScoringInput, type Score
 import {foldForSearch} from '@/lib/import/normalize';
 import {addressComponents,administrativeRegionMatches,japaneseFloor} from '@/lib/places/administrative-context';
 
-export const RESOLUTION_POLICY_VERSION = 'provider-context-v10';
+export const RESOLUTION_POLICY_VERSION = 'provider-context-v11';
 export const PLACE_CONTEXT_RULES = `Infer missing country, city or region from the combined post context and geographic knowledge when the identity is coherent. These fields need not appear literally in the post. Mark deduced fields in inferredFields and retain the original source excerpts unchanged. Do not override explicit contradictory context or invent a branch address. Split distinct branch addresses into separate candidates. A chain account alone does not identify a branch. Never output coordinates or provider IDs. Before declaring a venue name unknown, review visible branding/signage and ordinary-sounding phrases in speech that could be a business name. Treat such a phrase only as a tentative identity when independent source context corroborates that role; generic praise alone never establishes branding. Keep verbatim evidence and let the geographic provider verify identity.
 In a guide/list, the full caption's introductory city may locate its items unless an item's own context contradicts it. This directly evidenced city is not inferred: retain its independent excerpt plus the item's own handle/signage and address. Never borrow another item's location unless both explicitly identify the same complete host; retain that host's address excerpt. Split explicit neighborhood/branch lists, including clearly separating spaced hyphens; preserve compound names and house-number ranges. An "Autumn guide to Example City" applies there except an item explicitly placed in Other City. Separate event/organizer and host identities: an event at a host does not prove a permanent organizer branch. Account suffixes or years do not prove the business name; retain the literal account token in evidence.
 For locationScope, inspect the FULL caption, all OCR, audio, Instagram location and other supplied context at fusion. CITY is only for a generic recommendation of a named business in an explicitly named city with no address, neighborhood, street, station, landmark, branch qualifier or other narrower discriminator anywhere in the recommendation. The owner wants every independently verified shop in that city for this generic case. A chain account alone, missing address or inferred city does not prove CITY. Record SPECIFIC if any narrower context exists, even when address is null; otherwise UNKNOWN. Bind evidenceIndex to existing literal evidence. Retain narrower context in evidence; never shorten it away to obtain CITY. The generic CITY path requires a CAPTION proof covering the complete literal caption, with the city mentioned separately from the business/account name. A city embedded only in an account or hashtag never proves city scope. Extra caption wording or narrower Instagram location remains conservative. Do not invent branches or enumerate addresses: the server verifies actual branches. Preserve existing explicit multiple-location recommendations.`;
@@ -45,6 +45,23 @@ function researchedStreetSpelling(value:string|null|undefined,countryCode:string
     word=>ordinals[word.toLowerCase()]);
 }
 
+// Retrieval and comparison only: expand one explicitly supported Italian
+// given name between the street type and surname. Unknown words are not name
+// evidence: directionals, branch qualifiers, numbers and units stay distinct.
+export function expandedResearchedStreetAddress(address:string,resolved:ScoringInput['resolved']):string|null {
+  if(resolved.countryCode!=='IT')return null;
+  const match=address.trim().match(/^(?:(\d+[a-z]?(?:[-/]\d+[a-z]?)*)\s+(.+)|(.+?)\s+(\d+[a-z]?(?:[-/]\d+[a-z]?)*))$/iu);
+  if(!match||!resolved.street||address.includes(','))return null;
+  const number=match[1]??match[4];
+  if(resolved.houseNumber&&foldForSearch(number)!==foldForSearch(resolved.houseNumber))return null;
+  const tokens=(value:string)=>foldForSearch(value).match(/[\p{L}\p{N}]+/gu)??[];
+  const source=tokens(match[2]??match[3]), full=tokens(resolved.street);
+  if(source.length!==2||full.length!==3||source[0]!==full[0]||source[1]!==full[2]||
+    !['via','viale','piazza','piazzale','corso','largo','vicolo'].includes(source[0])||
+    !['giuseppe','giovanni','giannino'].includes(full[1]))return null;
+  return match[1]?`${number} ${resolved.street}`:`${resolved.street} ${number}`;
+}
+
 function decideResearchedAddress(input: ScoringInput): ScoredResolution {
   // Compare equivalent street spellings only in a transient copy. Raw provider
   // addresses, web excerpts and Instagram evidence remain unchanged.
@@ -80,7 +97,9 @@ function decideResearchedAddress(input: ScoringInput): ScoredResolution {
   }
   // This internal comparison never changes candidate evidence or persists a
   // researched address as though it were supplied by the original post.
-  const checked=decideSourceResolution({candidate:{...candidate,address:spell(research.streetAddress)!,
+  const expanded=resolved.providerStreetConfidence===1 && resolved.providerBuildingConfidence===1
+    ? expandedResearchedStreetAddress(research.streetAddress,resolved):null;
+  const checked=decideSourceResolution({candidate:{...candidate,address:spell(expanded??research.streetAddress)!,
     city:research.city,country:research.country},resolved});
   if (checked.precision!=='EXACT' || !checked.reasons.includes('verified_street_address') ||
     !checked.reasons.includes('city_match') || !checked.reasons.includes('country_match')) {

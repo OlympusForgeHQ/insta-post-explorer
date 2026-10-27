@@ -30,6 +30,10 @@ export function groundPlacesEvidence(candidates:Record<string,unknown>[],caption
       }
       return {...proof};
     });
+    if(candidate.locationScope!==undefined&&candidate.locationScope!==null){
+      const scope=candidate.locationScope as Record<string,unknown>;
+      if(typeof scope.evidenceIndex!=='number'||!Number.isInteger(scope.evidenceIndex)||scope.evidenceIndex<0||scope.evidenceIndex>=evidence.length)throw Error('PLACES_EVIDENCE_INVALID');
+    }
     return {...candidate,evidence};
   });
 }

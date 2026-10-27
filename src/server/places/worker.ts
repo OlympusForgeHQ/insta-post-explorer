@@ -285,6 +285,9 @@ function validateCoverage(result:WorkerResult,media:WorkerMedia[],caption:string
       (source.kind==='IMAGE'&&(coverage.durationMs!==null||coverage.frameCount!==1||coverage.audio!=='not_applicable'))||
       (source.kind==='VIDEO'&&(coverage.durationMs===null||coverage.audio==='not_applicable')))throw Error('PLACES_MEDIA_INCOMPLETE');
   }
+  for(const candidate of result.candidates){
+    if(candidate.locationScope&&candidate.locationScope.evidenceIndex>=candidate.evidence.length)throw Error('PLACES_EVIDENCE_INVALID');
+  }
   for(const candidate of result.candidates)for(const evidence of candidate.evidence){
     if(evidence.type==='CAPTION'&&!caption.includes(evidence.excerpt))throw Error('PLACES_EVIDENCE_INVALID');
     if(['AUDIO_TRANSCRIPT','VIDEO_OCR','VISUAL_LANDMARK'].includes(evidence.type)){

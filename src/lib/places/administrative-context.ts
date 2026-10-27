@@ -142,3 +142,16 @@ export function administrativeRegionMatches(region:string,resolved:ResolvedPlace
     return source.name===provider.name&&(!source.level||source.level===(provider.level??field));
   });
 }
+
+// Aliases belong to this bounded administrative entity, never to a business,
+// a containing municipality, or an unstructured address component.
+export function verifiedAdministrativeCityNames(resolved:ResolvedPlaceCandidate):string[] {
+  const b=resolved.providerBounds;
+  if(resolved.provider!=='geoapify'||!resolved.countryCode||!resolved.country||resolved.providerRank!==1||
+    resolved.providerMatchType!=='full_match'||!['city','town','village','municipality','locality'].includes(resolved.providerResultType??'')||
+    !resolved.city||!resolved.providerName||foldForSearch(resolved.city)!==foldForSearch(resolved.providerName)||
+    !b||![b.lon1,b.lon2,b.lat1,b.lat2,resolved.latitude,resolved.longitude].every(Number.isFinite)||
+    b.lat1< -90||b.lat2>90||b.lon1< -180||b.lon2>180||b.lat1>=b.lat2||b.lon1>=b.lon2||
+    resolved.latitude<b.lat1||resolved.latitude>b.lat2||resolved.longitude<b.lon1||resolved.longitude>b.lon2)return [];
+  return [resolved.city,...(resolved.providerNameAliases??[])];
+}

@@ -12,7 +12,7 @@ import { distanceMeters } from "@/lib/places/distance";
 import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
 import {administrativeRegionMatches, municipalityCityLabels, tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
-import {approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {bindVerifiedCityEvidence, approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
 import { prisma } from "@/server/db";
 import { assertPostAllowsPlaceAnalysis } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
@@ -119,11 +119,12 @@ async function planCandidate(
   let best:CandidatePlan['best'] = ambiguous ? null : viable[0] ?? null;
   // Geographic context is a separate final fallback, after precise retrieval
   // (including provider hints) and branch ambiguity checks have completed.
-  if (!best && canApproximateVenue(candidate)) {
+  const approximationCandidate=bindVerifiedCityEvidence(candidate,resolved);
+  if (!best && (canApproximateVenue(approximationCandidate)||Boolean(!candidate.inferredFields?.includes('city')&&candidate.city&&candidate.country&&groundedVenueName(candidate)))) {
     best = selectContextualVenueArea(candidate, resolved);
     if (resolver.resolveApproximate && (!best || (best.scored.contextualArea?.level !== 'building' &&
       (approximateAddress(candidate) || approximateDistrict(candidate))))) {
-      best = selectContextualVenueArea(candidate, [...resolved, ...await resolver.resolveApproximate(input)]);
+      best = selectContextualVenueArea(candidate, [...resolved, ...await resolver.resolveApproximate({...input,candidate:approximationCandidate})]);
     }
   }
   return { candidate, best, reasons: best?.scored.reasons ?? [...(ambiguous ? ['ambiguous_branches'] : []),...new Set(evaluated.flatMap(entry => entry.scored.reasons)),

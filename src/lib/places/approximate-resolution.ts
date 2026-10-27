@@ -1,7 +1,7 @@
 import {foldForSearch} from '@/lib/import/normalize';
 import type {CityBranchSourceContext} from '@/lib/places/branch-scope';
 import type {PlaceCandidate} from '@/lib/places/candidates';
-import {addressComponents,administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpelling,isBelgianCountry,isJapaneseCountry,japaneseFloor,japaneseMunicipalityMatches,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
+import {verifiedAdministrativeCityNames,addressComponents,administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpelling,isBelgianCountry,isJapaneseCountry,japaneseFloor,japaneseMunicipalityMatches,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
 import {distanceMeters} from '@/lib/places/distance';
 import {decidePlaceResolution, RESOLUTION_POLICY_VERSION} from '@/lib/places/resolution';
 import {scoreResolvedCandidate, type ContextualVenueArea, type ScoredResolution} from '@/lib/places/scoring';
@@ -106,6 +106,23 @@ function independentCityProof(city:string,candidate:PlaceCandidate):boolean {
     for(const identity of identities)source=source.split(` ${identity} `).join(' ');
     return source.includes(` ${words(city)} `);
   });
+}
+
+// Comparison-only bridge: retain the original extraction and evidence in the
+// plan while evaluating the literal locality on a verified administrative entity.
+export function bindVerifiedCityEvidence(candidate:PlaceCandidate,results:readonly ResolvedPlaceCandidate[]):PlaceCandidate {
+  if(canApproximateVenue(candidate)||candidate.inferredFields?.includes('city')||!candidate.city||!candidate.country||!groundedVenueName(candidate))return candidate;
+  for(const resolved of results){
+    const names=verifiedAdministrativeCityNames(resolved);
+    if(!names.some(name=>words(name)===words(candidate.city!)))continue;
+    const comparison=scoreResolvedCandidate({candidate:{...candidate,name:null,address:null,region:null,category:'city'},resolved});
+    if(!comparison.reasons.includes('country_match')||comparison.reasons.some(reason=>reason.endsWith('_contradiction')))continue;
+    const literal=names.find(name=>words(name)!==words(candidate.city!)&&independentCityProof(name,candidate));
+    if(!literal)continue;
+    const cityOnlyAddress=candidate.address&&names.some(name=>words(name)===words(candidate.address!));
+    return {...candidate,city:literal,...(cityOnlyAddress?{address:null}:{})};
+  }
+  return candidate;
 }
 
 export function canApproximateVenue(candidate:PlaceCandidate):boolean {
@@ -263,8 +280,9 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
   // when the source omitted its country.
   const japaneseCityProof=resolved.countryCode==='JP'&&isJapaneseCountry(candidate.country)&&
     independentCityProof(japaneseMunicipalityName(candidate.city!),candidate);
+  const providerCityProof=verifiedAdministrativeCityNames(resolved).some(city=>independentCityProof(city,candidate));
   const belgianCityProof=resolved.countryCode==='BE'&&isBelgianCountry(candidate.country)&&cityAliases(candidate).some(city=>independentCityProof(city,candidate));
-  if(!independentCityProof(candidate.city!,candidate)&&!japaneseCityProof&&!belgianCityProof&&!municipalityCityLabels(resolved.countryCode,candidate.city)
+  if(!independentCityProof(candidate.city!,candidate)&&!japaneseCityProof&&!belgianCityProof&&!providerCityProof&&!municipalityCityLabels(resolved.countryCode,candidate.city)
     .some(city=>independentCityProof(city,candidate)))return null;
   const reportedType=resolved.providerResultType??'';
   const sourceDistrict=approximateDistrict(candidate);
@@ -330,6 +348,7 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
 }
 
 export function selectContextualVenueArea(candidate:PlaceCandidate,results:readonly ResolvedPlaceCandidate[]) {
+  candidate=bindVerifiedCityEvidence(candidate,results);
   if(!canApproximateVenue(candidate))return null;
   const evaluated=[...new Map(results.flatMap(resolved=>{
     const value=evaluateAnchor(candidate,resolved);return value?[[`${resolved.provider}:${resolved.providerPlaceId}`,value] as const]:[];

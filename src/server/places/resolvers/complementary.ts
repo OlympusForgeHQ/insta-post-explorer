@@ -1,5 +1,5 @@
 import 'server-only';
-import {decidePlaceResolution} from '@/lib/places/resolution';
+import {decidePlaceResolution, expandedResearchedStreetAddress} from '@/lib/places/resolution';
 import {distanceMeters} from '@/lib/places/distance';
 import {foldForSearch} from '@/lib/import/normalize';
 import type {PlaceAddressResearch, PlaceResolutionInput, PlaceResolver} from './types';
@@ -36,12 +36,34 @@ export class ComplementaryPlaceResolver implements PlaceResolver {
           region: candidate.inferredFields?.includes('region') && candidate.region &&
             foldForSearch(candidate.region)===foldForSearch(webResearch.city) ? null : candidate.region,
           city: webResearch.city, country: webResearch.country}};
-        const matches = await this.geocoder.resolve(query);
+        let matches = await this.geocoder.resolve(query);
+        let streetRefined=false;
+        // Use one provider street expansion only as a neutral retrieval query.
+        // The final decision independently rechecks original context, research,
+        // house number, postcode and the exact verified building.
+        if (!matches.some(match=>specific({...match,webResearch}))) {
+          const expansions=matches.flatMap(match=>{
+            if(match.provider!=='geoapify'||match.providerStreetConfidence!==1||
+              !['street','building','house','housenumber'].includes(match.providerResultType??''))return [];
+            const context=decidePlaceResolution({candidate:{...query.candidate,address:null},resolved:match});
+            if(!context.reasons.includes('city_match')||!context.reasons.includes('country_match')||
+              context.reasons.some(reason=>reason.endsWith('_contradiction'))||
+              (webResearch.postalCode&&match.postalCode!==webResearch.postalCode))return [];
+            const address=expandedResearchedStreetAddress(webResearch.streetAddress,match);
+            return address?[address]:[];
+          });
+          const unique=[...new Set(expansions)];
+          if(unique.length===1){
+            streetRefined=true;
+            matches=await this.geocoder.resolve({...query,candidate:{...query.candidate,
+              address:[unique[0],webResearch.postalCode].filter(Boolean).join(', ')}});
+          }
+        }
         const qualified = matches.map(match => ({...match, webResearch})).filter(specific);
         const nearHint = (match: (typeof qualified)[number]) =>
           !sites.length || sites.some(site => distanceMeters(site, match) <= 100);
         let accepted = qualified.filter(nearHint);
-        if (sites.length && !accepted.length) {
+        if (sites.length && !accepted.length && !streetRefined) {
           // One neutral refinement may use only a structured district returned
           // for an independently verified building, never Google text/points or
           // a label guessed from the source, provider name or formatted address.
