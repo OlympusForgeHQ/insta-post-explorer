@@ -8,6 +8,8 @@ export function resolvePublicMediaUrl(
   if (!baseUrl) return fallbackUrl;
 
   const prefix = normalizePrefix(process.env.MEDIA_PATH_PREFIX ?? "originals");
+  // Synced posters have their own object key; the video's basename is only a legacy fallback.
+  if (options?.thumbnail && fallbackUrl && isCanonicalMediaUrl(fallbackUrl, baseUrl, prefix)) return fallbackUrl;
   const r2Path = toR2ObjectPath(sourcePath, options);
   const objectKey = [prefix, r2Path].filter(Boolean).join("/");
   const encodedKey = objectKey.split("/").map(encodeURIComponent).join("/");
@@ -43,6 +45,19 @@ export function parsePublicMediaBaseUrl(value: string | undefined): URL | null {
     return url;
   } catch {
     return null;
+  }
+}
+
+function isCanonicalMediaUrl(value: string, baseUrl: URL, prefix: string): boolean {
+  try {
+    const url = new URL(value);
+    const encodedPrefix = prefix.split("/").map(encodeURIComponent).join("/");
+    const root = new URL(encodedPrefix ? `${encodedPrefix}/` : "", baseUrl);
+    return url.protocol === "https:" && !url.username && !url.password
+      && url.origin === root.origin && !url.search && !url.hash
+      && url.pathname.startsWith(root.pathname) && url.pathname.length > root.pathname.length;
+  } catch {
+    return false;
   }
 }
 
