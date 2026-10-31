@@ -1,5 +1,14 @@
 # Operational Handoff
 
+## Stored video posters — 31 October 2026
+
+The media resolver preserves explicit poster objects in the configured public
+media namespace. Synced `_thumb.jpg` objects are no longer replaced by guessed
+`.jpg` filenames. Legacy archive mapping remains available. See
+[scope and verification](changes/2026-10-31-synced-video-posters.md).
+Only the web application requires deployment; no data, worker or schedule change.
+Private receipts in `.tmp/sync-preview-20261031/` establish actual activation.
+
 ## Evidence-aware Places analysis — 27 October 2026
 
 Policy `provider-context-v11` binds literal city variants only through a verified
