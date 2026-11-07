@@ -42,6 +42,21 @@ export type LibraryInitialState = {
   postId: string | null;
 };
 
+type FavoriteFields = { tag: boolean; collection: boolean };
+type FavoriteOverride = FavoriteFields & { settledAt: number | null };
+
+function favoriteFields(post: LibraryPost): FavoriteFields {
+  return { tag: post.tags.includes("Favoris"), collection: post.collections.includes("favoris") };
+}
+
+function withFavoriteFields(post: LibraryPost, fields: FavoriteFields): LibraryPost {
+  return {
+    ...post,
+    tags: fields.tag ? [...post.tags.filter((tag) => tag !== "Favoris"), "Favoris"] : post.tags.filter((tag) => tag !== "Favoris"),
+    collections: fields.collection ? [...post.collections.filter((slug) => slug !== "favoris"), "favoris"] : post.collections.filter((slug) => slug !== "favoris"),
+  };
+}
+
 export function LibraryExplorer({
   posts: initialPosts,
   initialNextCursor,
@@ -69,6 +84,19 @@ export function LibraryExplorer({
 }) {
   const refreshPosts = useRefreshPosts(() => window.location.reload(), isAdmin);
   const [posts, setPosts] = useState(initialPosts);
+  const [collections, setCollections] = useState(initialCollections);
+  const [favoritePending, setFavoritePending] = useState<Set<string>>(() => new Set());
+  const pendingFavorites = useRef(new Set<string>());
+  const favoriteOverrides = useRef(new Map<string, FavoriteOverride>());
+  const readClock = useRef(0);
+  const filterController = useRef<AbortController | null>(null);
+  const favoriteFilter = useRef(false);
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const applyFavoriteOverrides = useCallback((items: LibraryPost[], startedAt: number) => items.map((post) => {
+    const override = favoriteOverrides.current.get(post.id);
+    return override && (override.settledAt === null || override.settledAt > startedAt)
+      ? withFavoriteFields(post, override) : post;
+  }), []);
   const [nextCursor, setNextCursor] = useState(initialNextCursor);
   const [totalFiltered, setTotalFiltered] = useState(initialTotalFiltered);
   const [totalLibrary, setTotalLibrary] = useState(initialTotalLibrary);
@@ -105,6 +133,9 @@ export function LibraryExplorer({
   const initialRequest = useRef(true);
   const debouncedQuery = useDebouncedValue(query, 250);
   const debouncedAuthor = useDebouncedValue(selectedAuthor, 200);
+  useEffect(() => {
+    favoriteFilter.current = selectedCollection === "favoris" || selectedTags.includes("Favoris");
+  }, [selectedCollection, selectedTags]);
   useEffect(() => {
     const shell = shellRef.current;
     if (!shell || typeof ResizeObserver === "undefined") return;
@@ -157,8 +188,8 @@ export function LibraryExplorer({
     // Compact cards must not re-check the query against their truncated captions.
     const filtered = posts.filter((post) => {
       const matchesTags = selectedTags.length === 0 || (tagMode === "and"
-        ? selectedTags.every((tag) => post.tags.includes(tag))
-        : selectedTags.some((tag) => post.tags.includes(tag)));
+        ? selectedTags.every((tag) => (tag === "Favoris" ? post.collections.includes("favoris") || post.tags.includes(tag) : post.tags.includes(tag)))
+        : selectedTags.some((tag) => (tag === "Favoris" ? post.collections.includes("favoris") || post.tags.includes(tag) : post.tags.includes(tag))));
       return matchesTags && (!selectedTheme || post.mainTheme === selectedTheme)
         && (!selectedContentType || post.contentType === selectedContentType)
         && (!selectedAuthor || normalize(post.authorUsername) === normalize(selectedAuthor))
@@ -230,6 +261,8 @@ export function LibraryExplorer({
       return cancelRequests;
     }
 
+    filterController.current = controller;
+    const startedAt = ++readClock.current;
     setLoadingMore(false);
     setDiscovering(false);
     const refresh = async () => {
@@ -251,7 +284,7 @@ export function LibraryExplorer({
         if (!response.ok) throw new Error("REQUEST_FAILED");
         const page = (await response.json()) as { items: LibraryPost[]; nextCursor: string | null; totalFiltered: number; totalLibrary: number };
         if (controller.signal.aborted) return;
-        setPosts(page.items);
+        setPosts(applyFavoriteOverrides(page.items, startedAt));
         setNextCursor(page.nextCursor);
         setTotalFiltered(page.totalFiltered);
         setTotalLibrary(page.totalLibrary);
@@ -261,17 +294,21 @@ export function LibraryExplorer({
         if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
         setRequestError("Impossible d’actualiser les résultats.");
       } finally {
-        if (!controller.signal.aborted) setIsFiltering(false);
+        if (filterController.current === controller) {
+          filterController.current = null;
+          setIsFiltering(false);
+        }
       }
     };
     void refresh();
     return cancelRequests;
-  }, [debouncedQuery, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
+  }, [applyFavoriteOverrides, debouncedQuery, refreshRevision, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore || isFiltering || loadMoreController.current) return;
     const controller = new AbortController();
     loadMoreController.current = controller;
+    const startedAt = ++readClock.current;
     setLoadingMore(true);
     setRequestError(null);
     try {
@@ -292,7 +329,7 @@ export function LibraryExplorer({
       if (controller.signal.aborted) return;
       setPosts((current) => {
         const byId = new Map(current.map((post) => [post.id, post]));
-        for (const post of page.items) byId.set(post.id, post);
+        for (const post of applyFavoriteOverrides(page.items, startedAt)) byId.set(post.id, post);
         return [...byId.values()];
       });
       setNextCursor(page.nextCursor);
@@ -306,7 +343,7 @@ export function LibraryExplorer({
         setLoadingMore(false);
       }
     }
-  }, [debouncedQuery, isFiltering, loadingMore, nextCursor, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
+  }, [applyFavoriteOverrides, debouncedQuery, isFiltering, loadingMore, nextCursor, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
 
   useEffect(() => {
     const target = loadMoreRef.current;
@@ -324,23 +361,53 @@ export function LibraryExplorer({
   }, []);
 
   const toggleFavorite = useCallback(async (post: LibraryPost) => {
-    const favorite = post.tags.includes("Favoris");
+    // The ref closes the gap before React commits the disabled button.
+    if (pendingFavorites.current.has(post.id)) return;
+    pendingFavorites.current.add(post.id);
+    setFavoritePending(new Set(pendingFavorites.current));
+    const previous = favoriteFields(post);
+    const included = !(previous.tag || previous.collection);
+    favoriteOverrides.current.set(post.id, { tag: included, collection: included, settledAt: null });
     setPosts((current) => current.map((item) => item.id === post.id
-      ? { ...item, tags: favorite ? item.tags.filter((tag) => tag !== "Favoris") : [...item.tags, "Favoris"] }
-      : item));
+      ? withFavoriteFields(item, { tag: included, collection: included }) : item));
     setRequestError(null);
     try {
-      const favoriteCollection = initialCollections.find((collection) => collection.slug === "favoris");
-      if (!favoriteCollection) throw new Error("FAVORITES_COLLECTION_MISSING");
-      const response = await fetch(`/api/collections/${encodeURIComponent(favoriteCollection.id)}/posts/${encodeURIComponent(post.id)}`, {
-        method: favorite ? "DELETE" : "PUT",
+      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}/favorite`, {
+        method: included ? "PUT" : "DELETE",
       });
       if (!response.ok) throw new Error("FAVORITE_FAILED");
+      const result = await response.json() as { included: boolean };
+      if (typeof result.included !== "boolean") throw new Error("FAVORITE_FAILED");
+      const fields = { tag: result.included, collection: result.included };
+      favoriteOverrides.current.set(post.id, { ...fields, settledAt: ++readClock.current });
+      setPosts((current) => current.map((item) => item.id === post.id ? withFavoriteFields(item, fields) : item));
+      setCollections((current) => current.map((collection) => collection.slug === "favoris"
+        ? { ...collection, count: Math.max(0, collection.count + Number(result.included) - Number(previous.collection)) }
+        : collection));
+      // Favorite membership changes invalidate old totals and offset cursors.
+      const activeFilter = filterController.current && !filterController.current.signal.aborted;
+      filterController.current?.abort();
+      filterController.current = null;
+      loadMoreController.current?.abort();
+      loadMoreController.current = null;
+      discoveryController.current?.abort();
+      discoveryController.current = null;
+      setLoadingMore(false);
+      setDiscovering(false);
+      if (favoriteFilter.current || activeFilter) {
+        setNextCursor(null);
+        setResultsCurrent(false);
+        setRefreshRevision((revision) => revision + 1);
+      }
     } catch {
-      setPosts((current) => current.map((item) => item.id === post.id ? post : item));
+      favoriteOverrides.current.set(post.id, { ...previous, settledAt: ++readClock.current });
+      setPosts((current) => current.map((item) => item.id === post.id ? withFavoriteFields(item, previous) : item));
       setRequestError("Impossible de modifier les favoris.");
+    } finally {
+      pendingFavorites.current.delete(post.id);
+      setFavoritePending(new Set(pendingFavorites.current));
     }
-  }, [initialCollections]);
+  }, []);
 
   const resetFilters = useCallback(() => {
     setQuery("");
@@ -355,6 +422,7 @@ export function LibraryExplorer({
     if (isFiltering || discoveryController.current) return;
     const controller = new AbortController();
     discoveryController.current = controller;
+    const startedAt = ++readClock.current;
     setDiscovering(true);
     setRequestError(null);
     try {
@@ -371,7 +439,8 @@ export function LibraryExplorer({
       });
       const response = await fetch(`/api/posts?${params}&random=1`, { signal: controller.signal });
       if (!response.ok) throw new Error("DISCOVERY_FAILED");
-      const { item } = (await response.json()) as { item: LibraryPost | null };
+      const payload = (await response.json()) as { item: LibraryPost | null };
+      const item = payload.item ? applyFavoriteOverrides([payload.item], startedAt)[0] : null;
       if (controller.signal.aborted || !item) return;
       setPosts((current) => current.some((post) => post.id === item.id) ? current : [...current, item]);
       setSelectedPostId(item.id);
@@ -383,7 +452,7 @@ export function LibraryExplorer({
         setDiscovering(false);
       }
     }
-  }, [debouncedQuery, isFiltering, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
+  }, [applyFavoriteOverrides, debouncedQuery, isFiltering, selectedAuthor, selectedCollection, selectedContentType, selectedTags, selectedTheme, selectedYear, sort, tagMode]);
 
   const showPrevious = useCallback(() => {
     if (!filteredPosts.length) return;
@@ -404,10 +473,10 @@ export function LibraryExplorer({
   const postCards = useMemo(() => filteredPosts.map(post => (
     <PostCard key={post.id} post={post} view={view}
       onOpen={trigger => { postOpenerRef.current = trigger; setSelectedPostId(post.id); }}
-      isAdmin={isAdmin} onToggleFavorite={() => void toggleFavorite(post)}
+      isAdmin={isAdmin} onToggleFavorite={() => void toggleFavorite(post)} favoritePending={favoritePending.has(post.id)}
       selection={isAdmin && selectionMode ? { checked: selectionIds.has(post.id), disabled: !selectionReady, onToggle: () => toggleSelection(post.id) } : undefined} />
-  )), [filteredPosts, view, isAdmin, toggleFavorite, selectionMode, selectionIds, selectionReady, toggleSelection]);
-  const selectedCollectionName = initialCollections.find((collection) => collection.slug === selectedCollection)?.name ?? selectedCollection;
+  )), [filteredPosts, view, isAdmin, toggleFavorite, favoritePending, selectionMode, selectionIds, selectionReady, toggleSelection]);
+  const selectedCollectionName = collections.find((collection) => collection.slug === selectedCollection)?.name ?? selectedCollection;
 
   return (
     <div className="app-shell" ref={shellRef}>
@@ -556,7 +625,7 @@ export function LibraryExplorer({
             {initialYears.map(({ year, count }) => <option key={year} value={year}>{year} ({count})</option>)}
           </select></label>
           <label className="compact-control collection-control"><span className="compact-control-label">Collection</span><select aria-label="Filtrer par collection" value={selectedCollection ?? ""} onChange={(event) => setSelectedCollection(event.target.value || null)}>
-            <option value="">Toutes les collections</option>{initialCollections.map((collection) => <option key={collection.id} value={collection.slug}>{collection.name} ({collection.count})</option>)}
+            <option value="">Toutes les collections</option>{collections.map((collection) => <option key={collection.id} value={collection.slug}>{collection.name} ({collection.count})</option>)}
           </select></label>
           <div className="ribbon-results">
           <strong className="results-count tabular-nums" aria-live="polite">
@@ -603,10 +672,12 @@ export function LibraryExplorer({
             </div>
             <button className="icon-button" type="button" aria-label="Quitter la sélection" onClick={exitSelection}><X aria-hidden="true" className="size-4" /></button>
           </div></MotionPresence>
-          {requestError ? <p className="request-error" role="alert">{requestError}</p> : null}
+          {requestError ? <div className="request-error" role="alert">{requestError}
+            {!resultsCurrent && !isFiltering ? <button className="text-button" type="button" onClick={() => setRefreshRevision((revision) => revision + 1)}>Réessayer l’actualisation</button> : null}
+          </div> : null}
           {isFiltering ? (
             <div className="filter-loading" role="status"><span className="loading-spinner" aria-hidden="true" />Chargement des résultats…</div>
-          ) : initialError ? <LibraryError message={initialError} /> : posts.length === 0 ? <EmptyLibrary onImport={isAdmin ? () => setImportOpen(true) : undefined} /> : filteredPosts.length === 0 ? <NoResults onReset={resetFilters} /> : (
+          ) : initialError ? <LibraryError message={initialError} /> : totalLibrary === 0 ? <EmptyLibrary onImport={isAdmin ? () => setImportOpen(true) : undefined} /> : filteredPosts.length === 0 ? <NoResults onReset={resetFilters} /> : (
             <>
               <PostGrid view={view} count={filteredPosts.length} sidebarVisible={filtersVisible}>
                 {postCards}
@@ -635,7 +706,7 @@ export function LibraryExplorer({
               {initialYears.map(({ year, count }) => <option key={year} value={year}>{year} ({count})</option>)}
             </select></label>
             <label className="compact-control collection-control"><span className="compact-control-label">Collection</span><select aria-label="Filtrer par collection dans le drawer" value={selectedCollection ?? ""} onChange={(event) => setSelectedCollection(event.target.value || null)}>
-              <option value="">Toutes les collections</option>{initialCollections.map((collection) => <option key={collection.id} value={collection.slug}>{collection.name} ({collection.count})</option>)}
+              <option value="">Toutes les collections</option>{collections.map((collection) => <option key={collection.id} value={collection.slug}>{collection.name} ({collection.count})</option>)}
             </select></label>
           </>
         )}

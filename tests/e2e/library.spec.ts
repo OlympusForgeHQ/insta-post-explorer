@@ -279,12 +279,14 @@ test.describe("bibliotheque Mosaïque", () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem("theme"))).toBe("system");
   });
 
-  test("reste en lecture seule pour un visiteur", async ({ page }) => {
+  test("expose les favoris et réserve l’administration à la connexion", async ({ page }) => {
     await expect(page.getByRole("link", { name: "Ouvrir la connexion administrateur" })).toBeVisible();
     await expect(page.locator("button.import-button")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Favoris", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Ajouter aux favoris" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Retirer des favoris" })).toHaveCount(0);
+    const hearts = page.getByRole("button", { name: /^(Ajouter aux favoris|Retirer des favoris)$/ });
+    await expect(hearts).toHaveCount(await page.locator("[data-post-id]").count());
+    await expect(hearts.first()).toBeEnabled();
+    await expect(hearts.first()).toHaveAttribute("aria-pressed", /^(true|false)$/);
 
     await page.getByRole("button", { name: "Ouvrir la publication de esncom.fr" }).click();
     const dialog = page.getByRole("dialog", { name: "Publication de esncom.fr" });
@@ -465,14 +467,20 @@ test.describe("bibliotheque Mosaïque", () => {
   });
 
   test("conserve l'ordre DOM au clavier dans le Masonry", async ({ page }) => {
-    const expected = await page.locator("[data-post-id]").evaluateAll((cards) => cards.slice(0, 3).map((card) => card.getAttribute("data-post-id")));
-    await page.locator("[data-post-id]").first().focus();
-    const focused = [await page.locator(":focus").getAttribute("data-post-id")];
+    const firstCard = page.locator(".post-card").nth(0);
+    const secondCard = page.locator(".post-card").nth(1);
+    const firstOpener = firstCard.locator("[data-post-id]");
+    const secondOpener = secondCard.locator("[data-post-id]");
+    const firstHeart = firstCard.getByRole("button", { name: /^(Ajouter aux favoris|Retirer des favoris)$/ });
+    const secondHeart = secondCard.getByRole("button", { name: /^(Ajouter aux favoris|Retirer des favoris)$/ });
+    await firstOpener.focus();
+    await expect(firstOpener).toBeFocused();
     await page.keyboard.press("Tab");
-    focused.push(await page.locator(":focus").getAttribute("data-post-id"));
+    await expect(firstHeart).toBeFocused();
     await page.keyboard.press("Tab");
-    focused.push(await page.locator(":focus").getAttribute("data-post-id"));
-    expect(focused).toEqual(expected);
+    await expect(secondOpener).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(secondHeart).toBeFocused();
   });
 
   test("déploie les résultats rares et propose le retour en haut", async ({ page }) => {
