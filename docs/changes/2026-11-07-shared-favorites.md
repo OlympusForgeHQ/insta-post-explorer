@@ -68,3 +68,10 @@ its legacy-only collection counter finding was corrected and regression-tested.
 The browser journey also verified legacy removal and preserved unrelated data.
 Release receipts and the live restoration check are recorded in the private
 operational journal rather than publishing saved post identifiers.
+
+The existing visitor and keyboard browser assertions are updated for the newly
+authorized favorite control: all other administrator controls remain hidden, and
+Tab reaches each card followed by its favorite heart in document order.
+
+After that contract update, the complete generic Playwright suite passed 40
+scenarios with one existing skip. Targeted test lint and typecheck also passed.
