@@ -7,7 +7,7 @@ import { BrokenImage } from "@/features/library/components/library-states";
 import type { LibraryPost, ViewMode } from "@/features/library/types";
 import { cn } from "@/lib/utils";
 
-export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, selection }: { post: LibraryPost; view: ViewMode; onOpen: (trigger: HTMLButtonElement) => void; isAdmin: boolean; onToggleFavorite: () => void; selection?: { checked: boolean; disabled: boolean; onToggle: () => void } }) {
+export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, favoritePending = false, selection }: { post: LibraryPost; view: ViewMode; onOpen: (trigger: HTMLButtonElement) => void; isAdmin: boolean; onToggleFavorite: () => void; favoritePending?: boolean; selection?: { checked: boolean; disabled: boolean; onToggle: () => void } }) {
   const [imageFailed, setImageFailed] = useState(false);
   const [videoPreviewActive, setVideoPreviewActive] = useState(false);
   const [mediaRatio, setMediaRatio] = useState<number | null>(null);
@@ -22,7 +22,7 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
   const previewVideo = post.media.find((media) => media.type === "video" && media.url);
   const imageUrl = post.thumbnailUrl || post.mediaUrl || "";
   const TypeIcon = post.contentType === "reel" ? Play : post.contentType === "carousel" ? Images : null;
-  const favorite = post.tags.includes("Favoris");
+  const favorite = post.collections.includes("favoris") || post.tags.includes("Favoris");
   const visibleTags = isAdmin ? post.tags : post.tags.filter((tag) => tag !== "Favoris");
 
   return (
@@ -72,7 +72,7 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
               muted loop autoPlay playsInline preload="metadata" aria-hidden="true"
             />
           ) : null}
-          {!isAdmin && TypeIcon ? <span className="type-indicator" aria-label={`Type : ${post.contentType}`}><TypeIcon aria-hidden="true" className="size-3.5" /></span> : null}
+          {TypeIcon && !selection ? <span className="type-indicator" aria-label={`Type : ${post.contentType}`}><TypeIcon aria-hidden="true" className="size-3.5" /></span> : null}
         </div>
         <div className="post-card-copy">
           <p className="truncate text-sm font-medium">@{post.authorUsername.replace(/^@/, "")}</p>
@@ -88,17 +88,19 @@ export function PostCard({ post, view, onOpen, isAdmin, onToggleFavorite, select
             onChange={selection.onToggle} aria-label={`Sélectionner la publication de ${post.authorUsername}`}
             data-selection-id={post.id} />
         </label>
-      ) : isAdmin ? (
+      ) : (
         <button
           className={cn("favorite-button", favorite && "is-favorite")}
           type="button"
           aria-label={favorite ? "Retirer des favoris" : "Ajouter aux favoris"}
           aria-pressed={favorite}
+          aria-busy={favoritePending}
+          disabled={favoritePending}
           onClick={onToggleFavorite}
         >
           <Heart aria-hidden="true" className="size-4" fill={favorite ? "currentColor" : "none"} />
         </button>
-      ) : null}
+      )}
     </article>
   );
 }
