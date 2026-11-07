@@ -34,6 +34,19 @@ const videoPost: LibraryPost = {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("PostCard video preview", () => {
+  it("offers anonymous collection-only favorites with accessible pending state and a separate media badge", () => {
+    const toggle = vi.fn();
+    const { rerender } = render(<PostCard post={videoPost} view="grid" onOpen={vi.fn()} isAdmin={false} onToggleFavorite={toggle} />);
+    const heart = screen.getByRole("button", { name: "Retirer des favoris" });
+    expect(heart).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Type : carousel")).toBeVisible();
+    fireEvent.click(heart);
+    expect(toggle).toHaveBeenCalledOnce();
+    rerender(<PostCard post={videoPost} view="grid" onOpen={vi.fn()} isAdmin={false} onToggleFavorite={toggle} favoritePending />);
+    expect(heart).toBeDisabled();
+    expect(heart).toHaveAttribute("aria-busy", "true");
+  });
+
   it("recovers an image failure that finished before hydration attached its handler", () => {
     const complete = vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
     try {
