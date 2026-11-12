@@ -1,5 +1,19 @@
 # Operational Handoff
 
+## Places street-number parsing — 12 November 2026
+
+Policy `provider-context-v12` reads French repetition suffixes (`11 bis`) as part
+of the house number, accepts a number separated from its street by a comma, and
+ignores a postcode glued to the street only when it equals the provider's own.
+Two Paris cafés from the 12 November sync had fallen back to a city-wide zone
+for these reasons. Different numbers, suffixes and postcodes still fail.
+
+Web/API change only; no migration, dependency, consumer or schedule change. See
+[diagnosis and verification](changes/2026-11-12-places-street-number-parsing.md).
+This entry alone does not assert deployment or recovery of the two saved
+places; receipts are on the pull requests and under
+`.tmp/places-street-number-20261112/`.
+
 ## Stored video posters — 31 October 2026
 
 The media resolver preserves explicit poster objects in the configured public

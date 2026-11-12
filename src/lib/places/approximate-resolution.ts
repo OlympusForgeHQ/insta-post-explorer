@@ -4,7 +4,7 @@ import type {PlaceCandidate} from '@/lib/places/candidates';
 import {verifiedAdministrativeCityNames,addressComponents,administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpelling,isBelgianCountry,isJapaneseCountry,japaneseFloor,japaneseMunicipalityMatches,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels} from '@/lib/places/administrative-context';
 import {distanceMeters} from '@/lib/places/distance';
 import {decidePlaceResolution, RESOLUTION_POLICY_VERSION} from '@/lib/places/resolution';
-import {scoreResolvedCandidate, type ContextualVenueArea, type ScoredResolution} from '@/lib/places/scoring';
+import {HOUSE_NUMBER_SUFFIX, scoreResolvedCandidate, type ContextualVenueArea, type ScoredResolution} from '@/lib/places/scoring';
 import type {ResolvedPlaceCandidate} from '@/server/places/resolvers/types';
 
 const words = (value:string) => foldForSearch(value).replace(/[^\p{L}\p{N}]+/gu,' ').trim();
@@ -323,7 +323,11 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
     }
     const streets=providerStreetKeys(resolved.street,resolved.countryCode);
     const source=addressParts(approximateAddress(candidate)??approximateStreet(candidate)).filter(part=>literalProof(part,candidate))
-      .map(part=>streetKey(withoutStreetNumber(part),resolved.countryCode));
+      .flatMap(part=>{
+        // "11 bis Rue X": the repetition suffix belongs to the removed number.
+        const street=withoutStreetNumber(part);
+        return [street,street.replace(new RegExp(`^${HOUSE_NUMBER_SUFFIX}\\s+`,'iu'),'')].map(value=>streetKey(value,resolved.countryCode));
+      });
     if(!source.some(part=>streets.includes(part)))return null;
     if(resolved.providerName&&!['street',...streets].includes(streetKey(resolved.providerName,resolved.countryCode)))return null;
     level='street';radius=Math.max(100,radius);missingDetails.push('street_number');

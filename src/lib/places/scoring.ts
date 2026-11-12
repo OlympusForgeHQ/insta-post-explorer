@@ -162,6 +162,12 @@ type AddressAgreement = {
   contradiction: boolean;
 };
 
+// French repetition suffixes belong to the house number: "11 bis" and "11"
+// are different addresses, while "11 bis" and "11bis" are the same one.
+export const HOUSE_NUMBER_SUFFIX = '(?:bis|ter|quater)';
+const HOUSE_NUMBER = `\\d{1,6}(?:\\s?${HOUSE_NUMBER_SUFFIX}\\b|[a-z])?(?:[-/]\\d{1,6}[a-z]?)*`;
+const compactHouseNumber = (value: string) => value.toLowerCase().replace(/\s+/gu, '');
+
 function normalizeAddress(value: string): string {
   return foldForSearch(value).split(',').map((segment,index)=>index>0
     ?segment.replace(/^\s*\d{4,6}(?:-\d{4})?\s+(?=\p{L})/u,''):segment).join(',')
@@ -170,7 +176,16 @@ function normalizeAddress(value: string): string {
     .replace(/\bst\b/gu, 'street')
     .replace(/\brd\b/gu, 'road')
     .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(new RegExp(`\\b(\\d{1,6}) (${HOUSE_NUMBER_SUFFIX})\\b`,'gu'), '$1$2')
     .trim();
+}
+
+// "30, avenue Montaigne": a short number alone before its street. A longer
+// lone number is more plausibly a postcode and keeps the previous behavior.
+function detachedHouseNumber(segments: readonly string[]): string | null {
+  if (segments.length < 2 || !/^\s*\p{L}/u.test(segments[1])) return null;
+  const alone = segments[0].match(new RegExp(`^\\s*(${HOUSE_NUMBER})\\s*$`,'iu'))?.[1];
+  return alone && !/^\d{4,6}$/u.test(alone) ? compactHouseNumber(alone) : null;
 }
 
 function likelyHouseNumber(value: string): string | null {
@@ -179,12 +194,15 @@ function likelyHouseNumber(value: string): string | null {
   const cleaned = value.replace(/\b\d{1,3}(?:st|nd|rd|th|er|e|eme|ème)\b/gi, '');
   // Preserve the complete compound identifier even for callers without country
   // context (including deduplication). A suffix is not the same address.
-  const number='\\d{1,6}[a-z]?(?:[-/]\\d{1,6}[a-z]?)*';
-  for (const [index, segment] of cleaned.split(',').entries()) {
+  const number=HOUSE_NUMBER;
+  const segments = cleaned.split(',');
+  const detached = detachedHouseNumber(segments);
+  if (detached) return detached;
+  for (const [index, segment] of segments.entries()) {
     const leading = segment.match(new RegExp(`^\\s*(${number})\\s+\\p{L}`,'iu'))?.[1];
-    if (leading && !(index > 0 && /^\d{4,6}$/.test(leading))) return leading.toLowerCase();
+    if (leading && !(index > 0 && /^\d{4,6}$/.test(leading))) return compactHouseNumber(leading);
     const trailing = segment.match(new RegExp(`\\p{L}\\s+(${number})\\s*$`,'iu'))?.[1];
-    if (trailing) return trailing.toLowerCase();
+    if (trailing) return compactHouseNumber(trailing);
   }
   return null;
 }
@@ -259,7 +277,22 @@ function providerAddressAgreement(candidateValue: string | null, resolved: Resol
   }
   const houseNumber = likelyHouseNumber(candidateValue);
   if (!houseNumber) return fallback;
-  const segments = candidateValue.split(",").map(normalizeAddress);
+  // Rejoin a detached number with its street, then drop only the provider's own
+  // postcode (and locality) when the source wrote them after the street without
+  // a separator. A different postcode or locality stays and fails the comparison.
+  const sourceParts = candidateValue.split(",");
+  const postcode = resolved.postalCode ? normalizeAddress(resolved.postalCode) : null;
+  // A street followed only by that postcode carries no house number at all.
+  if (postcode && houseNumber === postcode) return { match: false, houseNumberMatch: false, contradiction: false };
+  const localities = [resolved.city, ...(resolved.localityNames ?? [])]
+    .filter((value): value is string => Boolean(value)).map(normalizeAddress);
+  const tails = postcode ? [` ${postcode}`, ...localities.map(locality => ` ${postcode} ${locality}`)] : [];
+  const segments = (detachedHouseNumber(sourceParts)
+    ? [`${sourceParts[0]} ${sourceParts[1]}`, ...sourceParts.slice(2)] : sourceParts).map(normalizeAddress).map(segment => {
+      const tail = tails.find(value => segment.endsWith(value));
+      const street = tail ? segment.slice(0, -tail.length) : segment;
+      return /\d/u.test(street) ? street : segment;
+    });
   const parts = resolved.street.split(/\s+[-–—/]\s+/u).map(normalizeAddress);
   // Belgian bilingual labels each contain a complete street designation;
   // a separator followed by a direction, extension or unit is not an alias.
@@ -267,9 +300,12 @@ function providerAddressAgreement(candidateValue: string | null, resolved: Resol
   const bilingual = resolved.countryCode==='BE' && parts.length===2 && parts.every(part=>completeStreet.test(part));
   const streets = bilingual ? parts : [normalizeAddress(resolved.street)];
   const number = normalizeAddress(resolved.houseNumber);
-  const exactNumber = houseNumber === resolved.houseNumber.toLowerCase();
+  // A provider street can itself start with a suffix word ("5 Ter Platen");
+  // the complete numbered street below still has to agree in that case.
+  const exactNumber = [houseNumber, houseNumber.replace(new RegExp(`${HOUSE_NUMBER_SUFFIX}$`,'u'), '')]
+    .includes(compactHouseNumber(resolved.houseNumber));
   const streetAndNumber = streets.flatMap(street=>[`${number} ${street}`, `${street} ${number}`])
-    .some(value => segments.includes(value));
+    .some(value => segments.includes(normalizeAddress(value)));
   return {match: exactNumber && streetAndNumber, houseNumberMatch: exactNumber,
     contradiction: !exactNumber || !streetAndNumber};
 }
