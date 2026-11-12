@@ -91,7 +91,9 @@ export async function failClassification(ownerId:string,lease:Lease&{code:string
  return prisma.$transaction(async tx=>{
  const job=await tx.postClassificationJob.findFirst({where:{id:lease.jobId,ownerId,analysisVersion:CLASSIFICATION_VERSION}});const now=new Date();
  if(!job||job.status!=='PROCESSING'||job.leaseOwner!==lease.leaseToken||!job.leaseExpiresAt||job.leaseExpiresAt<=now)throw Error('CLASSIFICATION_LEASE_LOST');
- const retryable=['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','WORKER_STOPPING','WORKER_TIMEOUT'].includes(lease.code)&&job.attemptCount<3;
+ // An invalid reply is not a property of the post: the model is not
+ // deterministic and the next claim carries format guidance from this failure.
+ const retryable=['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','WORKER_STOPPING','WORKER_TIMEOUT'].includes(lease.code)&&job.attemptCount<3;
  const updated=await tx.postClassificationJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
  if(updated.count!==1)throw Error('CLASSIFICATION_LEASE_LOST');
  await recordLearningObservation(tx,ownerId,job.id,job.postId,lease.leaseToken,'classification',retryable?'RETRY':'FAILED',lease.learning,lease.code);
