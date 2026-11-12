@@ -1,5 +1,13 @@
 # Operational Handoff
 
+## Retry invalid classification results — 12 November 2026
+
+A worker audit found seven classification jobs that failed permanently on their
+first invalid model reply. `INVALID_RESULT` is now retried within the existing
+three-attempt limit and backoff, as the Places worker already does. Web/API only;
+no migration or consumer change. Existing failed jobs are not requeued. See
+[finding and verification](changes/2026-11-12-classification-invalid-result-retry.md).
+
 ## Places street-number parsing — 12 November 2026
 
 Policy `provider-context-v12` reads French repetition suffixes (`11 bis`) as part
