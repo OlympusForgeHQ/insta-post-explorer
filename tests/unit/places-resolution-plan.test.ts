@@ -220,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v11'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v12'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
@@ -464,7 +464,7 @@ describe('Belgian street envelopes with literal source names',()=>{
   ['Place Exemple','Place Exemple - Voorbeeldplein'],['Pl. Exemple','Place Exemple – Voorbeeldplein'],
   ['Rue Exemple','Rue Exemple / Voorbeeldstraat'],
   ['Chaussée Exemple','Chaussée Exemple - Voorbeeld Steenweg'],
-  ['Chau. Exemple 133/135','Chaussée Exemple'],['133/135 Allée Exemple','Allée Exemple'],
+  ['Chau. Exemple 133/135','Chaussée Exemple'],['133/135 Allée Exemple','Allée Exemple'],['11 bis Rue Exemple','Rue Exemple'],
  ])('verifies the complete source street %s against %s without rewriting either identity',async(address,providerName)=>{
   const candidate=source(address),resolved=street(providerName),original=structuredClone(candidate),provider=structuredClone(resolved);
   const [plan]=await planAll([candidate],'Voyages',{resolve:async()=>[resolved]});

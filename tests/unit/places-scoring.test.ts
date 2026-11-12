@@ -281,6 +281,30 @@ describe("scoreResolvedCandidate", () => {
     expect(result.approximationRadiusMeters).toBe(10_000);
   });
 
+  // Regression (12 Nov 2026 sync): two literal Paris addresses fell back to a
+  // city-wide zone because the source house number was misread.
+  it.each([
+    ['a repetition suffix','11 bis Rue Georges Berger, 75017',{houseNumber:'11 bis',postalCode:'75017'},true],
+    ['a compact provider suffix','11 bis Rue Georges Berger, 75017',{houseNumber:'11bis',postalCode:'75017'},true],
+    ['a provider building without the source suffix','11 bis Rue Georges Berger, 75017',{houseNumber:'11',postalCode:'75017'},'address_contradiction'],
+    ['a provider suffix absent from the source','11 Rue Georges Berger, 75017',{houseNumber:'11 bis',postalCode:'75017'},'address_contradiction'],
+    ['a number separated from its street and an unseparated postcode','30, avenue Montaigne 75008',{street:'Avenue Montaigne',houseNumber:'30',postalCode:'75008'},true],
+    ['a different number on that street','30, avenue Montaigne 75008',{street:'Avenue Montaigne',houseNumber:'32',postalCode:'75008'},'address_contradiction'],
+    ['a different postcode on that street','30, avenue Montaigne 75016',{street:'Avenue Montaigne',houseNumber:'30',postalCode:'75008'},'address_contradiction'],
+    ['a postcode and city written after the street without separators','30 avenue Montaigne 75008 Paris',{street:'Avenue Montaigne',houseNumber:'30',postalCode:'75008'},true],
+    ['no number, only the postcode after the street','avenue Montaigne 75008',{street:'Avenue Montaigne',houseNumber:'30',postalCode:'75008'},'address_not_corroborated'],
+    ['a street whose own name starts like a suffix','5 Ter Platen, 9000 Gent',{street:'Ter Platen',houseNumber:'5',postalCode:'9000',city:'Gent',country:'Belgium',countryCode:'BE'},true],
+  ] as const)('verifies a numbered street address with %s only when the complete number agrees',(_label,address,provider,expected)=>{
+    const verified=expected===true;
+    const building={street:'Rue Georges Berger',city:'Paris',country:'France',countryCode:'FR',...provider};
+    const formatted=`${building.houseNumber} ${building.street}, ${building.postalCode} ${building.city}, ${building.country}`;
+    const decision=decidePlaceResolution(input({name:'Example Café',address,city:building.city,country:building.country,category:'cafe'},
+      {...building,displayName:formatted,providerName:null,address:formatted,category:'building',providerResultType:'building',providerRank:1,providerMatchType:'full_match'}));
+    expect(decision.reasons.includes('verified_street_address')).toBe(verified);
+    expect(decision.precision).toBe(verified?'EXACT':'UNKNOWN');
+    if(!verified)expect(decision.reasons).toContain(expected);
+  });
+
   it("classifies a verified address and equivalent compact account name as EXACT", () => {
     const result = scoreResolvedCandidate(
       input(
