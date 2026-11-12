@@ -12,7 +12,7 @@ import { distanceMeters } from "@/lib/places/distance";
 import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
 import {administrativeRegionMatches, municipalityCityLabels, tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
-import {bindVerifiedCityEvidence, approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {bindVerifiedCityEvidence, approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, hostVenueName, selectContextualVenueArea, selectHostedVenue} from '@/lib/places/approximate-resolution';
 import { prisma } from "@/server/db";
 import { assertPostAllowsPlaceAnalysis } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
@@ -126,6 +126,12 @@ async function planCandidate(
       (approximateAddress(candidate) || approximateDistrict(candidate))))) {
       best = selectContextualVenueArea(candidate, [...resolved, ...await resolver.resolveApproximate({...input,candidate:approximationCandidate})]);
     }
+  }
+  // A named host site (theme park, mall, market) is narrower than its city or
+  // district. It is looked up only when nothing more precise was verified.
+  const host = !best || ['city', 'district'].includes(best.scored.contextualArea?.level ?? '') ? hostVenueName(candidate) : null;
+  if (host && resolver.resolveHostVenue) {
+    best = selectHostedVenue(candidate, host, await resolver.resolveHostVenue({...input, host})) ?? best;
   }
   return { candidate, best, reasons: best?.scored.reasons ?? [...(ambiguous ? ['ambiguous_branches'] : []),...new Set(evaluated.flatMap(entry => entry.scored.reasons)),
     ...(resolved.length ? [] : ['provider_no_results'])] };
@@ -518,7 +524,7 @@ type SourceAreaLabel = {
   sourceContext: {address: string | null; city: string | null; region: string | null; country: string | null};
   providerName: string | null;
   providerDisplayName: string;
-  level: 'building' | 'street' | 'district' | 'city';
+  level: 'building' | 'street' | 'venue' | 'district' | 'city';
   missingDetails: string[];
 };
 

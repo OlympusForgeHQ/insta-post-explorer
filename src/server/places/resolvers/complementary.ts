@@ -107,4 +107,8 @@ export class ComplementaryPlaceResolver implements PlaceResolver {
   async resolveApproximate(input: PlaceResolutionInput) {
     return this.primary.resolveApproximate?.(input) ?? [];
   }
+
+  async resolveHostVenue(input: PlaceResolutionInput & {host: string}) {
+    return await this.primary.resolveHostVenue?.(input) ?? {hosts: [], inside: []};
+  }
 }

@@ -1,5 +1,16 @@
 # Operational Handoff
 
+## Venues located by their host site — 12 November 2026
+
+Policy `provider-context-v13` attaches a venue to the named site hosting it (an
+attraction in a theme park, a stall in a market) when the post gives that host
+instead of a street address. The host must be one provider-verified entity with
+that exact name, in the source city, with bounds. The venue is the provider's
+own same-named entity inside those bounds when it exists, otherwise an
+approximate zone covering the host. Web/API only; host lookups never spend
+Google or web-research requests. See
+[requirements and verification](changes/2026-11-12-places-host-venue.md).
+
 ## Retry invalid classification results — 12 November 2026
 
 A worker audit found seven classification jobs that failed permanently on their

@@ -297,6 +297,16 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     if(alias)accept(await this.searchText([alias,ward,candidate.country].join(', '),'en',input.proximity));
   }
 
+  // Two bounded name lookups: the host site named by the source, then the
+  // venue's own name without that host as an address. Both stay raw provider
+  // observations; the caller verifies identity, locality, bounds and ambiguity.
+  async resolveHostVenue(input:PlaceResolutionInput&{host:string}):Promise<{hosts:ResolvedPlaceCandidate[];inside:ResolvedPlaceCandidate[]}> {
+    const {host,...rest}=input;
+    const hosts=await this.resolve({...rest,proximity:undefined,candidate:{...input.candidate,name:host,address:null,region:null,category:'voyage'}});
+    if(!hosts.length)return {hosts,inside:[]};
+    return {hosts,inside:await this.resolve({...rest,proximity:undefined,candidate:{...input.candidate,address:null}})};
+  }
+
   async resolveApproximate(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {
     let candidate=input.candidate;
     const results:ResolvedPlaceCandidate[]=[];

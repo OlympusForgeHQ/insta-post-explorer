@@ -81,4 +81,11 @@ export interface PlaceResolver {
   // Used only after precise retrieval fails. Returns raw geographic anchors,
   // never renamed businesses or coordinates inferred by the model.
   resolveApproximate?(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]>;
+  // Used only after precise and area retrieval. `hosts` are raw provider
+  // results for the named host site, `inside` for the venue's own name. Never
+  // spends optional Google or web-research requests.
+  resolveHostVenue?(input: PlaceResolutionInput & {host: string}): Promise<{
+    hosts: ResolvedPlaceCandidate[];
+    inside: ResolvedPlaceCandidate[];
+  }>;
 }

@@ -20,7 +20,7 @@ export type ScoringInput = {
 };
 
 export type ContextualVenueArea = {
-  level: "building" | "street" | "district" | "city";
+  level: "building" | "street" | "venue" | "district" | "city";
   sourceName: string;
   missingDetails: string[];
 };
