@@ -220,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v12'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v13'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
@@ -523,5 +523,80 @@ describe('Belgian street envelopes with literal source names',()=>{
    [source('Rue Exemple 133/135, 1040 Bruxelles'),street('Rue Exemple - Voorbeeldstraat')],
    [source('Rue Exemple 133/135'),{...street('Rue Exemple - Voorbeeldstraat'),postalCode:'1410'}],
   ] as const)expect((await planAll([candidate],'Voyages',{resolve:async()=>[anchor]}))[0].best?.scored.contextualArea?.level).toBe('street');
+ });
+});
+
+describe('venues hosted inside a named site',()=>{
+ const attraction:PlaceCandidate={name:'Example Ride',address:'Example Park',city:'Anaheim',region:null,country:'United States',category:'voyage',confidence:.8,
+  evidence:[{type:'CAPTION',excerpt:'Example Ride at Example Park, Anaheim'}]};
+ const park:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'park',displayName:'Example Park',providerName:'Example Park',
+  address:'Example Park, Anaheim, CA, United States of America',city:'Anaheim',region:'California',country:'United States',countryCode:'US',
+  latitude:33.806,longitude:-117.919,providerResultType:'amenity',providerRank:1,providerMatchType:'full_match',category:'entertainment.theme_park',attribution:null,
+  providerBounds:{lon1:-117.923,lat1:33.803,lon2:-117.915,lat2:33.809}};
+ const ride:ResolvedPlaceCandidate={...park,providerPlaceId:'ride',displayName:'Example Ride',providerName:'Example Ride',
+  address:'Example Ride, Anaheim, CA, United States of America',latitude:33.807,longitude:-117.918,category:'tourism.attraction',providerBounds:null};
+ const hosted=(hosts:ResolvedPlaceCandidate[],inside:ResolvedPlaceCandidate[]=[])=>({resolve:async()=>[],resolveHostVenue:vi.fn(async()=>({hosts,inside}))});
+
+ it('places the venue in the verified extent of its host without renaming either identity',async()=>{
+  const original=structuredClone(attraction),provider=structuredClone(park),resolver=hosted([park]);
+  const [plan]=await planAll([attraction],'Voyages',resolver);
+  expect(resolver.resolveHostVenue).toHaveBeenCalledWith(expect.objectContaining({host:'Example Park'}));
+  expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'venue',sourceName:'Example Ride',missingDetails:['venue_identity','position_in_host']},
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_venue','provider-context-v13'])});
+  expect(plan.best?.scored.approximationRadiusMeters).toBeGreaterThanOrEqual(100);
+  expect(plan.best?.resolved).toEqual(provider);expect(plan.candidate).toEqual(original);expect(attraction).toEqual(original);
+ });
+
+ it('prefers the venue itself when the provider knows it inside the host',async()=>{
+  const station={...ride,providerPlaceId:'ride-station',providerName:'Example Ride Station',displayName:'Example Ride Station',latitude:33.8045,providerNameAliases:['Example Ride']};
+  const [plan]=await planAll([attraction],'Voyages',hosted([park],[station,ride]));
+  expect(plan.best?.resolved.providerPlaceId).toBe('ride');
+  expect(plan.best?.scored.precision).toBe('EXACT');
+  expect(plan.best?.scored.reasons).toEqual(expect.arrayContaining(['name_match','verified_inside_host_venue']));
+  expect(plan.best?.scored.contextualArea).toBeUndefined();
+ });
+
+ it.each([
+  ['a host in another city',[{...park,city:'Orlando'}],[]],
+  ['a host without bounds',[{...park,providerBounds:null}],[]],
+  ['a longer host name',[{...park,providerName:'Example Park Hotel',displayName:'Example Park Hotel'}],[]],
+  ['a zero-confidence host',[{...park,providerRank:0}],[]],
+  ['a same-named host in another country',[{...park,city:'Toronto',country:'Canada',countryCode:'CA'}],[]],
+  ['two same-named hosts far apart',[park,{...park,providerPlaceId:'park-2',latitude:33.9,providerBounds:{lon1:-117.923,lat1:33.897,lon2:-117.915,lat2:33.903}}],[]],
+ ] as const)('does not place a venue in %s',async(_label,hosts,inside)=>{
+  expect((await planAll([attraction],'Voyages',hosted([...hosts],[...inside])))[0].best).toBeNull();
+ });
+
+ it('treats a deduced city as a retrieval hint when the host name itself is literal',async()=>{
+  const deduced={...attraction,city:'Orlando',inferredFields:['city','country'] as ('city'|'country')[],evidence:[{type:'VIDEO_OCR' as const,excerpt:'Example Ride'},{type:'VIDEO_OCR' as const,excerpt:'Example Park · Floride'}]};
+  const bayLake={...park,city:'Bay Lake'},gate={...bayLake,providerPlaceId:'park-gate',latitude:33.8065,providerRank:.5};
+  const [plan]=await planAll([deduced],'Voyages',hosted([gate,bayLake],[{...ride,city:'Bay Lake'}]));
+  expect(plan.best?.resolved.providerPlaceId).toBe('ride');expect(plan.best?.scored.precision).toBe('PROBABLE');
+  const [zone]=await planAll([deduced],'Voyages',hosted([gate,bayLake]));
+  expect(zone.best?.resolved.providerPlaceId).toBe('park');expect(zone.best?.scored.contextualArea?.level).toBe('venue');
+  // A city written in the source is evidence and still has to agree.
+  expect((await planAll([{...deduced,inferredFields:['country']}],'Voyages',hosted([bayLake])))[0].best).toBeNull();
+  expect((await planAll([deduced],'Voyages',hosted([{...bayLake,country:'Canada',countryCode:'CA'}])))[0].best).toBeNull();
+ });
+
+ it('ignores a same-named venue outside the host and keeps the host extent',async()=>{
+  const [plan]=await planAll([attraction],'Voyages',hosted([park],[{...ride,latitude:33.9}]));
+  expect(plan.best?.resolved.providerPlaceId).toBe('park');expect(plan.best?.scored.contextualArea?.level).toBe('venue');
+ });
+
+ it.each([
+  ['a numbered street address',{address:'12 Example Road'}],
+  ['a street name',{address:'Rue Exemple'}],
+  ['a host absent from the source text',{evidence:[{type:'CAPTION' as const,excerpt:'Example Ride in Anaheim'}]}],
+  ['a host equal to the city',{address:'Anaheim'}],
+ ])('does not look up a host for %s',async(_label,overrides)=>{
+  const resolver=hosted([park]);await planAll([{...attraction,...overrides}],'Voyages',resolver);
+  expect(resolver.resolveHostVenue).not.toHaveBeenCalled();
+ });
+
+ it('keeps a precise resolution and never queries the host',async()=>{
+  const resolver={resolve:async()=>[{...ride,address:'Example Park, Anaheim, CA, United States of America'}],resolveHostVenue:vi.fn(async()=>({hosts:[park],inside:[]}))};
+  const [plan]=await planAll([attraction],'Voyages',resolver);
+  expect(plan.best?.resolved.providerPlaceId).toBe('ride');expect(resolver.resolveHostVenue).not.toHaveBeenCalled();
  });
 });

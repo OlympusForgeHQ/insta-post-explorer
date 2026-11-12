@@ -202,3 +202,17 @@ it.each(['North','Nord','Sud','South','East','Ovest','West','Est','NE','2','Unit
    expect(decidePlaceResolution({candidate:{...input.candidate,...(italian?{country:'Italy'}:{})},resolved}).precision).toBe('UNKNOWN');
   }
  });
+
+it('looks up a host venue through the geographic provider only, without Google hints or web research', async () => {
+  const searchHints = vi.fn(async () => []), search = vi.fn(async () => []);
+  const found = {hosts: [building], inside: []};
+  const resolveHostVenue = vi.fn(async () => found);
+  const resolver = new ComplementaryPlaceResolver(new FallbackPlaceResolver({resolve: async () => [], resolveHostVenue}, {searchHints}),
+    {resolve: async () => []}, {search});
+  expect(await resolver.resolveHostVenue({...input, host: 'Example Park'})).toBe(found);
+  expect(resolveHostVenue).toHaveBeenCalledWith(expect.objectContaining({host: 'Example Park'}));
+  expect(searchHints).not.toHaveBeenCalled();expect(search).not.toHaveBeenCalled();
+  // A provider without host lookup yields nothing rather than a guessed site.
+  expect(await new FallbackPlaceResolver({resolve: async () => []}, {searchHints}).resolveHostVenue({...input, host: 'Example Park'}))
+    .toEqual({hosts: [], inside: []});
+});
