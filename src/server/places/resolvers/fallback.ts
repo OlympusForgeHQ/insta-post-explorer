@@ -8,6 +8,9 @@ export class FallbackPlaceResolver implements PlaceResolver {
   async resolveApproximate(input:PlaceResolutionInput){
     return this.primary.resolveApproximate?.(input)??[];
   }
+  async resolveHostVenue(input:PlaceResolutionInput&{host:string}){
+    return await this.primary.resolveHostVenue?.(input)??{hosts:[],inside:[]};
+  }
   async resolve(input:PlaceResolutionInput){
     return (await this.resolveWithHints(input)).results;
   }

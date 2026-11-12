@@ -23,6 +23,7 @@ const PRECISION_LABEL: Record<string, string> = {
 const AREA_LABEL: Record<PlaceAreaContext["level"], string> = {
   building: "Adresse à confirmer",
   street: "Rue identifiée",
+  venue: "Site identifié",
   district: "Quartier identifié",
   city: "Ville identifiée",
 };
@@ -30,6 +31,7 @@ const AREA_LABEL: Record<PlaceAreaContext["level"], string> = {
 function areaExplanation(context: PlaceAreaContext): string {
   if (context.level === "city") return "Adresse à confirmer : seule la ville est identifiée.";
   if (context.level === "district") return "Adresse à confirmer : seule la zone du quartier est identifiée.";
+  if (context.level === "venue") return "Situé dans le site indiqué ; son emplacement exact à l’intérieur n’est pas vérifié.";
   if (context.level === "street") return "Adresse à confirmer : le numéro dans cette rue n’est pas vérifié.";
   const floor = context.missingDetails.includes("floor"), unit = context.missingDetails.includes("unit");
   if (floor && unit) return "Bâtiment repéré ; l’étage et le local restent à confirmer.";

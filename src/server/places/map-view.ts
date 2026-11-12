@@ -20,8 +20,8 @@ import { activePlaceWhere } from "@/server/places/visibility";
 
 export const PLACES_MAP_MAX = 1_000;
 
-const AREA_LEVELS = ["building", "street", "district", "city"] as const;
-const MISSING_AREA_DETAILS = ["venue_identity", "unit", "floor", "street_number", "street_address", "business_address"] as const;
+const AREA_LEVELS = ["building", "street", "venue", "district", "city"] as const;
+const MISSING_AREA_DETAILS = ["venue_identity", "unit", "floor", "street_number", "street_address", "business_address", "position_in_host"] as const;
 export type PlaceAreaContext = {
   level: (typeof AREA_LEVELS)[number];
   missingDetails: (typeof MISSING_AREA_DETAILS)[number][];

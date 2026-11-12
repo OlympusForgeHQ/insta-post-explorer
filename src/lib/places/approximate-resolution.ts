@@ -351,6 +351,65 @@ function evaluateAnchor(candidate:PlaceCandidate,resolved:ResolvedPlaceCandidate
       ...missingDetails.map(detail=>`unverified_${detail}`),...(!candidate.country?['inferred_country_from_verified_area']:[]),RESOLUTION_POLICY_VERSION]}};
 }
 
+// A source can locate a venue by the named site hosting it ("Cars Land" at a
+// theme park, a stall in a market) instead of a street address. Only a single
+// literal, non-numbered host name qualifies; streets, lists and geography do not.
+export function hostVenueName(candidate:PlaceCandidate):string|null {
+  const host=candidate.address?.trim(),sourceName=groundedVenueName(candidate);
+  if(!host||host.length>120||!sourceName||!candidate.city||!candidate.country||words(host).length<3||
+    /[\d+,;|/]|[-–—]\s|\s[-–—]|\b(?:and|et)\b/iu.test(host)||isStreetName(host,null)||!literalProof(host,candidate))return null;
+  if([candidate.name,sourceName,...cityAliases(candidate),candidate.region,candidate.country].some(value=>value&&words(value)===words(host)))return null;
+  return host;
+}
+
+// The host must be one provider-verified site bearing exactly the source's
+// host name, with its own bounds, in the source city. A city the model merely
+// deduced is a retrieval hint, not source evidence: the literal host name and
+// the country then carry the identity. The venue is then either
+// the provider's same-named entity inside those bounds, or an approximate zone
+// covering the host. Neither the source name nor the provider entity is renamed.
+export function selectHostedVenue(candidate:PlaceCandidate,host:string,found:{hosts:readonly ResolvedPlaceCandidate[];inside:readonly ResolvedPlaceCandidate[]}) {
+  const sourceName=groundedVenueName(candidate);
+  if(!sourceName)return null;
+  const deducedCity=Boolean(candidate.inferredFields?.includes('city'));
+  const context={address:null,region:null,city:deducedCity?null:candidate.city,
+    ...(candidate.inferredFields?{inferredFields:candidate.inferredFields.filter(field=>field==='country')}:{})};
+  const hostCandidate={...candidate,...context,name:host,category:'voyage' as const};
+  const verified=found.hosts.filter(resolved=>{
+    if(resolved.provider!=='geoapify'||!resolved.providerName||!['amenity','tourism','leisure','poi'].includes(resolved.providerResultType??'')||
+      verifiedAreaRadius(resolved)===null)return false;
+    const decision=decidePlaceResolution({candidate:hostCandidate,resolved});
+    return ['EXACT','PROBABLE'].includes(decision.precision)&&decision.reasons.includes('venue_identity_and_context')&&
+      decision.reasons.includes(deducedCity?'country_match':'city_match');
+  });
+  // A hotel, station or shop named after the host is a different entity.
+  const key=words(host);
+  const named=verified.filter(resolved=>words(resolved.providerName!)===key);
+  const group=named.length?named:verified.filter(resolved=>[...resolved.providerName!.split(/\s+[-–—/]\s+/u),...(resolved.providerNameAliases??[])]
+    .some(name=>words(name)===key));
+  if(!group.length)return null;
+  // Several provider records can describe one site (its area, gate, label).
+  // A same-named record outside the chosen site's own extent is another site.
+  const site=[...group].sort((a,b)=>(b.providerRank??0)-(a.providerRank??0)||a.providerPlaceId.localeCompare(b.providerPlaceId))[0];
+  const radius=Math.max(100,verifiedAreaRadius(site)!);
+  if(group.some(other=>distanceMeters(site,other)>radius))return null;
+  const own={...candidate,...context};
+  const matches=found.inside.flatMap(resolved=>{
+    if(resolved.provider!=='geoapify'||distanceMeters(site,resolved)>radius)return [];
+    const scored=decidePlaceResolution({candidate:own,resolved});
+    return ['EXACT','PROBABLE'].includes(scored.precision)&&scored.reasons.includes('name_match')
+      ?[{resolved,scored:{...scored,reasons:[...scored.reasons,'verified_inside_host_venue']} as ScoredResolution}]:[];
+  }).sort((a,b)=>b.scored.confidence-a.scored.confidence||a.resolved.providerPlaceId.localeCompare(b.resolved.providerPlaceId));
+  // The venue's own station or hotel is, again, a different entity.
+  const exact=matches.filter(entry=>entry.resolved.providerName&&candidate.name&&words(entry.resolved.providerName)===words(candidate.name));
+  const precise=exact.length?exact:matches;
+  if(precise.length&&!precise.some((entry,index)=>precise.slice(index+1).some(other=>distanceMeters(entry.resolved,other.resolved)>100)))return precise[0];
+  const missingDetails=['venue_identity','position_in_host'];
+  return {resolved:site,scored:{precision:'APPROXIMATE',confidence:.5,approximationRadiusMeters:radius,
+    contextualArea:{level:'venue',sourceName,missingDetails},reasons:['contextual_venue_area','contextual_area_venue',
+      ...missingDetails.map(detail=>`unverified_${detail}`),...(!candidate.country?['inferred_country_from_verified_area']:[]),RESOLUTION_POLICY_VERSION]} as ScoredResolution};
+}
+
 export function selectContextualVenueArea(candidate:PlaceCandidate,results:readonly ResolvedPlaceCandidate[]) {
   candidate=bindVerifiedCityEvidence(candidate,results);
   if(!canApproximateVenue(candidate))return null;
