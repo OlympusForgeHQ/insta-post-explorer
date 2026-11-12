@@ -100,6 +100,20 @@ suite('Classification transactional queue',()=>{
   await expect(service.heartbeatClassification(owner,{jobId:first.jobId,leaseToken:second.leaseToken})).rejects.toThrow('CLASSIFICATION_LEASE_LOST');await service.failClassification(owner,{...third,code:'INFERENCE_BUSY'});expect((await db.postClassificationJob.findUniqueOrThrow({where:{id:first.jobId}})).status).toBe('FAILED');expect(await service.claimClassification(owner,{signMedia:signer})).toBeNull();
   expect(await db.auditEvent.count({where:{ownerId:owner,tableName:'post_classification_jobs'}})).toBeGreaterThan(3);
  });
+ it('retries an invalid model result with backoff and fails only after the third attempt',async()=>{
+  await queue();const first=(await service.claimClassification(owner,{signMedia:signer}))!;
+  expect(await service.failClassification(owner,{...first,code:'INVALID_RESULT'})).toEqual({ok:true,retryable:true});
+  const pending=await db.postClassificationJob.findUniqueOrThrow({where:{id:first.jobId}});
+  expect(pending).toMatchObject({status:'PENDING',errorCode:'INVALID_RESULT',attemptCount:1});expect(pending.nextAttemptAt!.getTime()-Date.now()).toBeGreaterThan(55_000);
+  for(const attempt of [2,3]){
+   await db.postClassificationJob.update({where:{id:first.jobId},data:{nextAttemptAt:new Date(0)}});const lease=(await service.claimClassification(owner,{signMedia:signer}))!;
+   expect(await service.failClassification(owner,{...lease,code:'INVALID_RESULT'})).toEqual({ok:true,retryable:attempt<3});
+  }
+  expect(await db.postClassificationJob.findUniqueOrThrow({where:{id:first.jobId}})).toMatchObject({status:'FAILED',errorCode:'INVALID_RESULT',attemptCount:3});
+  // A media limit is deterministic for the same input and stays terminal.
+  await db.postClassificationJob.deleteMany({where:{ownerId:owner}});await queue();const limited=(await service.claimClassification(owner,{signMedia:signer}))!;
+  expect(await service.failClassification(owner,{...limited,code:'MEDIA_LIMIT'})).toEqual({ok:true,retryable:false});
+ });
  it.each(['rename','merge','delete'])('serializes global tag %s with completion and fences its changed inputs',async action=>{
   const admin=await import('@/server/admin-insights'),locks=await import('@/server/post-deletions');
   const tag=await db.tag.create({data:{ownerId:owner,name:'Chocolat',slug:'chocolat'}}),target=await db.tag.create({data:{ownerId:owner,name:'Cacao',slug:'cacao'}});await db.postTag.create({data:{postId:'classification-post',tagId:tag.id,isManual:false}});await queue();const claim=(await service.claimClassification(owner,{signMedia:signer}))!;
