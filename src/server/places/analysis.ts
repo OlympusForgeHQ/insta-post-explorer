@@ -435,8 +435,12 @@ function sourceBusinessLabel(candidate: PlaceCandidate, resolved: ResolvedPlaceC
       providerName:resolved.providerName??null,providerDisplayName:resolved.displayName};
   }
   if (resolved.providerName !== null || !['building', 'house', 'housenumber'].includes(resolved.providerResultType ?? '') ||
-    scored.precision !== 'EXACT' || !scored.reasons.includes('verified_street_address') ||
-    !['restaurant', 'cafe', 'patisserie', 'lodging'].includes(candidate.category) || !candidate.name?.trim()) return null;
+    scored.precision !== 'EXACT' || !scored.reasons.includes('verified_street_address') || !candidate.name?.trim()) return null;
+  // A shop or a sight is named by its source too, but outside the business
+  // categories a candidate can be a street, a city or a model paraphrase. Its
+  // name must then be written in the source and say more than the address.
+  if (!['restaurant', 'cafe', 'patisserie', 'lodging'].includes(candidate.category) && (!groundedVenueName(candidate) ||
+    foldForSearch(resolved.address ?? resolved.displayName).includes(foldForSearch(candidate.name.trim())))) return null;
   return { source: 'source_candidate_verified_address' as const, candidateName: candidate.name.trim(),
     sourcePostId: postId, providerName: null, providerDisplayName: resolved.displayName };
 }
