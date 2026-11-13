@@ -1,5 +1,14 @@
 # Operational Handoff
 
+## Busy inference slot defers classification — 14 November 2026
+
+Classification, translation and Places share one inference slot. A busy slot
+no longer spends one of a classification job's three attempts: the job is
+deferred for two minutes, within 24 hours of its first start, as caption
+translation already does. Other failures are unchanged. Web/API only; no
+migration or consumer change. See
+[diagnosis and verification](changes/2026-11-14-classification-busy-deferral.md).
+
 ## Source names for shops and sights — 13 November 2026
 
 A place verified by its street address on an anonymous provider building now
