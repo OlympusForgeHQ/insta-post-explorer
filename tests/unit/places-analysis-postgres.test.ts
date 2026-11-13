@@ -570,21 +570,29 @@ describeWithDatabase("Places metadata analysis persistence on PostgreSQL", () =>
     expect(await prisma.place.findUniqueOrThrow({where: {id: known.id}})).toEqual(before);
   });
 
-  it("preserves named provider labels and excludes non-business or unasserted anonymous results", async () => {
-    const examples: Array<{name: string; category: PlaceCandidate['category']; provider: ResolvedPlaceCandidate}> = [
+  it("preserves named provider labels and labels other categories only from a literal, distinctive source name", async () => {
+    const examples: Array<{name: string; category: PlaceCandidate['category']; provider: ResolvedPlaceCandidate; excerpt?: string; label?: true}> = [
       {name: "Maison Étoile", category: "patisserie", provider: anonymousBuilding({providerName: "Maison Étoile", providerResultType: "amenity", displayName: "Maison Étoile, Dubai"})},
-      {name: "Some Destination", category: "voyage", provider: anonymousBuilding()},
-      {name: "Some Shop", category: "divers", provider: anonymousBuilding()},
       {name: "Maison Étoile", category: "patisserie", provider: anonymousBuilding({providerName: undefined})},
+      {name: "Some Shop", category: "divers", provider: anonymousBuilding(), label: true},
+      {name: "Some Destination", category: "voyage", provider: anonymousBuilding(), label: true},
+      // The model's wording, the street and the city are not a venue identity.
+      {name: "Some Shop", category: "divers", provider: anonymousBuilding(), excerpt: "A lovely concept store"},
+      {name: "Main Street", category: "voyage", provider: anonymousBuilding()},
+      {name: "Dubai", category: "voyage", provider: anonymousBuilding()},
     ];
     for (const [index, example] of examples.entries()) {
       const provider = {...example.provider, providerPlaceId: `excluded-label-${index}`};
-      const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true,
-        record: await businessRecord(`excluded-label-${index}`, example.name, OWNER_A, example.category), resolver: {resolve: async () => [provider]}});
+      const record = await businessRecord(`excluded-label-${index}`, example.name, OWNER_A, example.category);
+      if (example.excerpt) {
+        await prisma.post.update({where: {id: record.post_id}, data: {caption: example.excerpt}});
+        Object.assign(record, await freshRecord(OWNER_A, record.post_id, [{...record.candidates[0], evidence: [{type: "CAPTION", excerpt: example.excerpt}]}]));
+      }
+      const receipt = await analysis.analyzeCandidateBatchRecord({ownerId: OWNER_A, commit: true, record, resolver: {resolve: async () => [provider]}});
       expect(receipt.status).toBe("SUCCEEDED");
       const place = await prisma.place.findUniqueOrThrow({where: {ownerId_provider_providerPlaceId: {ownerId: OWNER_A, provider: "geoapify", providerPlaceId: provider.providerPlaceId}}});
-      expect(place.displayName).toBe(provider.displayName);
-      expect(place.metadata).not.toHaveProperty("label");
+      expect(place.displayName).toBe(example.label ? example.name : provider.displayName);
+      expect(Boolean((place.metadata as {label?: unknown}).label)).toBe(Boolean(example.label));
     }
   });
 

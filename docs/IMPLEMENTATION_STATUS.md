@@ -1,5 +1,16 @@
 # Implementation Status
 
+## Source names for shops and sights — 13 November 2026
+
+A place verified by its street address on an anonymous provider building now
+keeps its source name in every category, not only restaurants, cafés and
+pastry shops. Outside those categories the name must be written in the source
+and be more than a city or the address itself. Occupant conflicts, legacy
+proof and manual protections are unchanged. Web/API only; no migration or
+policy change. Existing address-named places need a separate reviewed batch;
+receipts are private under `.tmp/source-labels-20261113/`. See
+[diagnosis and verification](changes/2026-11-13-places-source-labels-all-categories.md).
+
 ## Venues located by their host site — 12 November 2026
 
 Policy `provider-context-v13` attaches a venue to the named site hosting it (an
