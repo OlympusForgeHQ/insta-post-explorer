@@ -10,7 +10,7 @@ import {administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpel
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import type { PlaceResolutionInput, PlaceResolver, ResolvedPlaceCandidate } from "@/server/places/resolvers/types";
-import {bindVerifiedCityEvidence, groundedVenueName, addressDistrictHint,approximateAddress, approximateDistrict, approximateStreet, canApproximateVenue, selectContextualVenueArea} from '@/lib/places/approximate-resolution';
+import {bindVerifiedCityEvidence, groundedVenueName, addressDistrictHint,approximateAddress, approximateDistrict, approximateStreet, canApproximateVenue, japaneseBlockAddress, selectContextualVenueArea, selectHintedBuilding} from '@/lib/places/approximate-resolution';
 
 // Geoapify geographic resolver behind the replaceable PlaceResolver interface.
 // It turns a textual candidate into provider-verified coordinates and a provider
@@ -307,6 +307,33 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     const hosts=await this.resolve({...rest,proximity:undefined,candidate:{...input.candidate,name:host,address:null,region:null,category:'voyage'}});
     if(!hosts.length)return {hosts,inside:[]};
     return {hosts,inside:await this.resolve({...rest,proximity:undefined,candidate:{...input.candidate,address:null}})};
+  }
+
+  // At most three hints, two neutral lookups each: the source address biased
+  // to the hint, then the buildings standing at the hint. Requests carry the
+  // address or a point only, never a business name. Results beyond 50 m of the
+  // hint are dropped; the caller alone verifies the block number and postcode.
+  async resolveHintedBuildings(input:PlaceResolutionInput&{hints?:{latitude:number;longitude:number}[]}):Promise<ResolvedPlaceCandidate[]> {
+    const {candidate}=input;
+    if(!input.hints?.length||!japaneseBlockAddress(candidate))return [];
+    const found:ResolvedPlaceCandidate[]=[];
+    for(const hint of input.hints.slice(0,3)){
+      const near=(rows:ResolvedPlaceCandidate[])=>rows.flatMap(row=>{
+        const distance=distanceMeters(hint,row);
+        return distance<=50?[{...row,retrievalHintDistanceMeters:Math.round(distance)}]:[];
+      });
+      found.push(...near(await this.search({...candidate,name:null},hint)));
+      if(selectHintedBuilding(candidate,found))continue;
+      const params=new URLSearchParams({lat:String(hint.latitude),lon:String(hint.longitude),type:'building',lang:'en',
+        format:'json',limit:String(this.maxResults),apiKey:this.apiKey});
+      const response=await this.fetchWithRetry(`${this.baseUrl}/v1/geocode/reverse?${params}`);
+      let payload:unknown;
+      try{payload=await response.json();}catch{throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');}
+      const parsed=geoapifyResponseSchema.safeParse(payload);
+      if(!parsed.success)throw new GeoapifyResolverError('GEOAPIFY_INVALID_RESPONSE');
+      found.push(...near(parsed.data.results.slice(0,this.maxResults).map(row=>normalizeResult(row))));
+    }
+    return found;
   }
 
   async resolveApproximate(input:PlaceResolutionInput):Promise<ResolvedPlaceCandidate[]> {

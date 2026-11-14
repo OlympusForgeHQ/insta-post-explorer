@@ -412,6 +412,69 @@ export function selectHostedVenue(candidate:PlaceCandidate,host:string,found:{ho
       ...missingDetails.map(detail=>`unverified_${detail}`),...(!candidate.country?['inferred_country_from_verified_area']:[]),RESOLUTION_POLICY_VERSION]} as ScoredResolution};
 }
 
+// Japanese postal addresses name a block, not a street: "<town> 3-chōme 11-6"
+// plus a seven-digit postcode. Geocoders hold the building but often cannot
+// retrieve it from romanised text. Only one unambiguous, literally evidenced
+// block number and postcode qualify; neither is ever translated or guessed.
+const nfkc=(value:string)=>value.normalize('NFKC');
+const tokenProof=(token:string,candidate:PlaceCandidate)=>candidate.evidence.some(evidence=>
+  literalTypes.includes(evidence.type)&&` ${words(nfkc(evidence.excerpt))} `.includes(` ${words(token)} `));
+export function japaneseBlockAddress(candidate:PlaceCandidate):{chome:number|null;number:string;postcode:string}|null {
+  if(!candidate.address||!isJapaneseCountry(candidate.country))return null;
+  const address=nfkc(candidate.address);
+  const postcodes=[...address.matchAll(/(?<![\d-])\d{3}-\d{4}(?![\d-])/gu)];
+  if(postcodes.length!==1)return null;
+  const rest=address.replace(postcodes[0][0],' ');
+  const named=[...rest.matchAll(/(?<![\d-])(\d{1,2})\s*-?\s*(?:ch[oō]me|丁目)\s*-?\s*(\d{1,4}(?:-\d{1,4})?)(?![\d-])/giu)];
+  const plain=[...rest.matchAll(/(?<![\d-])\d{1,4}-\d{1,4}(?:-\d{1,4})?(?![\d-])/gu)];
+  let chome:number|null,number:string,token:string;
+  if(named.length===1&&plain.every(match=>named[0][0].includes(match[0]))){
+    chome=Number(named[0][1]);number=named[0][2];token=named[0][0];
+  }else if(!named.length&&plain.length===1&&!/ch[oō]me|丁目/iu.test(rest)){
+    const parts=plain[0][0].split('-');
+    chome=parts.length===3?Number(parts[0]):null;number=parts.slice(-2).join('-');token=plain[0][0];
+  }else return null;
+  if(!tokenProof(token,candidate)||!tokenProof(postcodes[0][0],candidate))return null;
+  return {chome,number,postcode:postcodes[0][0].replace('-','')};
+}
+
+function providerBlockMatches(source:{chome:number|null;number:string;postcode:string},resolved:ResolvedPlaceCandidate):boolean {
+  const number=nfkc(resolved.houseNumber??'').trim();
+  if(!/^\d{1,4}(?:-\d{1,4}){0,2}$/u.test(number)||nfkc(resolved.postalCode??'').replace(/\D/gu,'')!==source.postcode)return false;
+  const label=nfkc(resolved.street??'').match(/(\d{1,2}|[一二三四五六七八九十])丁目/u)?.[1];
+  const chome=label===undefined?null:/\d/u.test(label)?Number(label):'一二三四五六七八九十'.indexOf(label)+1;
+  return (chome===source.chome&&number===source.number)||
+    (chome===null&&source.chome!==null&&number===`${source.chome}-${source.number}`);
+}
+
+// A second provider's search result is only a retrieval hint: it selects which
+// of the geographic provider's own buildings to read. The building is accepted
+// solely on the source's literal block number and postcode, in the source's
+// city, and only as an approximate zone named by the source. No hint text,
+// identifier or coordinate is ever part of the result.
+export function selectHintedBuilding(candidate:PlaceCandidate,results:readonly ResolvedPlaceCandidate[]) {
+  candidate=bindVerifiedCityEvidence(candidate,results);
+  const block=japaneseBlockAddress(candidate),sourceName=groundedVenueName(candidate);
+  if(!block||!sourceName||!canApproximateVenue(candidate))return null;
+  const matches=[...new Map(results.flatMap(resolved=>{
+    const distance=resolved.retrievalHintDistanceMeters;
+    if(resolved.provider!=='geoapify'||resolved.countryCode!=='JP'||distance===undefined||!(distance>=0&&distance<=50)||
+      !['building','house','housenumber'].includes(resolved.providerResultType??'')||
+      resolved.providerName!=null||resolved.providerNameAliases?.length||
+      !Number.isFinite(resolved.latitude)||Math.abs(resolved.latitude)>90||!Number.isFinite(resolved.longitude)||Math.abs(resolved.longitude)>180||
+      !providerBlockMatches(block,resolved)||conflictingAdministrativeContext(candidate,resolved))return [];
+    const {reasons}=scoreResolvedCandidate({candidate:{...candidate,name:null,address:null,region:null,category:'city'},resolved});
+    return reasons.includes('city_match')&&reasons.includes('country_match')&&!reasons.some(reason=>reason.endsWith('_contradiction'))
+      ?[[resolved.providerPlaceId,resolved] as const]:[];
+  })).values()].sort((a,b)=>a.retrievalHintDistanceMeters!-b.retrievalHintDistanceMeters!||a.providerPlaceId.localeCompare(b.providerPlaceId));
+  if(!matches.length||matches.some(other=>distanceMeters(matches[0],other)>100))return null;
+  const missingDetails=['venue_identity'];
+  if(addressParts(candidate.address,'JP').some(part=>japaneseFloor(part,'JP')!==null||/(?:^|[^\p{L}\p{N}])B?\d{1,3}F$/iu.test(part)))missingDetails.push('floor');
+  return {resolved:matches[0],scored:{precision:'APPROXIMATE',confidence:.5,approximationRadiusMeters:100,
+    contextualArea:{level:'building',sourceName,missingDetails},reasons:['contextual_venue_area','contextual_area_building','hint_located_building',
+      ...missingDetails.map(detail=>`unverified_${detail}`),RESOLUTION_POLICY_VERSION]} as ScoredResolution};
+}
+
 export function selectContextualVenueArea(candidate:PlaceCandidate,results:readonly ResolvedPlaceCandidate[]) {
   candidate=bindVerifiedCityEvidence(candidate,results);
   if(!canApproximateVenue(candidate))return null;

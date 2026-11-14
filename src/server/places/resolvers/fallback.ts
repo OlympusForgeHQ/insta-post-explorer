@@ -4,7 +4,16 @@ import type {PlaceResolver,PlaceResolutionInput} from './types';
 import type {GoogleHintSource} from './google';
 
 export class FallbackPlaceResolver implements PlaceResolver {
+  // Request-local only: this resolver lives for one post analysis.
+  private readonly hints=new Map<string,{latitude:number;longitude:number}[]>();
   constructor(private readonly primary:PlaceResolver,private readonly secondary:GoogleHintSource){}
+  private key({candidate}:PlaceResolutionInput){
+    return JSON.stringify([candidate.name,candidate.address,candidate.city,candidate.region,candidate.country]);
+  }
+  async resolveHintedBuildings(input:PlaceResolutionInput){
+    const hints=this.hints.get(this.key(input));
+    return hints?.length?await this.primary.resolveHintedBuildings?.({...input,hints})??[]:[];
+  }
   async resolveApproximate(input:PlaceResolutionInput){
     return this.primary.resolveApproximate?.(input)??[];
   }
@@ -29,6 +38,7 @@ export class FallbackPlaceResolver implements PlaceResolver {
       console.warn(JSON.stringify({stage:'places_google_hints',code}));
       return {results,hints:[]};
     }
+    this.hints.set(this.key(input),hints.map(({latitude,longitude})=>({latitude,longitude})));
     const verified=[...results];
     for(const hint of hints){
       const nearby=await this.primary.resolve({...input,proximity:{latitude:hint.latitude,longitude:hint.longitude}});
