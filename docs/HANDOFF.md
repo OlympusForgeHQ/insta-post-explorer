@@ -1,5 +1,15 @@
 # Operational Handoff
 
+## Sights named without an address — 14 November 2026
+
+Policy `provider-context-v14` resolves a named travel sight when the provider
+also returns homonymous services, several records of the same large site, or
+the sight under a qualified name (`Walibi Belgium`, `Citadel of Dinant`). Only
+`voyage` candidates with a name and no address are concerned; qualified
+matches are at most probable and zero-confidence records still need the
+independent POI lookup. Web/API only; no migration or consumer change. See
+[diagnosis and verification](changes/2026-11-14-places-named-sights.md).
+
 ## Busy inference slot defers classification — 14 November 2026
 
 Classification, translation and Places share one inference slot. A busy slot

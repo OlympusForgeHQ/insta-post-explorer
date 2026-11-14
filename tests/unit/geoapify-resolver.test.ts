@@ -303,6 +303,20 @@ describe("GeoapifyPlaceResolver", () => {
     }
   });
 
+  it('verifies a sight catalogued under a qualified name through the independent POI catalog',async()=>{
+    const candidate=restaurantCandidate({name:'Walibi',category:'voyage',city:null,country:'Belgium'});
+    const row={place_id:'walibi',name:'Walibi Belgium',city:'Wavre',country:'Belgium',country_code:'be',formatted:'Walibi Belgium, Wavre, Belgium',
+      lat:50.7,lon:4.59,result_type:'amenity',category:'entertainment.theme_park',rank:{confidence:0,match_type:'full_match'}};
+    for(const name of ['Walibi Belgium','Walibi Express']){
+      const fetchMock=vi.fn<typeof fetch>(async input=>new URL(String(input)).pathname==='/v2/places'
+        ?jsonResponse({features:[{properties:{...row,name,rank:undefined}}]}):jsonResponse({results:[{...row,name}]}));
+      const results=await resolver(fetchMock).resolve({candidate,sourceTheme:'Voyages'});
+      const lookedUp=fetchMock.mock.calls.some(([url])=>new URL(String(url)).pathname==='/v2/places');
+      expect(lookedUp).toBe(name==='Walibi Belgium');
+      expect(results.some(resolved=>decidePlaceResolution({candidate,resolved}).precision==='PROBABLE')).toBe(name==='Walibi Belgium');
+    }
+  });
+
   it('keeps zero-confidence Tokyo ward hints unresolved until independent POI retrieval verifies their identity',async()=>{
     const candidate=restaurantCandidate({name:'Example Garden',category:'voyage',city:'Tokyo',country:'Japan'});
     const row={place_id:'ward-garden',name:'Example Garden',city:'Chiyoda',country:'Japan',country_code:'jp',iso3166_2:'JP-13',
