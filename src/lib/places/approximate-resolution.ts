@@ -380,6 +380,8 @@ export function selectHostedVenue(candidate:PlaceCandidate,host:string,found:{ho
       verifiedAreaRadius(resolved)===null)return false;
     const decision=decidePlaceResolution({candidate:hostCandidate,resolved});
     return ['EXACT','PROBABLE'].includes(decision.precision)&&decision.reasons.includes('venue_identity_and_context')&&
+      // A host anchors other venues: it needs its exact name, not a qualified one.
+      !decision.reasons.includes('provider_name_qualified')&&
       decision.reasons.includes(deducedCity?'country_match':'city_match');
   });
   // A hotel, station or shop named after the host is a different entity.

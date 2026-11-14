@@ -348,6 +348,32 @@ function normalizedEntityName(value: string): string {
     .trim();
 }
 
+// Provider classes that describe a destination itself, as opposed to a shop,
+// a service or a lodging that merely carries a destination's name.
+const SIGHT_CLASSES=['tourism','heritage','leisure','natural','national_park','entertainment','man_made','beach','religion'];
+const SERVICE_CLASSES=['commercial','catering','accommodation','rental','parking','healthcare','service','office','education','childcare','pet','public_transport','production','camping'];
+const providerClasses=(resolved:ResolvedPlaceCandidate)=>(resolved.category??'').split(';').map(value=>value.split('.')[0]).filter(Boolean);
+export const isSightResult=(resolved:ResolvedPlaceCandidate)=>providerClasses(resolved).some(value=>SIGHT_CLASSES.includes(value));
+export const isServiceResult=(resolved:ResolvedPlaceCandidate)=>{const classes=providerClasses(resolved);return classes.length>0&&classes.every(value=>SERVICE_CLASSES.includes(value));};
+export const isNamedSight=(candidate:Pick<PlaceCandidate,'category'|'address'|'name'>)=>candidate.category==='voyage'&&!candidate.address&&Boolean(candidate.name?.trim());
+
+// A sight is often catalogued with a qualifier the source omits ("Walibi
+// Belgium", "Bellewaerde Park") or in another word order ("Citadel of Dinant").
+// Every extra word must come from the provider's own country, city or class;
+// a different distinctive word is still a different entity.
+export function sightNameAgrees(name:string,provider:string,resolved:ResolvedPlaceCandidate):boolean {
+  const particles=new Set(['of','the','de','du','des','la','le','van','der','di']);
+  const tokens=(value:string)=>normalizedEntityName(value).split(' ').filter(word=>word&&!particles.has(word));
+  const source=tokens(name),entity=tokens(provider);
+  if(!source.length||source.join('').length<4||entity.length<source.length)return false;
+  const rest=[...entity];
+  for(const word of source){const index=rest.indexOf(word);if(index<0)return false;rest.splice(index,1);}
+  if(!rest.length)return source.length>1&&!isServiceResult(resolved);
+  const qualifiers=new Set([resolved.country,resolved.city,...(resolved.category??'').split(/[.;_]/u)]
+    .flatMap(value=>value?tokens(value):[]));
+  return isSightResult(resolved)&&rest.every(word=>qualifiers.has(word));
+}
+
 export function entityNamesAgree(left: string, right: string): boolean {
   const a = normalizedEntityName(left), b = normalizedEntityName(right);
   if (!a || !b) return false;
@@ -414,12 +440,14 @@ export function scoreResolvedCandidate({ candidate, resolved }: ScoringInput): S
     const normalized = normalizedEntityName(contextualName);
     if (normalized.endsWith(suffix)) contextualName = normalized.slice(0,-suffix.length);
   }
-  const nameMatch =
+  const literalName =
     candidate.name && entityNames.some(name=>entityNamesAgree(candidate.name!, name) ||
-      (contextualName && contextualName !== candidate.name && entityNamesAgree(contextualName, name)))
-      ? 1
-      : 0;
+      (contextualName && contextualName !== candidate.name && entityNamesAgree(contextualName, name)));
+  const qualifiedSight=!literalName&&isNamedSight(candidate)&&resultKind.kind==='specific'&&
+    entityNames.some(name=>sightNameAgrees(candidate.name!,name,resolved));
+  const nameMatch = literalName || qualifiedSight ? 1 : 0;
   if (nameMatch) reasons.push("name_match");
+  if (qualifiedSight) reasons.push('provider_name_qualified');
   if(nameMatch&&candidate.name&&!entityNamesAgree(candidate.name,entityName))reasons.push('provider_name_alias');
 
   const country = countryAgreement(candidate.country, resolved);
