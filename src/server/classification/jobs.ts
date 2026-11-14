@@ -93,8 +93,13 @@ export async function failClassification(ownerId:string,lease:Lease&{code:string
  if(!job||job.status!=='PROCESSING'||job.leaseOwner!==lease.leaseToken||!job.leaseExpiresAt||job.leaseExpiresAt<=now)throw Error('CLASSIFICATION_LEASE_LOST');
  // An invalid reply is not a property of the post: the model is not
  // deterministic and the next claim carries format guidance from this failure.
- const retryable=['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INFERENCE_BUSY','INVALID_RESULT','WORKER_STOPPING','WORKER_TIMEOUT'].includes(lease.code)&&job.attemptCount<3;
- const updated=await tx.postClassificationJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,nextAttemptAt:retryable?new Date(now.getTime()+(job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
+ // A busy inference slot says nothing about the post either: three consumers
+ // share one slot, so the job is deferred without spending an attempt, within
+ // a bounded window as caption translation already does.
+ const busy=lease.code==='INFERENCE_BUSY';
+ const busyWindowOpen=!!job.startedAt&&now.getTime()-job.startedAt.getTime()<24*3600_000;
+ const retryable=busy?busyWindowOpen:['MEDIA_UNAVAILABLE','INFERENCE_FAILED','INVALID_RESULT','WORKER_STOPPING','WORKER_TIMEOUT'].includes(lease.code)&&job.attemptCount<3;
+ const updated=await tx.postClassificationJob.updateMany({where:{id:job.id,ownerId,status:'PROCESSING',leaseOwner:lease.leaseToken,leaseExpiresAt:{gt:now}},data:{status:retryable?'PENDING':'FAILED',errorCode:lease.code,...(busy&&retryable?{attemptCount:Math.max(0,job.attemptCount-1)}:{}),nextAttemptAt:retryable?new Date(now.getTime()+(busy?120_000:job.attemptCount===1?60_000:300_000)):null,completedAt:retryable?null:now,leaseOwner:null,leaseExpiresAt:null,heartbeatAt:null}});
  if(updated.count!==1)throw Error('CLASSIFICATION_LEASE_LOST');
  await recordLearningObservation(tx,ownerId,job.id,job.postId,lease.leaseToken,'classification',retryable?'RETRY':'FAILED',lease.learning,lease.code);
  return {ok:true,retryable};

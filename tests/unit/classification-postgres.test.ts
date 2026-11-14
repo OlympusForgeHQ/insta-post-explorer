@@ -94,10 +94,10 @@ suite('Classification transactional queue',()=>{
  });
  it('resumes an expired lease and stops after three attempts with measured backoff and audit history',async()=>{
   await queue();const first=(await service.claimClassification(owner,{signMedia:signer}))!;
-  await service.failClassification(owner,{...first,code:'INFERENCE_BUSY'});const pending=await db.postClassificationJob.findUniqueOrThrow({where:{id:first.jobId}});expect(pending.nextAttemptAt!.getTime()-Date.now()).toBeGreaterThan(55_000);expect(await service.claimClassification(owner,{signMedia:signer})).toBeNull();
+  await service.failClassification(owner,{...first,code:'INFERENCE_FAILED'});const pending=await db.postClassificationJob.findUniqueOrThrow({where:{id:first.jobId}});expect(pending.nextAttemptAt!.getTime()-Date.now()).toBeGreaterThan(55_000);expect(await service.claimClassification(owner,{signMedia:signer})).toBeNull();
   await db.postClassificationJob.update({where:{id:first.jobId},data:{nextAttemptAt:new Date(0)}});const second=(await service.claimClassification(owner,{signMedia:signer}))!;
   await db.postClassificationJob.update({where:{id:first.jobId},data:{leaseExpiresAt:new Date(0)}});const third=(await service.claimClassification(owner,{signMedia:signer}))!;expect(third.leaseToken).not.toBe(second.leaseToken);
-  await expect(service.heartbeatClassification(owner,{jobId:first.jobId,leaseToken:second.leaseToken})).rejects.toThrow('CLASSIFICATION_LEASE_LOST');await service.failClassification(owner,{...third,code:'INFERENCE_BUSY'});expect((await db.postClassificationJob.findUniqueOrThrow({where:{id:first.jobId}})).status).toBe('FAILED');expect(await service.claimClassification(owner,{signMedia:signer})).toBeNull();
+  await expect(service.heartbeatClassification(owner,{jobId:first.jobId,leaseToken:second.leaseToken})).rejects.toThrow('CLASSIFICATION_LEASE_LOST');await service.failClassification(owner,{...third,code:'INFERENCE_FAILED'});expect((await db.postClassificationJob.findUniqueOrThrow({where:{id:first.jobId}})).status).toBe('FAILED');expect(await service.claimClassification(owner,{signMedia:signer})).toBeNull();
   expect(await db.auditEvent.count({where:{ownerId:owner,tableName:'post_classification_jobs'}})).toBeGreaterThan(3);
  });
  it('retries an invalid model result with backoff and fails only after the third attempt',async()=>{
@@ -113,6 +113,21 @@ suite('Classification transactional queue',()=>{
   // A media limit is deterministic for the same input and stays terminal.
   await db.postClassificationJob.deleteMany({where:{ownerId:owner}});await queue();const limited=(await service.claimClassification(owner,{signMedia:signer}))!;
   expect(await service.failClassification(owner,{...limited,code:'MEDIA_LIMIT'})).toEqual({ok:true,retryable:false});
+ });
+ it('defers a busy inference slot without spending an attempt, within a bounded window',async()=>{
+  await queue();let lease=(await service.claimClassification(owner,{signMedia:signer}))!;
+  // More deferrals than the attempt limit: none of them is an analysis attempt.
+  for(let round=0;round<4;round++){
+   expect(await service.failClassification(owner,{...lease,code:'INFERENCE_BUSY'})).toEqual({ok:true,retryable:true});
+   const deferred=await db.postClassificationJob.findUniqueOrThrow({where:{id:lease.jobId}});
+   expect(deferred).toMatchObject({status:'PENDING',errorCode:'INFERENCE_BUSY',attemptCount:0});expect(deferred.nextAttemptAt!.getTime()-Date.now()).toBeGreaterThan(115_000);
+   await db.postClassificationJob.update({where:{id:lease.jobId},data:{nextAttemptAt:new Date(0)}});lease=(await service.claimClassification(owner,{signMedia:signer}))!;
+  }
+  // A real failure still counts, and a slot busy for a whole day ends the job.
+  expect(await service.failClassification(owner,{...lease,code:'INFERENCE_FAILED'})).toEqual({ok:true,retryable:true});
+  await db.postClassificationJob.update({where:{id:lease.jobId},data:{nextAttemptAt:new Date(0),startedAt:new Date(Date.now()-25*3600_000)}});lease=(await service.claimClassification(owner,{signMedia:signer}))!;
+  expect(await service.failClassification(owner,{...lease,code:'INFERENCE_BUSY'})).toEqual({ok:true,retryable:false});
+  expect(await db.postClassificationJob.findUniqueOrThrow({where:{id:lease.jobId}})).toMatchObject({status:'FAILED',errorCode:'INFERENCE_BUSY',attemptCount:2});
  });
  it.each(['rename','merge','delete'])('serializes global tag %s with completion and fences its changed inputs',async action=>{
   const admin=await import('@/server/admin-insights'),locks=await import('@/server/post-deletions');
