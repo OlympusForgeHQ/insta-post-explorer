@@ -1,5 +1,15 @@
 # Implementation Status
 
+## Japanese block addresses located by a hint — 14 November 2026
+
+Policy `provider-context-v15` locates a Japanese venue whose literal block
+number and postcode the geographic provider cannot retrieve from text. The
+Google hints already obtained for the candidate select which of the provider's
+own unnamed buildings to read; one is accepted only on the same postcode and
+block number, as an approximate 100 m zone named by the source. Nothing from
+Google is stored. Web/API only; no migration or consumer change. See
+[diagnosis and verification](changes/2026-11-14-places-hinted-block-address.md).
+
 ## Sights named without an address — 14 November 2026
 
 Policy `provider-context-v14` resolves a named travel sight when the provider

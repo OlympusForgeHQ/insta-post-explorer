@@ -1002,3 +1002,38 @@ describe('bounded neutral area fallback',()=>{
   expect(fetchMock).not.toHaveBeenCalled();
  });
 });
+
+describe('buildings next to a retrieval hint',()=>{
+ const candidate=restaurantCandidate({name:'Shinjuku Tei',address:'3 Chome-11-6 Shinjuku, Shinjuku City, Tokyo 160-0022, Japan',city:'Tokyo',region:'Shinjuku',country:'Japan',
+  evidence:[{type:'VIDEO_OCR',excerpt:'Private overlay SHINJUKU TEI'},{type:'VIDEO_OCR',excerpt:'Japan, 〒160-0022 Tokyo, Shinjuku City, Shinjuku, 3 Chome-11-6'}]});
+ const hint={latitude:35.691919,longitude:139.706456};
+ const row=(id:string,housenumber:string,lat:number)=>({place_id:id,formatted:`${housenumber} 新宿３丁目, Tokyo, TK 160-0022, Japan`,street:'新宿３丁目',housenumber,
+  postcode:'160-0022',city:'Tokyo',state:'Tokyo',county:'Shinjuku',district:'Shinjuku',country:'Japan',country_code:'jp',lat,lon:139.706388,result_type:'building'});
+ it('reads the address then the hint point, keeps only nearby records and never transmits the business',async()=>{
+  const fetchMock=vi.fn<typeof fetch>(async input=>jsonResponse({results:String(input).includes('/reverse')
+   ?[row('block-11-6','11-6',35.691932),row('far','11-6',35.70)]:[]}));
+  const matches=await resolver(fetchMock).resolveHintedBuildings({candidate,sourceTheme:'Restaurant',hints:[hint]});
+  expect(matches).toMatchObject([{providerPlaceId:'block-11-6',providerName:null,houseNumber:'11-6',retrievalHintDistanceMeters:6}]);
+  const [search,reverse]=fetchMock.mock.calls.map(call=>new URL(String(call[0])));
+  expect(search.pathname).toBe('/v1/geocode/search');expect(search.searchParams.get('bias')).toBe('proximity:139.706456,35.691919');
+  expect(reverse.pathname).toBe('/v1/geocode/reverse');expect(reverse.searchParams.get('type')).toBe('building');
+  for(const url of [search,reverse]){expect(url.href).not.toContain('Tei');expect(url.href).not.toContain('Private');}
+ });
+ it('skips the point lookup once the address lookup returned the source block, and bounds the hints',async()=>{
+  const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[row('block-11-6','11-6',35.691932)]}));
+  await resolver(fetchMock).resolveHintedBuildings({candidate,sourceTheme:'Restaurant',hints:[hint]});
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const empty=vi.fn<typeof fetch>(async()=>jsonResponse({results:[]}));
+  await resolver(empty).resolveHintedBuildings({candidate,sourceTheme:'Restaurant',hints:[hint,hint,hint,hint,hint]});
+  expect(empty).toHaveBeenCalledTimes(6);
+ });
+ it('makes no request without a hint or without a literal Japanese block address',async()=>{
+  const fetchMock=vi.fn<typeof fetch>(async()=>jsonResponse({results:[]}));
+  const geo=resolver(fetchMock);
+  expect(await geo.resolveHintedBuildings({candidate,sourceTheme:'Restaurant'})).toEqual([]);
+  for(const source of [{...candidate,country:'France'},{...candidate,address:'Shinjuku, Tokyo'},{...candidate,evidence:[candidate.evidence[0]]}]){
+   expect(await geo.resolveHintedBuildings({candidate:source,sourceTheme:'Restaurant',hints:[hint]})).toEqual([]);
+  }
+  expect(fetchMock).not.toHaveBeenCalled();
+ });
+});
