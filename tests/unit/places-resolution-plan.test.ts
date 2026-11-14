@@ -220,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v13'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v14'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
@@ -542,7 +542,7 @@ describe('venues hosted inside a named site',()=>{
   const [plan]=await planAll([attraction],'Voyages',resolver);
   expect(resolver.resolveHostVenue).toHaveBeenCalledWith(expect.objectContaining({host:'Example Park'}));
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'venue',sourceName:'Example Ride',missingDetails:['venue_identity','position_in_host']},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_venue','provider-context-v13'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_venue','provider-context-v14'])});
   expect(plan.best?.scored.approximationRadiusMeters).toBeGreaterThanOrEqual(100);
   expect(plan.best?.resolved).toEqual(provider);expect(plan.candidate).toEqual(original);expect(attraction).toEqual(original);
  });
@@ -598,5 +598,59 @@ describe('venues hosted inside a named site',()=>{
   const resolver={resolve:async()=>[{...ride,address:'Example Park, Anaheim, CA, United States of America'}],resolveHostVenue:vi.fn(async()=>({hosts:[park],inside:[]}))};
   const [plan]=await planAll([attraction],'Voyages',resolver);
   expect(plan.best?.resolved.providerPlaceId).toBe('ride');expect(resolver.resolveHostVenue).not.toHaveBeenCalled();
+ });
+});
+
+describe('sights named without an address',()=>{
+ const sight:PlaceCandidate={name:'Atomium',address:null,city:'Brussels',region:null,country:'Belgium',category:'voyage',confidence:.8,
+  evidence:[{type:'CAPTION',excerpt:'Atomium'}]};
+ const record=(id:string,overrides:Partial<ResolvedPlaceCandidate>={}):ResolvedPlaceCandidate=>({provider:'geoapify',providerPlaceId:id,displayName:'Atomium, Brussels, Belgium',
+  providerName:'Atomium',address:null,street:null,houseNumber:null,postalCode:null,city:'Brussels',region:null,country:'Belgium',countryCode:'BE',
+  latitude:50.8949,longitude:4.3415,providerResultType:'amenity',providerRank:1,providerMatchType:'full_match',category:'building',attribution:null,
+  providerBounds:{lon1:4.3405,lat1:50.8944,lon2:4.3425,lat2:50.8954},...overrides});
+ const elsewhere={latitude:50.84,longitude:4.36,providerBounds:{lon1:4.3599,lat1:50.8399,lon2:4.3601,lat2:50.8401}};
+
+ it.each([
+  // Homonymous services do not make a monument ambiguous; alone they still do.
+  ['monument among services',[record('monument'),record('pharmacy',{...elsewhere,category:'commercial.health_and_beauty.pharmacy;healthcare.pharmacy'}),
+    record('rental',{...elsewhere,latitude:50.86,category:'rental.bicycle'})],'monument'],
+  ['only services',[record('pharmacy',{...elsewhere,category:'healthcare.pharmacy'}),record('rental',{latitude:50.86,longitude:4.4,category:'rental.bicycle'})],null],
+  ['two distinct unclassified sites',[record('first',{category:null}),record('second',{...elsewhere,category:null})],null],
+  // Several records of one large site: a point inside the same-named extent.
+  ['record inside the same-named extent',[record('forest',{providerBounds:{lon1:4.33,lat1:50.885,lon2:4.35,lat2:50.905},category:'leisure.park.nature_reserve'}),
+    record('entrance',{latitude:50.899,longitude:4.346,category:null})],'entrance'],
+  ['same name outside the extent',[record('forest',{category:'leisure.park'}),record('other',{...elsewhere,category:'leisure.park'})],null],
+ ] as Array<[string,ResolvedPlaceCandidate[],string|null]>)('keeps one site for a named sight: %s',async(_label,results,expected)=>{
+  const [plan]=await planAll([sight],'Voyages',{resolve:async()=>results});
+  expect(plan.best?.resolved.providerPlaceId??null).toBe(expected);
+  if(!expected)expect(plan.reasons).toContain('ambiguous_branches');
+ });
+
+ it('keeps a homonymous business ambiguous for a restaurant candidate',async()=>{
+  const [plan]=await planAll([{...sight,category:'restaurant'}],'Restaurant',{resolve:async()=>[record('monument'),record('bakery',{...elsewhere,category:'commercial.food_and_drink.bakery'})]});
+  expect(plan.best).toBeNull();expect(plan.reasons).toContain('ambiguous_branches');
+ });
+
+ it.each([
+  // [source name, provider name, provider class, provider rank, expected precision]
+  ['Walibi','Walibi Belgium','entertainment.theme_park',null,'PROBABLE'],
+  ['Bellewaerde','Bellewaerde Park','entertainment.theme_park',1,'PROBABLE'],
+  ['Dinant Citadel','Citadel of Dinant','tourism.sights.castle',.9,'PROBABLE'],
+  // An extra distinctive word, an unclassified or service record, or a record
+  // the provider gives zero confidence is not that sight.
+  ['Bellewaerde','Bellewaerde Aquapark','entertainment.theme_park',1,'UNKNOWN'],
+  ['Walibi','Walibi Express',null,1,'UNKNOWN'],
+  ['Walibi','Walibi Belgium','entertainment.theme_park',0,'UNKNOWN'],
+  ['Plopsaland','Plopsaland Village','camping.camp_site',.9,'UNKNOWN'],
+  ['Plopsaland','Plopsaland Belgium','accommodation.hotel',.9,'UNKNOWN'],
+ ] as Array<[string,string,string|null,number|null,string]>)('identifies a classified sight by its qualified name: %s as %s',(name,providerName,category,providerRank,precision)=>{
+  const candidate={...sight,name,city:null,evidence:[{type:'CAPTION' as const,excerpt:name}]};
+  const resolved=record('sight',{providerName,displayName:`${providerName}, Belgium`,category,providerRank,city:'Wavre'});
+  expect(decidePlaceResolution({candidate,resolved}).precision).toBe(precision);
+  // The same record never identifies a business or a sight of another country.
+  if(precision==='PROBABLE'){
+   expect(decidePlaceResolution({candidate:{...candidate,category:'restaurant'},resolved}).precision).toBe('UNKNOWN');
+   expect(decidePlaceResolution({candidate:{...candidate,country:'France'},resolved}).precision).toBe('UNKNOWN');
+  }
  });
 });

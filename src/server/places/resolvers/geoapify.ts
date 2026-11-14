@@ -5,7 +5,7 @@ import { z } from "zod";
 import { foldForSearch } from "@/lib/import/normalize";
 import { distanceMeters } from "@/lib/places/distance";
 import {decidePlaceResolution} from '@/lib/places/resolution';
-import {entityNamesAgree} from '@/lib/places/scoring';
+import {entityNamesAgree,isNamedSight,sightNameAgrees} from '@/lib/places/scoring';
 import {administrativeRegionMatches,belgianMunicipalityAliases,belgianStreetSpelling,brusselsMunicipalityParentLabels,isBelgianCountry,isJapaneseCountry,japaneseMunicipalityName,japanesePrefectureName,municipalityCityLabels,tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
 import {recommendsCityBranches} from '@/lib/places/branch-scope';
 import type { PlaceCandidate } from "@/lib/places/candidates";
@@ -240,7 +240,9 @@ export class GeoapifyPlaceResolver implements PlaceResolver {
     // the independent POI catalog near the hint, keeping its own identity and
     // coordinates. The caller still checks identity, distance and ambiguity.
     const anchors=input.proximity?[input.proximity]:results.filter(result=>
-      result.providerName&&entityNamesAgree(input.candidate.name!,result.providerName)&&
+      result.providerName&&(entityNamesAgree(input.candidate.name!,result.providerName)||
+        // A sight catalogued under a qualified name ("Walibi Belgium") is a hint too.
+        (isNamedSight(input.candidate)&&sightNameAgrees(input.candidate.name!,result.providerName,result)))&&
       result.providerRank===0&&['amenity','poi','tourism'].includes(result.providerResultType??'')).slice(0,3);
     for(const {latitude,longitude}of anchors){
     const params=new URLSearchParams({apiKey:this.apiKey,lang:'en',name:input.candidate.name,

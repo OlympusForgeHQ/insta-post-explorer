@@ -9,7 +9,7 @@ import { categoryFromProposal, isPlaceCategoryGroup } from "@/lib/places/categor
 import { canonicalPlacesTheme } from "@/lib/places/eligibility";
 import { continentCodeForCountry } from "@/lib/places/continents";
 import { distanceMeters } from "@/lib/places/distance";
-import {addressAgreement, entityNamesAgree, type ScoredResolution} from "@/lib/places/scoring";
+import {addressAgreement, entityNamesAgree, isNamedSight, isServiceResult, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
 import {administrativeRegionMatches, municipalityCityLabels, tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
 import {bindVerifiedCityEvidence, approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, hostVenueName, selectContextualVenueArea, selectHostedVenue} from '@/lib/places/approximate-resolution';
@@ -99,7 +99,15 @@ async function planCandidate(
   // address must actually narrow the resolver results to one site first.
   // Nearby duplicate provider entries/entrances use the resolver's same 100 m
   // corroboration distance; sorting remains deterministic within one site.
-  const specific = viable.filter(entry => entry.scored.precision !== 'APPROXIMATE');
+  let specific = viable.filter(entry => entry.scored.precision !== 'APPROXIMATE');
+  // A named sight is not its homonymous pharmacy, hotel or bicycle parking.
+  // Services are set aside only when the provider also returns the same name
+  // as something else; a lone service result is still the only answer.
+  let sights = viable;
+  if (isNamedSight(candidate) && specific.some(entry => isServiceResult(entry.resolved)) && specific.some(entry => !isServiceResult(entry.resolved))) {
+    sights = viable.filter(entry => entry.scored.precision === 'APPROXIMATE' || !isServiceResult(entry.resolved));
+    specific = specific.filter(entry => !isServiceResult(entry.resolved));
+  }
   const branchScope=cityBranchScope(candidate,sourceContext);
   if (branchScope && specific.length > 1) {
     // Keep the source candidate immutable; each provider branch is a separate
@@ -114,9 +122,19 @@ async function planCandidate(
     if(sites.length>1)return {candidate,best:sites[0],reasons:[branchScope==='generic'?'generic_city_branches':'explicit_city_branches'],
       branches:sites.map(best=>({candidate,best,reasons:best.scored.reasons}))};
   }
+  // A large sight (a forest, a quay) has several records: one lying inside
+  // the extent of another of the same name is the same site, not a branch.
+  const within = (point: ResolvedPlaceCandidate, area: ResolvedPlaceCandidate) => {
+    const bounds = area.providerBounds;
+    return Boolean(bounds) && point.latitude >= bounds!.lat1 && point.latitude <= bounds!.lat2 &&
+      point.longitude >= bounds!.lon1 && point.longitude <= bounds!.lon2 && distanceMeters(point, area) <= 5_000;
+  };
+  const sameSight = (left: ResolvedPlaceCandidate, right: ResolvedPlaceCandidate) => isNamedSight(candidate) &&
+    Boolean(left.providerName && right.providerName) && entityNamesAgree(left.providerName!, right.providerName!) &&
+    (within(left, right) || within(right, left));
   const ambiguous = specific.some((entry, index) =>
-    specific.slice(index + 1).some(other => distanceMeters(entry.resolved, other.resolved) > 100));
-  let best:CandidatePlan['best'] = ambiguous ? null : viable[0] ?? null;
+    specific.slice(index + 1).some(other => distanceMeters(entry.resolved, other.resolved) > 100 && !sameSight(entry.resolved, other.resolved)));
+  let best:CandidatePlan['best'] = ambiguous ? null : sights[0] ?? null;
   // Geographic context is a separate final fallback, after precise retrieval
   // (including provider hints) and branch ambiguity checks have completed.
   const approximationCandidate=bindVerifiedCityEvidence(candidate,resolved);
