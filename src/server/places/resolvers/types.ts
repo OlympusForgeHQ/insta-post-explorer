@@ -68,6 +68,9 @@ export type ResolvedPlaceCandidate = {
   providerBuildingConfidence?: number | null;
   providerBounds?: {lon1:number;lat1:number;lon2:number;lat2:number} | null;
   providerMatchType: string | null;
+  // Metres between this provider record and the request-local hint used to
+  // retrieve it. The hint itself (provider, identifier, point) is never kept.
+  retrievalHintDistanceMeters?: number;
   attribution: string | null;
 };
 
@@ -81,6 +84,11 @@ export interface PlaceResolver {
   // Used only after precise retrieval fails. Returns raw geographic anchors,
   // never renamed businesses or coordinates inferred by the model.
   resolveApproximate?(input: PlaceResolutionInput): Promise<ResolvedPlaceCandidate[]>;
+  // Used only after precise and area retrieval. Returns the geographic
+  // provider's own unnamed buildings next to request-local hints, for a source
+  // address the provider cannot retrieve from text. Spends no optional request:
+  // hints are those already obtained by `resolve` for the same candidate.
+  resolveHintedBuildings?(input: PlaceResolutionInput & {hints?: {latitude: number; longitude: number}[]}): Promise<ResolvedPlaceCandidate[]>;
   // Used only after precise and area retrieval. `hosts` are raw provider
   // results for the named host site, `inside` for the venue's own name. Never
   // spends optional Google or web-research requests.

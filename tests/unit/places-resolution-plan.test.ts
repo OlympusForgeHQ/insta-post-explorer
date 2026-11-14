@@ -220,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v14'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v15'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
@@ -542,7 +542,7 @@ describe('venues hosted inside a named site',()=>{
   const [plan]=await planAll([attraction],'Voyages',resolver);
   expect(resolver.resolveHostVenue).toHaveBeenCalledWith(expect.objectContaining({host:'Example Park'}));
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'venue',sourceName:'Example Ride',missingDetails:['venue_identity','position_in_host']},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_venue','provider-context-v14'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_venue','provider-context-v15'])});
   expect(plan.best?.scored.approximationRadiusMeters).toBeGreaterThanOrEqual(100);
   expect(plan.best?.resolved).toEqual(provider);expect(plan.candidate).toEqual(original);expect(attraction).toEqual(original);
  });
@@ -652,5 +652,68 @@ describe('sights named without an address',()=>{
    expect(decidePlaceResolution({candidate:{...candidate,category:'restaurant'},resolved}).precision).toBe('UNKNOWN');
    expect(decidePlaceResolution({candidate:{...candidate,country:'France'},resolved}).precision).toBe('UNKNOWN');
   }
+ });
+});
+
+describe('Japanese block address located by a retrieval hint',()=>{
+ const candidate:PlaceCandidate={name:'Shinjuku Tei',address:'3 Chome-11-6 Shinjuku, Shinjuku City, Tokyo 160-0022, Japan',city:'Tokyo',region:'Shinjuku',country:'Japan',
+  category:'restaurant',confidence:.9,evidence:[{type:'VIDEO_OCR',excerpt:'HALAL WAGYU RAMEN SHINJUKU TEI'},
+   {type:'VIDEO_OCR',excerpt:'Japan, 〒160-0022 Tokyo, Shinjuku City, Shinjuku, 3 Chome-11-6'}]};
+ const building:ResolvedPlaceCandidate={provider:'geoapify',providerPlaceId:'block-11-6',displayName:'11-6 新宿３丁目, Tokyo, TK 160-0022, Japan',providerName:null,
+  address:'11-6 新宿３丁目, Tokyo, TK 160-0022, Japan',street:'新宿３丁目',houseNumber:'11-6',postalCode:'160-0022',city:'Tokyo',region:'Tokyo',country:'Japan',countryCode:'JP',
+  administrativeLabels:{city:'Tokyo',state:'Tokyo',county:'Shinjuku',district:'Shinjuku'},latitude:35.691932,longitude:139.706388,
+  providerResultType:'building',providerRank:null,providerMatchType:null,category:null,attribution:null,retrievalHintDistanceMeters:6};
+ const plan=async(source:PlaceCandidate,buildings:ResolvedPlaceCandidate[])=>
+  (await planAll([source],'Restaurant',{resolve:async()=>[],resolveHintedBuildings:async()=>buildings}))[0];
+ it('accepts the provider building only as an approximate zone named by the source',async()=>{
+  const result=await plan(candidate,[building]);
+  expect(result.candidate).toEqual(candidate);expect(result.best?.resolved).toEqual(building);
+  expect(result.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
+   contextualArea:{level:'building',sourceName:'Shinjuku Tei',missingDetails:['venue_identity']},
+   reasons:expect.arrayContaining(['contextual_area_building','hint_located_building','provider-context-v15'])});
+ });
+ it('reads a block without chōme, a seven-digit provider postcode and a floor',async()=>{
+  const stall:PlaceCandidate={...candidate,name:'Halal Wagyu Stall',address:'北田ビル 2F, 29-3 Udagawacho, Shibuya, Tokyo 150-0042, Japan',region:'Shibuya',
+   evidence:[{type:'VIDEO_OCR',excerpt:'HALAL WAGYU STALL'},{type:'VIDEO_OCR',excerpt:'北田ビル 2F, 29-3 Udagawacho, Shibuya, Tokyo 150-0042, Japan'}]};
+  const own={...building,providerPlaceId:'udagawa',street:'宇田川町',houseNumber:'29-3',postalCode:'1500042',
+   administrativeLabels:{city:'Tokyo',state:'Tokyo',county:'Shibuya',district:'Shibuya'},retrievalHintDistanceMeters:10};
+  const result=await plan(stall,[own]);
+  expect(result.best?.resolved.providerPlaceId).toBe('udagawa');
+  expect(result.best?.scored.contextualArea?.missingDetails).toEqual(['venue_identity','floor']);
+  // The same block number in a numbered chōme of the ward is another building.
+  expect((await plan(stall,[{...own,street:'道玄坂２丁目'}])).best).toBeNull();
+ });
+ it.each([
+  ['another block',{houseNumber:'11-7'}],
+  ['another chōme',{street:'新宿三丁目'.replace('三','二')}],
+  ['another postcode',{postalCode:'160-0021'}],
+  ['a named occupant',{providerName:'Other Tenant'}],
+  ['a record far from the hint',{retrievalHintDistanceMeters:51}],
+  ['a record retrieved without a hint',{retrievalHintDistanceMeters:undefined}],
+  ['another ward',{administrativeLabels:{city:'Tokyo',state:'Tokyo',county:'Nerima',district:'Nerima'}}],
+  ['another country',{countryCode:'KR',country:'South Korea'}],
+ ])('rejects %s',async(_label,change)=>{
+  expect((await plan(candidate,[{...building,...change} as ResolvedPlaceCandidate])).best).toBeNull();
+ });
+ it('accepts the kanji chōme spelling and the full provider block number',async()=>{
+  expect((await plan(candidate,[{...building,street:'新宿三丁目'}])).best?.scored.precision).toBe('APPROXIMATE');
+  expect((await plan(candidate,[{...building,street:'Shinjuku',houseNumber:'3-11-6'}])).best?.scored.precision).toBe('APPROXIMATE');
+ });
+ it('requires the block number and postcode to be literal source evidence',async()=>{
+  for(const excerpt of ['Japan, 〒160-0022 Tokyo, Shinjuku City','Tokyo, Shinjuku City, Shinjuku, 3 Chome-11-6']){
+   const source={...candidate,evidence:[candidate.evidence[0],{type:'VIDEO_OCR' as const,excerpt}]};
+   expect((await plan(source,[building])).best).toBeNull();
+  }
+  // Two block numbers, or a model-deduced city, identify nothing.
+  expect((await plan({...candidate,address:`${candidate.address}, 5-2`},[building])).best).toBeNull();
+  expect((await plan({...candidate,inferredFields:['city']},[building])).best).toBeNull();
+ });
+ it('leaves distinct matching buildings unresolved and keeps a verified precise result',async()=>{
+  expect((await plan(candidate,[building,{...building,providerPlaceId:'far',latitude:35.70}])).best).toBeNull();
+  const resolveHintedBuildings=vi.fn(async()=>[building]);
+  const venue:ResolvedPlaceCandidate={...building,providerPlaceId:'poi',providerName:'Shinjuku Tei',displayName:'Shinjuku Tei',providerResultType:'amenity',
+   providerRank:1,providerMatchType:'full_match',retrievalHintDistanceMeters:undefined};
+  const [precise]=await planAll([{...candidate,address:null}],'Restaurant',{resolve:async()=>[venue],resolveHintedBuildings});
+  expect(precise.best?.resolved.providerPlaceId).toBe('poi');expect(resolveHintedBuildings).not.toHaveBeenCalled();
  });
 });

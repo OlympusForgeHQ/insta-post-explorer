@@ -49,3 +49,15 @@ it('keeps area fallback separate until all precise hints have been attempted',as
  await resolver.resolve({candidate,sourceTheme:'Restaurant'});expect(calls).toEqual(['primary','google']);
  await resolver.resolveApproximate({candidate,sourceTheme:'Restaurant'});expect(calls).toEqual(['primary','google','area']);
 });
+it('offers the primary provider only the hints already obtained for the same candidate',async()=>{
+ const resolveHintedBuildings=vi.fn(async(input:PlaceResolutionInput)=>input?[geo]:[]);
+ const searchHints=vi.fn(async()=>[{placeId:'google-id',latitude:48.85,longitude:2.35}]);
+ const resolver=new FallbackPlaceResolver({resolve:async()=>[],resolveHintedBuildings},{searchHints});
+ expect(await resolver.resolveHintedBuildings({candidate,sourceTheme:'Restaurant'})).toEqual([]);
+ await resolver.resolve({candidate,sourceTheme:'Restaurant'});
+ expect(await resolver.resolveHintedBuildings({candidate:{...candidate,name:'Other Cafe'},sourceTheme:'Restaurant'})).toEqual([]);
+ expect(await resolver.resolveHintedBuildings({candidate,sourceTheme:'Restaurant'})).toEqual([geo]);
+ expect(resolveHintedBuildings).toHaveBeenCalledTimes(1);expect(searchHints).toHaveBeenCalledTimes(1);
+ expect(resolveHintedBuildings.mock.calls[0][0]).toMatchObject({candidate,hints:[{latitude:48.85,longitude:2.35}]});
+ expect(JSON.stringify(resolveHintedBuildings.mock.calls[0][0])).not.toContain('google');
+});

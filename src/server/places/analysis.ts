@@ -12,7 +12,7 @@ import { distanceMeters } from "@/lib/places/distance";
 import {addressAgreement, entityNamesAgree, isNamedSight, isServiceResult, type ScoredResolution} from "@/lib/places/scoring";
 import { decidePlaceResolution, RESOLUTION_POLICY_VERSION } from '@/lib/places/resolution';
 import {administrativeRegionMatches, municipalityCityLabels, tokyoSpecialWardParentLabels} from '@/lib/places/administrative-context';
-import {bindVerifiedCityEvidence, approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, hostVenueName, selectContextualVenueArea, selectHostedVenue} from '@/lib/places/approximate-resolution';
+import {bindVerifiedCityEvidence, approximateAddress, approximateDistrict, canApproximateVenue, enrichApproximationEvidence, groundedVenueName, hostVenueName, japaneseBlockAddress, selectContextualVenueArea, selectHintedBuilding, selectHostedVenue} from '@/lib/places/approximate-resolution';
 import { prisma } from "@/server/db";
 import { assertPostAllowsPlaceAnalysis } from "./post-exclusion";
 import { computePlacesInputHash } from "@/server/places/hash";
@@ -143,6 +143,18 @@ async function planCandidate(
     if (resolver.resolveApproximate && (!best || (best.scored.contextualArea?.level !== 'building' &&
       (approximateAddress(candidate) || approximateDistrict(candidate))))) {
       best = selectContextualVenueArea(candidate, [...resolved, ...await resolver.resolveApproximate({...input,candidate:approximationCandidate})]);
+    }
+  }
+  // A literal block address the provider cannot retrieve from text may still
+  // be one of its own buildings: read those next to the precise-retrieval hints.
+  if ((!best || ['city', 'district'].includes(best.scored.contextualArea?.level ?? '')) && resolver.resolveHintedBuildings &&
+    japaneseBlockAddress(approximationCandidate)) {
+    try {
+      best = selectHintedBuilding(candidate, [...resolved, ...await resolver.resolveHintedBuildings(input)]) ?? best;
+    } catch (error) {
+      // An optional refinement never discards the area already verified.
+      if (!(error instanceof Error) || !/^GEOAPIFY_[A-Z0-9_]{1,64}$/u.test(error.message)) throw error;
+      console.warn(JSON.stringify({stage: 'places_hinted_building', code: error.message}));
     }
   }
   // A named host site (theme park, mall, market) is narrower than its city or
