@@ -52,6 +52,24 @@ Verify active systemd state, one-CPU quota, 2 GiB limit, loopback-only listening
 and pre-existing service health. Writes are restricted to the new state and
 private temporary directory; other homes are hidden except the read-only engine.
 
+### Session retention
+
+Each Places request opens a Hermes API session that is never ended, so Hermes'
+own prune (ended sessions only) never reclaims them, and the gateway rescans all
+of them at startup. `install.py` installs `session_retention.py` (root-owned,
+`/usr/local/lib/insta-explorer-places/`) and the drop-in
+`30-session-retention.conf`, which runs it as `ExecStartPre` with no live writer:
+unpinned, unarchived sessions idle for two days are deleted through Hermes'
+own `delete_sessions`. Sessions hold no application data. A retention failure
+never blocks startup. See `docs/changes/2026-11-17-hermes-session-retention.md`.
+
+To install only this part on a running host (without rewriting `config.yaml`):
+
+```bash
+sudo python3 -c 'import importlib.util as u; s=u.spec_from_file_location("i","services/worker/places-hermes/install.py"); m=u.module_from_spec(s); s.loader.exec_module(m); m.install_session_retention()'
+sudo systemctl daemon-reload && sudo systemctl restart insta-explorer-places.service
+```
+
 Rollback: `sudo systemctl disable --now insta-explorer-places.service`. Retain
 state for diagnosis. This does not change Instagram sync, Argos or Cortana.
 

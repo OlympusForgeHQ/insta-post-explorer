@@ -1,5 +1,14 @@
 # Operational Handoff
 
+## Hermes session retention — 17 November 2026
+
+The Places Hermes gateway crash-looped from 14 to 17 November: its startup
+scan of 18,048 never-ended API sessions outlived its loop watchdog, so every
+classification and Places inference failed. Sessions were purged, the gateway
+restarted and the failed jobs requeued. A pre-start retention step now deletes
+sessions idle for two days. Worker host only; no web, migration or schema
+change. See [incident and verification](changes/2026-11-17-hermes-session-retention.md).
+
 ## Japanese block addresses located by a hint — 14 November 2026
 
 Policy `provider-context-v15` locates a Japanese venue whose literal block
