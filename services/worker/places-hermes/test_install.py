@@ -52,5 +52,17 @@ class PlacesInstallTests(unittest.TestCase):
             self.assertFalse(state.exists())
 
 
+    def test_installs_root_owned_session_retention(self):
+        with tempfile.TemporaryDirectory() as parent:
+            script = Path(parent) / "lib" / "session_retention.py"
+            dropin = Path(parent) / "unit.d" / "30-session-retention.conf"
+            installer.install_session_retention(script, dropin, os.getuid(), os.getgid())
+            self.assertEqual(script.read_text(), (ROOT / "session_retention.py").read_text())
+            self.assertIn("ExecStartPre=-", dropin.read_text())
+            self.assertIn(str(installer.RETENTION_SCRIPT), dropin.read_text())
+            for path in (script, dropin):
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+
+
 if __name__ == "__main__":
     unittest.main()

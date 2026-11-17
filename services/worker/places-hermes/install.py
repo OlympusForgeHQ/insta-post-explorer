@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parent
 MARKER = "insta-post-explorer:places-hermes:v1\n"
 STATE = Path("/var/lib/insta-explorer-places")
 UNIT = Path("/etc/systemd/system/insta-explorer-places.service")
+RETENTION_SCRIPT = Path("/usr/local/lib/insta-explorer-places/session_retention.py")
+RETENTION_DROPIN = Path("/etc/systemd/system/insta-explorer-places.service.d/30-session-retention.conf")
 
 
 def refuse_symlink(path):
@@ -82,6 +84,15 @@ def install_profile(state, upstream_key, uid, gid):
     ), uid, gid)
 
 
+def install_session_retention(script=RETENTION_SCRIPT, dropin=RETENTION_DROPIN, uid=0, gid=0):
+    """Root-owned, read-only to the service: the gateway account cannot alter it."""
+    for path in (script, dropin):
+        refuse_symlink(path.parent)
+        path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    atomic_write(script, (ROOT / script.name).read_text(), uid, gid, mode=0o644)
+    atomic_write(dropin, (ROOT / dropin.name).read_text(), uid, gid, mode=0o644)
+
+
 def main():
     if os.geteuid() != 0:
         raise ValueError("ROOT_REQUIRED")
@@ -93,6 +104,7 @@ def main():
     upstream = read_env(Path("/home/argos/.hermes/.env")).get("OPENROUTER_API_KEY")
     install_profile(STATE, upstream, account.pw_uid, account.pw_gid)
     atomic_write(UNIT, unit, 0, 0, mode=0o644)
+    install_session_retention()
     print(json.dumps({"installed": True, "service": UNIT.name, "state": str(STATE)}))
 
 
