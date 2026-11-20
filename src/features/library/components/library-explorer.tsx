@@ -126,6 +126,7 @@ export function LibraryExplorer({
   const [selection, setSelection] = useState<{ scope: string; ids: string[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const postOpenerRef = useRef<HTMLElement | null>(null);
+  const discoveryTriggerRef = useRef<HTMLButtonElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const loadMoreController = useRef<AbortController | null>(null);
@@ -418,8 +419,10 @@ export function LibraryExplorer({
     setTagMode("and");
   }, []);
 
-  const discoverPost = useCallback(async () => {
+  const discoverPost = useCallback(async (theme?: string) => {
     if (isFiltering || discoveryController.current) return;
+    // The dialog returns focus to the menu's trigger, not to the closed item.
+    postOpenerRef.current = discoveryTriggerRef.current;
     const controller = new AbortController();
     discoveryController.current = controller;
     const startedAt = ++readClock.current;
@@ -429,7 +432,7 @@ export function LibraryExplorer({
       const params = librarySearchParams({
         query: debouncedQuery,
         selectedTags,
-        selectedTheme,
+        selectedTheme: theme ?? selectedTheme,
         selectedContentType,
         selectedAuthor,
         selectedYear,
@@ -441,7 +444,11 @@ export function LibraryExplorer({
       if (!response.ok) throw new Error("DISCOVERY_FAILED");
       const payload = (await response.json()) as { item: LibraryPost | null };
       const item = payload.item ? applyFavoriteOverrides([payload.item], startedAt)[0] : null;
-      if (controller.signal.aborted || !item) return;
+      if (controller.signal.aborted) return;
+      if (!item) {
+        setRequestError(theme ? `Aucune publication « ${themeLabel(theme)} » avec les filtres actifs.` : "Aucune publication avec les filtres actifs.");
+        return;
+      }
       setPosts((current) => current.some((post) => post.id === item.id) ? current : [...current, item]);
       setSelectedPostId(item.id);
     } catch {
@@ -491,14 +498,33 @@ export function LibraryExplorer({
           <Link className="header-tab places-tab" href="/places" aria-label="Places">
             <MapPin aria-hidden="true" className="size-4" /> <span>Places</span>
           </Link>
-          <button
-            className="header-tab desktop-only"
-            type="button"
-            disabled={discovering || totalFiltered === 0}
-            onClick={event => { postOpenerRef.current = event.currentTarget; void discoverPost(); }}
-          >
-            <Sparkles aria-hidden="true" className="size-4" /> {discovering ? "Recherche…" : "Découverte"}
-          </button>
+          {/* Choose one of the main themes first; other active filters still apply. */}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                className="header-tab desktop-only"
+                type="button"
+                disabled={discovering}
+                ref={discoveryTriggerRef}
+              >
+                <Sparkles aria-hidden="true" className="size-4" /> {discovering ? "Recherche…" : "Découverte"}
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="menu-content manage-menu" align="end" sideOffset={8}>
+                <DropdownMenu.Label className="menu-label">Une publication au hasard parmi</DropdownMenu.Label>
+                {mainThemes.map((theme) => (
+                  <DropdownMenu.Item key={theme} asChild>
+                    <button className="menu-item" type="button" onClick={() => void discoverPost(theme)}>{themeLabel(theme)}</button>
+                  </DropdownMenu.Item>
+                ))}
+                {mainThemes.length ? <DropdownMenu.Separator className="menu-separator" /> : null}
+                <DropdownMenu.Item asChild>
+                  <button className="menu-item" type="button" disabled={totalFiltered === 0} onClick={() => void discoverPost()}>Toute la sélection</button>
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
           {isAdmin ? (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
