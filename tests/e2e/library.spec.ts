@@ -32,6 +32,17 @@ test.describe("bibliotheque Mosaïque", () => {
     await page.getByRole("button", { name: "Sucré", exact: true }).click();
     const requestPromise = page.waitForRequest((request) => request.url().includes("/api/posts?") && request.url().includes("random=1"));
     await discovery.click();
+    await page.getByRole("menuitem", { name: "Toute la sélection" }).click();
+    const request = await requestPromise;
+    expect(new URL(request.url()).searchParams.get("theme")).toBe("Sucré");
+  });
+
+  test("choisit un thème principal avant la découverte", async ({ page }) => {
+    const discovery = page.getByRole("button", { name: "Découverte", exact: true });
+    test.skip(!(await discovery.isVisible()), "La découverte n'est exposée que sur desktop");
+    const requestPromise = page.waitForRequest((request) => request.url().includes("/api/posts?") && request.url().includes("random=1"));
+    await discovery.click();
+    await page.getByRole("menuitem", { name: "Sucré", exact: true }).click();
     const request = await requestPromise;
     expect(new URL(request.url()).searchParams.get("theme")).toBe("Sucré");
   });
