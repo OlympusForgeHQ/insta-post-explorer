@@ -45,6 +45,7 @@ test('Discovery and post navigation restore the opener without scrolling the lib
   await page.route('**/api/posts/desktop-discovery', route => route.fulfill({json: discovered}));
   const discovery = page.getByRole('button', {name: 'Découverte', exact: true});
   await discovery.click();
+  await page.getByRole('menuitem', {name: 'Toute la sélection'}).click();
   const dialog = page.locator('.detail-dialog');
   await expect(dialog).toBeVisible();
   await expect.soft.poll(() => dialog.evaluate(node => {

@@ -34,6 +34,12 @@ function explorer(
   />;
 }
 
+// Discovery is a menu: open it from the keyboard (Radix ignores synthetic clicks), then pick.
+async function discover(choice: string) {
+  fireEvent.keyDown(screen.getByRole("button", { name: "Découverte" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: choice }));
+}
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [] })));
@@ -123,9 +129,8 @@ describe("LibraryExplorer server search results", () => {
     render(explorer([post("alpha")], { ...initialState, query: "alpha" }, {
       nextCursor: "alpha-next", totalFiltered: 3,
     }));
-    fireEvent.click(screen.getByRole("button", {
-      name: requestType === "pagination" ? "Charger la suite (1 sur 3)" : "Découverte",
-    }));
+    if (requestType === "pagination") fireEvent.click(screen.getByRole("button", { name: "Charger la suite (1 sur 3)" }));
+    else await discover("Toute la sélection");
     expect(screen.getByRole("button", {
       name: requestType === "pagination" ? "Chargement…" : "Recherche…",
     })).toBeDisabled();
@@ -222,7 +227,8 @@ describe("LibraryExplorer shared favorites", () => {
     render(explorer([post("removed", { collections: ["favoris"] }), post("kept", { collections: ["favoris"] })], {
       ...initialState, collection: "favoris", query: "restaurant", sort: "relevance",
     }, { nextCursor: "offset-30", totalFiltered: 3 }));
-    fireEvent.click(screen.getByRole("button", { name: requestType === "pagination" ? "Charger la suite (2 sur 3)" : "Découverte" }));
+    if (requestType === "pagination") fireEvent.click(screen.getByRole("button", { name: "Charger la suite (2 sur 3)" }));
+    else await discover("Toute la sélection");
     fireEvent.click(screen.getAllByRole("button", { name: "Retirer des favoris" })[0]);
     await waitFor(() => expect(screen.getByRole("button", { name: "Charger la suite (1 sur 2)" })).toBeVisible());
     expect(freshQueries).toHaveLength(1);
@@ -311,5 +317,35 @@ describe("LibraryExplorer favorite read races", () => {
     expect(screen.getByRole("heading", { name: "Aucun souvenir ne correspond" })).toBeVisible();
     expect(screen.queryByText("La bibliothèque ne contient pas encore de publication.")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /Rechercher dans la bibliothèque/ })).toHaveAttribute("placeholder", "Rechercher parmi 20 souvenirs");
+  });
+});
+
+describe("LibraryExplorer discovery by main theme", () => {
+  it("offers the main theme filters and draws within the chosen one, keeping other filters", async () => {
+    const requests: URLSearchParams[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const params = new URL(url, window.location.origin).searchParams;
+      if (params.get("random") === "1") { requests.push(params); return Response.json({ item: post("tiramisu") }); }
+      return Response.json({ items: [], nextCursor: null, totalFiltered: 0, totalLibrary: 20 });
+    }));
+    render(<LibraryExplorer posts={[post("alpha")]} initialNextCursor={null} initialTotalFiltered={1} initialTotalLibrary={20}
+      initialState={{ ...initialState, theme: "Voyages", contentType: "reel" }} initialMainThemes={["Salé", "Sucré", "Voyages"]}
+      initialTagFacets={[]} initialCollections={[]} initialYears={[]} isAdmin={false} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Découverte" }), { key: "Enter" });
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map(item => item.textContent)).toEqual(["Salé", "Sucré", "Voyages", "Toute la sélection"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sucré" }));
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0].get("theme")).toBe("Sucré");
+    expect(requests[0].get("type")).toBe("reel");
+  });
+
+  it("says when the chosen theme has no post under the active filters", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new URL(url, window.location.origin).searchParams.get("random") === "1"
+      ? Response.json({ item: null }) : Response.json({ items: [], nextCursor: null, totalFiltered: 0, totalLibrary: 20 })));
+    render(<LibraryExplorer posts={[post("alpha")]} initialNextCursor={null} initialTotalFiltered={1} initialTotalLibrary={20}
+      initialState={initialState} initialMainThemes={["Sucré"]} initialTagFacets={[]} initialCollections={[]} initialYears={[]} isAdmin={false} />);
+    await discover("Sucré");
+    expect(await screen.findByText("Aucune publication « Sucré » avec les filtres actifs.")).toBeVisible();
   });
 });
