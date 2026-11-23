@@ -378,6 +378,10 @@ export function entityNamesAgree(left: string, right: string): boolean {
   const a = normalizedEntityName(left), b = normalizedEntityName(right);
   if (!a || !b) return false;
   if (a === b) return true;
+  // A hyphen may also stand for a space: "Europa Park" is the provider's
+  // "Europa-Park". Every other character and word must still be identical.
+  const spaced = (value: string) => foldForSearch(value).replace(/[’‘`']/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  if (spaced(left) === spaced(right)) return true;
   // Compact account spellings must preserve the entire name, not a fuzzy prefix.
   if(!/\s/u.test(left)&&a.replace(/ /g,'').length>=8&&a.replace(/ /g,'')===b.replace(/ /g,''))return true;
   const descriptors:Record<string,string>={restaurant:'restaurant',pizzeria:'restaurant',gallery:'gallery',galerie:'gallery',hotel:'hotel',plage:'beach',

@@ -220,7 +220,7 @@ describe('source-grounded approximate venue areas',()=>{
   expect(plan.candidate).toEqual(candidate);expect(plan.best?.resolved).toEqual(building);
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Example Bakery',missingDetails:expect.arrayContaining(['unit'])},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v15'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_building','provider-context-v16'])});
  });
  it('uses a bounded source city after precise retrieval, without substituting another named occupant',async()=>{
   const events:string[]=[];const resolve=async()=>{events.push('precise');return [{...building,providerName:'Other Tenant',providerResultType:'amenity'}];};
@@ -542,7 +542,7 @@ describe('venues hosted inside a named site',()=>{
   const [plan]=await planAll([attraction],'Voyages',resolver);
   expect(resolver.resolveHostVenue).toHaveBeenCalledWith(expect.objectContaining({host:'Example Park'}));
   expect(plan.best?.scored).toMatchObject({precision:'APPROXIMATE',contextualArea:{level:'venue',sourceName:'Example Ride',missingDetails:['venue_identity','position_in_host']},
-   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_venue','provider-context-v15'])});
+   reasons:expect.arrayContaining(['contextual_venue_area','contextual_area_venue','provider-context-v16'])});
   expect(plan.best?.scored.approximationRadiusMeters).toBeGreaterThanOrEqual(100);
   expect(plan.best?.resolved).toEqual(provider);expect(plan.candidate).toEqual(original);expect(attraction).toEqual(original);
  });
@@ -670,7 +670,7 @@ describe('Japanese block address located by a retrieval hint',()=>{
   expect(result.candidate).toEqual(candidate);expect(result.best?.resolved).toEqual(building);
   expect(result.best?.scored).toMatchObject({precision:'APPROXIMATE',approximationRadiusMeters:100,
    contextualArea:{level:'building',sourceName:'Shinjuku Tei',missingDetails:['venue_identity']},
-   reasons:expect.arrayContaining(['contextual_area_building','hint_located_building','provider-context-v15'])});
+   reasons:expect.arrayContaining(['contextual_area_building','hint_located_building','provider-context-v16'])});
  });
  it('reads a block without chōme, a seven-digit provider postcode and a floor',async()=>{
   const stall:PlaceCandidate={...candidate,name:'Halal Wagyu Stall',address:'北田ビル 2F, 29-3 Udagawacho, Shibuya, Tokyo 150-0042, Japan',region:'Shibuya',

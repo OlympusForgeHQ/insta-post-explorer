@@ -54,6 +54,9 @@ describe("scoreResolvedCandidate", () => {
     ['Restaurant Example Art','Example Art Gallery',false],
     ['Example 1982','Example',false],
     ['Pizzeria 321 Forni','123 Forni',false],
+    ['Europa Park','Europa-Park',true],
+    ['Europa Park','Europa-Park-Straße',false],
+    ['Europa','Europa-Park',false],
   ])('compares only compatible generic descriptors: %s / %s', (left,right,accepted)=>{
     expect(entityNamesAgree(left,right)).toBe(accepted);
     expect(entityNamesAgree(right,left)).toBe(accepted);

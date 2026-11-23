@@ -1,5 +1,11 @@
 # Operational Handoff
 
+## Hyphenated provider names — 23 November 2026
+
+Policy `provider-context-v16` lets a hyphen in a provider name match a space in
+the source (`Europa-Park` / `Europa Park`); every word must still be identical.
+Web/API only. See [diagnosis and verification](changes/2026-11-23-places-hyphenated-names.md).
+
 ## Hermes session retention — 17 November 2026
 
 The Places Hermes gateway crash-looped from 14 to 17 November: its startup
